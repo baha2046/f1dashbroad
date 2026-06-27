@@ -65,6 +65,7 @@ const DOM = {
     yearSelector: document.getElementById('yearSelector'),
     sessionSearch: document.getElementById('sessionSearch'),
     typeFilters: document.getElementById('typeFilters'),
+    showCancelled: document.getElementById('showCancelled'),
     sessionsList: document.getElementById('sessionsList'),
     emptyState: document.getElementById('emptyState'),
     dashboardContent: document.getElementById('dashboardContent'),
@@ -141,6 +142,13 @@ function setupEventListeners() {
         filterAndRenderSessions();
     });
 
+    // Include Cancelled checkbox
+    if (DOM.showCancelled) {
+        DOM.showCancelled.addEventListener('change', () => {
+            filterAndRenderSessions();
+        });
+    }
+
     // Driver Search Input
     DOM.driverSearch.addEventListener('input', () => {
         renderDriversGrid();
@@ -200,8 +208,14 @@ async function loadSessions(year) {
 function filterAndRenderSessions() {
     const searchQuery = DOM.sessionSearch.value.toLowerCase().trim();
     const typeFilter = document.querySelector('.filter-pill.active').dataset.type;
+    const showCancelled = DOM.showCancelled ? DOM.showCancelled.checked : false;
 
     state.filteredSessions = state.sessions.filter(session => {
+        // If session is cancelled and showCancelled toggle is OFF, hide it
+        if (session.is_cancelled && !showCancelled) {
+            return false;
+        }
+
         const matchesSearch = 
             (session.session_name || '').toLowerCase().includes(searchQuery) ||
             (session.location || '').toLowerCase().includes(searchQuery) ||
@@ -215,6 +229,12 @@ function filterAndRenderSessions() {
 
         return matchesSearch && matchesType;
     });
+
+    // If currently selected session is filtered out, clear selection and hide dashboard
+    if (state.selectedSession && !state.filteredSessions.some(s => s.session_key === state.selectedSession.session_key)) {
+        hideDashboard();
+        state.selectedSession = null;
+    }
 
     renderSessionsList();
 }
@@ -233,10 +253,16 @@ function renderSessionsList() {
     DOM.sessionsList.innerHTML = '';
     state.filteredSessions.forEach(session => {
         const card = document.createElement('div');
-        card.className = `session-card ${state.selectedSession && state.selectedSession.session_key === session.session_key ? 'active' : ''}`;
+        const isCancelled = session.is_cancelled === true;
+        card.className = `session-card ${isCancelled ? 'cancelled' : ''} ${state.selectedSession && state.selectedSession.session_key === session.session_key ? 'active' : ''}`;
         
         let badgeClass = 'badge-practice';
-        if (session.session_name.includes('Race') || session.session_name.includes('Sprint')) {
+        let badgeText = session.session_name;
+        
+        if (isCancelled) {
+            badgeClass = 'badge-cancelled';
+            badgeText = 'Cancelled';
+        } else if (session.session_name.includes('Race') || session.session_name.includes('Sprint')) {
             badgeClass = 'badge-race';
         } else if (session.session_name.includes('Quali')) {
             badgeClass = 'badge-quali';
@@ -247,16 +273,23 @@ function renderSessionsList() {
             month: 'short',
             day: 'numeric'
         });
+        const grandPrixName = `${session.circuit_short_name} GP`;
+        const placeName = [session.location, session.country_name].filter(Boolean).join(', ');
 
         card.innerHTML = `
-            <div class="card-top">
-                <span class="session-type-badge ${badgeClass}">${session.session_name}</span>
-                <span class="session-date">${sessionDate}</span>
+            <div class="session-flag-tile" aria-hidden="true">
+                <span class="loc-flag" style="${isCancelled ? 'filter: grayscale(1) opacity(0.6);' : ''}">${flagEmoji}</span>
             </div>
-            <div class="session-gp">${session.circuit_short_name} GP</div>
-            <div class="session-loc">
-                <span class="loc-flag">${flagEmoji}</span>
-                <span>${session.location}, ${session.country_name}</span>
+            <div class="session-card-main">
+                <div class="card-top">
+                    <span class="session-type-badge ${badgeClass}">${badgeText}</span>
+                    <span class="session-date">${sessionDate}</span>
+                </div>
+                <div class="session-gp">${grandPrixName}</div>
+                <div class="session-loc">
+                    <span class="material-icons-round loc-pin" aria-hidden="true">place</span>
+                    <span>${placeName}</span>
+                </div>
             </div>
         `;
 
@@ -278,6 +311,12 @@ async function selectSession(session) {
     state.stints = [];
     state.laps = {};
     state.selectedDriverStats = null;
+    
+    // If the session was cancelled, show the custom cancelled view and stop
+    if (session.is_cancelled === true) {
+        showCancelledSessionState(session);
+        return;
+    }
     
     // UI Loading state
     showDashboardLoading();
@@ -313,6 +352,24 @@ async function selectSession(session) {
         alert('Error loading session details.');
         hideDashboard();
     }
+}
+
+// Show detail view for a cancelled session
+function showCancelledSessionState(session) {
+    DOM.emptyState.style.display = 'flex';
+    DOM.emptyState.innerHTML = `
+        <span class="material-icons-round empty-icon" style="color: var(--accent-red); opacity: 0.85; text-shadow: 0 0 15px rgba(255, 24, 1, 0.4);">cancel</span>
+        <h2 style="color: var(--text-primary); margin-top: 16px;">${session.circuit_short_name} Grand Prix Cancelled</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 24px; max-width: 440px; line-height: 1.6;">
+            The <strong>${session.session_name}</strong> session for the ${session.year} ${session.location} Grand Prix was officially cancelled. 
+            No driver telemetry, tire stint details, or weather metrics were recorded for this event.
+        </p>
+        <div style="background: rgba(255, 24, 1, 0.05); border: 1px solid rgba(255, 24, 1, 0.15); padding: 12px 24px; border-radius: 12px; color: var(--text-secondary); font-size: 13px; max-width: 400px; text-align: center; display: flex; align-items: center; gap: 8px;">
+            <span class="material-icons-round" style="font-size: 18px; color: var(--accent-red);">info</span>
+            <span>Status: Officially Cancelled (is_cancelled: true)</span>
+        </div>
+    `;
+    DOM.dashboardContent.style.display = 'none';
 }
 
 // Fetch stunts for selected session

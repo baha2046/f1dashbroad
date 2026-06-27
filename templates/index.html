@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <!-- Stylesheet -->
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/styles.css?v={{ version }}">
 </head>
 <body>
     <div class="app-container">
@@ -51,6 +51,17 @@
                         <button class="filter-pill" data-type="Race">Race</button>
                         <button class="filter-pill" data-type="Qualifying">Quali</button>
                         <button class="filter-pill" data-type="Practice">Practice</button>
+                    </div>
+                </div>
+
+                <!-- Include Cancelled Toggle -->
+                <div class="control-group">
+                    <div class="toggle-group">
+                        <label class="switch-label" for="showCancelled">Include Cancelled</label>
+                        <label class="switch">
+                            <input type="checkbox" id="showCancelled" aria-label="Include Cancelled Sessions">
+                            <span class="slider"></span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -226,6 +237,6 @@
     </div>
 
     <!-- Script -->
-    <script src="/static/js/dashboard.js?i=1"></script>
+    <script src="/static/js/dashboard.js??v={{ version }}"></script>
 </body>
 </html>

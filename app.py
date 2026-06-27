@@ -2,6 +2,8 @@ import os
 import json
 import httpx
 from datetime import datetime, timezone
+
+from httpx import __version__
 from quart import Quart, render_template, jsonify, request
 
 app = Quart(__name__)
@@ -95,7 +97,7 @@ async def get_cached_api(url: str, cache_name: str, session_key=None, year=2026)
 
 @app.route("/")
 async def index():
-    return await render_template("index.html")
+    return await render_template("index.html", version=datetime.timestamp(datetime.now()))
 
 @app.route("/api/sessions")
 async def api_sessions():

@@ -236,26 +236,145 @@ body {
     border-color: rgba(255, 255, 255, 0.3);
 }
 
+/* Toggle Switch Control */
+.toggle-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0;
+    margin-top: 4px;
+}
+
+.switch-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    transition: var(--transition-fast);
+}
+
+.toggle-group:hover .switch-label {
+    color: var(--text-secondary);
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 38px;
+    height: 20px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-control);
+    border: 1px solid var(--border-color);
+    transition: var(--transition-fast);
+    border-radius: 20px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 3px;
+    bottom: 3px;
+    background-color: var(--text-secondary);
+    transition: var(--transition-fast);
+    border-radius: 50%;
+}
+
+.switch input:checked + .slider {
+    background-color: var(--accent-red);
+    border-color: rgba(255, 24, 1, 0.4);
+    box-shadow: 0 0 10px rgba(255, 24, 1, 0.25);
+}
+
+.switch input:checked + .slider:before {
+    transform: translateX(18px);
+    background-color: #fff;
+}
+
+/* Cancelled Sessions Styling */
+.session-card.cancelled {
+    opacity: 0.55;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.005)),
+        rgba(255, 255, 255, 0.005);
+    border-color: rgba(255, 255, 255, 0.04);
+}
+
+.session-card.cancelled:hover {
+    opacity: 0.8;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+        rgba(255, 255, 255, 0.015);
+    border-color: var(--border-color-hover);
+}
+
+.session-card.cancelled.active {
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
+        rgba(255, 255, 255, 0.02);
+    border-color: var(--text-secondary);
+    box-shadow:
+        0 14px 28px rgba(0, 0, 0, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.session-card.cancelled.active::before {
+    background: var(--text-secondary);
+    box-shadow: none;
+}
+
+.badge-cancelled {
+    background: rgba(255, 24, 1, 0.12);
+    color: var(--accent-red);
+    border: 1px solid rgba(255, 24, 1, 0.25);
+}
+
 /* Sessions List Container */
 .sessions-container {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 24px;
+    padding: 16px 24px 24px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
 }
 
 /* Session Cards */
 .session-card {
-    background: rgba(255, 255, 255, 0.02);
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    min-height: 96px;
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+        rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border-color);
     border-radius: 12px;
-    padding: 16px;
+    padding: 14px 14px 14px 18px;
     cursor: pointer;
     transition: var(--transition-normal);
     position: relative;
     overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .session-card::before {
@@ -263,41 +382,89 @@ body {
     position: absolute;
     top: 0;
     left: 0;
-    width: 3px;
+    width: 4px;
     height: 100%;
     background: transparent;
     transition: var(--transition-fast);
 }
 
+.session-card::after {
+    content: '';
+    position: absolute;
+    right: -48px;
+    bottom: -62px;
+    width: 128px;
+    height: 128px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 62%);
+    opacity: 0;
+    transition: var(--transition-normal);
+    pointer-events: none;
+}
+
 .session-card:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.03)),
+        rgba(255, 255, 255, 0.035);
     border-color: var(--border-color-hover);
     transform: translateY(-2px);
 }
 
+.session-card:hover::after {
+    opacity: 1;
+}
+
 .session-card.active {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
+    background:
+        linear-gradient(135deg, rgba(255, 24, 1, 0.12), rgba(255, 255, 255, 0.045)),
+        rgba(255, 255, 255, 0.055);
+    border-color: rgba(255, 24, 1, 0.34);
+    box-shadow:
+        0 14px 28px rgba(0, 0, 0, 0.24),
+        0 0 24px rgba(255, 24, 1, 0.11),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .session-card.active::before {
     background: var(--accent-red);
+    box-shadow: 0 0 16px var(--accent-red-glow);
+}
+
+.session-flag-tile {
+    width: 46px;
+    height: 54px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+.session-card-main {
+    min-width: 0;
 }
 
 .card-top {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    gap: 8px;
+    margin-bottom: 9px;
 }
 
 .session-type-badge {
     font-size: 10px;
     font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 3px 8px;
+    letter-spacing: 0.4px;
+    padding: 4px 8px;
     border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 168px;
 }
 
 .badge-race { background: rgba(225, 6, 0, 0.15); color: #ff3c30; border: 1px solid rgba(225, 6, 0, 0.3); }
@@ -305,27 +472,51 @@ body {
 .badge-practice { background: rgba(0, 161, 232, 0.15); color: #4dc3ff; border: 1px solid rgba(0, 161, 232, 0.3); }
 
 .session-date {
+    flex: 0 0 auto;
     font-size: 11px;
+    font-weight: 700;
     color: var(--text-muted);
+    text-transform: uppercase;
 }
 
 .session-gp {
-    font-size: 15px;
-    font-weight: 700;
+    font-size: 16px;
+    font-weight: 800;
     color: var(--text-primary);
-    margin-bottom: 4px;
+    line-height: 1.15;
+    margin-bottom: 7px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .session-loc {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     font-size: 12px;
+    font-weight: 600;
     color: var(--text-secondary);
+    line-height: 1.25;
+    min-width: 0;
+}
+
+.session-loc span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .loc-flag {
-    font-size: 14px;
+    font-size: 26px;
+    line-height: 1;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.28));
+}
+
+.loc-pin {
+    flex: 0 0 auto;
+    font-size: 15px;
+    color: var(--text-muted);
 }
 
 /* Loading/Error states */
