@@ -147,6 +147,9 @@
                     <button class="tab-btn" id="tab-laps" data-tab="laps-view">
                         <span class="material-icons-round">timer</span> Laps & Stints
                     </button>
+                    <button class="tab-btn" id="tab-circuit" data-tab="circuit-view">
+                        <span class="material-icons-round">map</span> Circuit Details
+                    </button>
                 </nav>
 
                 <!-- Drivers View -->
@@ -227,6 +230,64 @@
                                         </table>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+ 
+                <!-- Circuit Details View -->
+                <section class="tab-view" id="circuit-view" aria-label="Circuit details data">
+                    <div class="circuit-layout">
+                        <!-- Left Panel: Circuit stats card -->
+                        <div class="circuit-info-card glass">
+                            <div class="circuit-card-header">
+                                <span class="material-icons-round circuit-info-icon">info</span>
+                                <h3>Circuit Information</h3>
+                            </div>
+                            <div class="circuit-details-grid">
+                                <div class="detail-tile">
+                                    <span class="detail-label">Official Event Name</span>
+                                    <span class="detail-value" id="circuitOfficialName">--</span>
+                                </div>
+                                <div class="detail-tile">
+                                    <span class="detail-label">Circuit Short Name</span>
+                                    <span class="detail-value" id="circuitShortName">--</span>
+                                </div>
+                                <div class="detail-tile">
+                                    <span class="detail-label">Location / City</span>
+                                    <span class="detail-value" id="circuitLocation">--</span>
+                                </div>
+                                <div class="detail-tile">
+                                    <span class="detail-label">Country</span>
+                                    <span class="detail-value" id="circuitCountry">--</span>
+                                </div>
+                                <div class="detail-tile">
+                                    <span class="detail-label">Track Type</span>
+                                    <span class="detail-value" id="circuitType">--</span>
+                                </div>
+                                <div class="detail-tile">
+                                    <span class="detail-label">Local Timezone Offset</span>
+                                    <span class="detail-value" id="circuitGmtOffset">--</span>
+                                </div>
+                                <div class="detail-tile">
+                                    <span class="detail-label">Event Start Date</span>
+                                    <span class="detail-value" id="circuitStartDate">--</span>
+                                </div>
+                                <div class="detail-tile">
+                                    <span class="detail-label">Event End Date</span>
+                                    <span class="detail-value" id="circuitEndDate">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Circuit visualization -->
+                        <div class="circuit-map-card glass">
+                            <div class="circuit-card-header">
+                                <span class="material-icons-round circuit-map-icon">map</span>
+                                <h3>Track Layout</h3>
+                            </div>
+                            <div class="circuit-map-content" id="circuitMapContent">
+                                <!-- Dynamically rendered SVG track map or F1 fallback image -->
                             </div>
                         </div>
                     </div>

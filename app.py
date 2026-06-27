@@ -95,9 +95,72 @@ async def get_cached_api(url: str, cache_name: str, session_key=None, year=2026)
                 pass
         return []
 
+async def get_cached_circuit_info(url: str, cache_name: str):
+    cache_path = os.path.join(CACHE_DIR, cache_name)
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+            
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            response = await client.get(url, headers=headers, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            return data
+    except Exception as e:
+        print(f"Error fetching circuit info from {url}: {e}")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return None
+
+@app.route("/api/meetings")
+async def api_meetings():
+    meeting_key = request.args.get("meeting_key")
+    if not meeting_key:
+        return jsonify({"error": "meeting_key is required"}), 400
+    
+    url = f"https://api.openf1.org/v1/meetings?meeting_key={meeting_key}"
+    cache_name = f"meetings_{meeting_key}.json"
+    
+    meeting_data = await get_cached_api(url, cache_name)
+    
+    if not meeting_data:
+        return jsonify({"error": "Meeting not found"}), 404
+        
+    if isinstance(meeting_data, list) and len(meeting_data) > 0:
+        meeting = meeting_data[0]
+    elif isinstance(meeting_data, dict):
+        meeting = meeting_data
+    else:
+        return jsonify({"error": "Meeting not found"}), 404
+        
+    circuit_info = None
+    circuit_info_url = meeting.get("circuit_info_url")
+    if circuit_info_url:
+        circuit_key = meeting.get("circuit_key")
+        year = meeting.get("year", 2026)
+        circuit_cache_name = f"circuit_info_{circuit_key}_{year}.json"
+        circuit_info = await get_cached_circuit_info(circuit_info_url, circuit_cache_name)
+        
+    return jsonify({
+        "meeting": meeting,
+        "circuit_info": circuit_info
+    })
+
 @app.route("/")
 async def index():
     return await render_template("index.html", version=datetime.timestamp(datetime.now()))
+
 
 @app.route("/api/sessions")
 async def api_sessions():

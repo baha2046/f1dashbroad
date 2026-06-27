@@ -9,6 +9,7 @@ const state = {
     stints: [],
     laps: {}, // map of driverNumber -> laps array
     selectedDriverStats: null,
+    currentMeeting: null,
     currentTab: 'drivers-view'
 };
 
@@ -100,6 +101,17 @@ const DOM = {
     statsTotalLaps: document.getElementById('statsTotalLaps'),
     stintsTimeline: document.getElementById('stintsTimeline'),
     lapsTableBody: document.getElementById('lapsTableBody'),
+    
+    // Circuit Details elements
+    circuitOfficialName: document.getElementById('circuitOfficialName'),
+    circuitShortName: document.getElementById('circuitShortName'),
+    circuitLocation: document.getElementById('circuitLocation'),
+    circuitCountry: document.getElementById('circuitCountry'),
+    circuitType: document.getElementById('circuitType'),
+    circuitGmtOffset: document.getElementById('circuitGmtOffset'),
+    circuitStartDate: document.getElementById('circuitStartDate'),
+    circuitEndDate: document.getElementById('circuitEndDate'),
+    circuitMapContent: document.getElementById('circuitMapContent'),
     
     // Tabs
     tabButtons: document.querySelectorAll('.tab-btn'),
@@ -380,6 +392,7 @@ async function selectSession(session) {
     state.stints = [];
     state.laps = {};
     state.selectedDriverStats = null;
+    state.currentMeeting = null;
     
     // If the session was cancelled, show the custom cancelled view and stop
     if (session.is_cancelled === true) {
@@ -391,10 +404,11 @@ async function selectSession(session) {
     showDashboardLoading();
 
     try {
-        // Fetch drivers list and weather concurrently
-        const [driversRes, weatherRes] = await Promise.all([
+        // Fetch drivers list, weather, and meeting concurrently
+        const [driversRes, weatherRes, meetingRes] = await Promise.all([
             fetch(`/api/drivers?session_key=${session.session_key}`),
-            fetch(`/api/weather?session_key=${session.session_key}`)
+            fetch(`/api/weather?session_key=${session.session_key}`),
+            fetch(`/api/meetings?meeting_key=${session.meeting_key}`)
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -405,6 +419,10 @@ async function selectSession(session) {
             state.weather = await weatherRes.json();
         }
 
+        if (meetingRes.ok) {
+            state.currentMeeting = await meetingRes.json();
+        }
+
         // Fetch stints asynchronously
         fetchStints(session.session_key);
 
@@ -412,6 +430,7 @@ async function selectSession(session) {
         renderWeather();
         renderDriversGrid();
         renderLapsDriverSidebar();
+        renderCircuitTab();
         
         // Hide empty state and show dashboard content
         DOM.emptyState.style.display = 'none';
@@ -422,6 +441,7 @@ async function selectSession(session) {
         hideDashboard();
     }
 }
+
 
 // Show detail view for a cancelled session
 function showCancelledSessionState(session) {
@@ -546,6 +566,156 @@ function renderWeather() {
         DOM.weatherRainfall.style.display = 'none';
     }
 }
+
+// Render Circuit Tab Details
+function renderCircuitTab() {
+    if (!state.currentMeeting || !state.currentMeeting.meeting) {
+        // Clear elements
+        DOM.circuitOfficialName.textContent = '--';
+        DOM.circuitShortName.textContent = '--';
+        DOM.circuitLocation.textContent = '--';
+        DOM.circuitCountry.textContent = '--';
+        DOM.circuitType.textContent = '--';
+        DOM.circuitGmtOffset.textContent = '--';
+        DOM.circuitStartDate.textContent = '--';
+        DOM.circuitEndDate.textContent = '--';
+        showNoTrackMapState();
+        return;
+    }
+
+    const m = state.currentMeeting.meeting;
+    const info = state.currentMeeting.circuit_info;
+
+    // Render metadata
+    DOM.circuitOfficialName.textContent = m.meeting_official_name || m.meeting_name || '--';
+    DOM.circuitShortName.textContent = m.circuit_short_name || '--';
+    DOM.circuitLocation.textContent = m.location || '--';
+    DOM.circuitCountry.textContent = m.country_name || '--';
+    DOM.circuitType.textContent = m.circuit_type || 'Permanent';
+    DOM.circuitGmtOffset.textContent = m.gmt_offset ? `GMT ${m.gmt_offset}` : '--';
+    
+    DOM.circuitStartDate.textContent = m.date_start ? new Date(m.date_start).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    }) : '--';
+
+    DOM.circuitEndDate.textContent = m.date_end ? new Date(m.date_end).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    }) : '--';
+
+    // Render track map
+    if (info && Array.isArray(info.x) && info.x.length > 0) {
+        const xCoords = info.x;
+        const yCoords = info.y;
+        const corners = info.corners || [];
+        const rotation = 0 //info.rotation || 0;
+
+        const xMin = Math.min(...xCoords);
+        const xMax = Math.max(...xCoords);
+        const yMin = Math.min(...yCoords);
+        const yMax = Math.max(...yCoords);
+
+        const width = xMax - xMin;
+        const height = yMax - yMin;
+
+        // Establish viewBox size
+        const viewBoxSize = 1000;
+        const padding = 100; // Margin around the track trace
+        const drawSize = viewBoxSize - 2 * padding;
+
+        // Calculate scaling factor to preserve aspect ratio
+        const scale = Math.min(drawSize / width, drawSize / height);
+
+        // Recenter offsets
+        const offsetX = padding + (drawSize - width * scale) / 2;
+        const offsetY = padding + (drawSize - height * scale) / 2;
+
+        // Invert Y coordinate
+        function mapX(x) {
+            return (x - xMin) * scale + offsetX;
+        }
+        function mapY(y) {
+            return (yMax - y) * scale + offsetY;
+        }
+
+        // Generate track path string
+        let pathD = '';
+        for (let i = 0; i < xCoords.length; i++) {
+            const sx = mapX(xCoords[i]).toFixed(1);
+            const sy = mapY(yCoords[i]).toFixed(1);
+            if (i === 0) {
+                pathD += `M ${sx} ${sy}`;
+            } else {
+                pathD += ` L ${sx} ${sy}`;
+            }
+        }
+        pathD += ' Z'; // Close track path loop
+
+        const centerVal = viewBoxSize / 2;
+
+        // Build corner badges
+        let cornerHTML = '';
+        corners.forEach(c => {
+            if (c.trackPosition) {
+                const cx = mapX(c.trackPosition.x).toFixed(1);
+                const cy = mapY(c.trackPosition.y).toFixed(1);
+                cornerHTML += `
+                    <g class="corner-marker-group" data-corner="${c.number}">
+                        <circle cx="${cx}" cy="${cy}" r="24" class="corner-circle" />
+                        <text x="${cx}" y="${cy}" dy="6" class="corner-text">${c.number}</text>
+                    </g>
+                `;
+            }
+        });
+
+        // Render dynamic SVG layout
+        DOM.circuitMapContent.innerHTML = `
+            <svg viewBox="0 0 ${viewBoxSize} ${viewBoxSize}" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <filter id="track-glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="8" result="blur" />
+                        <feMerge>
+                            <feMergeNode in="blur" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                    </filter>
+                </defs>
+                <g transform="rotate(${rotation}, ${centerVal}, ${centerVal})">
+                    <path d="${pathD}" class="track-path" filter="url(#track-glow)" />
+                    ${cornerHTML}
+                </g>
+            </svg>
+        `;
+    } else if (m.circuit_image) {
+        // Fallback to official Formula 1 circuit graphic
+        DOM.circuitMapContent.innerHTML = `
+            <div class="fallback-track-img-wrapper">
+                <img src="${m.circuit_image}" class="fallback-track-img" alt="${m.circuit_short_name} track map" onerror="showNoTrackMapState()">
+                <span class="fallback-label">Official Formula 1 Circuit Graphic</span>
+            </div>
+        `;
+    } else {
+        showNoTrackMapState();
+    }
+}
+
+// Fallback state if no track map coordinates or images are found
+function showNoTrackMapState() {
+    DOM.circuitMapContent.innerHTML = `
+        <div class="loading-state" style="flex-direction:column;gap:12px;">
+            <span class="material-icons-round" style="font-size:48px;color:var(--text-muted)">map</span>
+            <p style="color:var(--text-muted);font-weight:500;">No track map layout available</p>
+        </div>
+    `;
+}
+
 
 // Render Grid of Drivers
 function renderDriversGrid() {
