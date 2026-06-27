@@ -109,7 +109,7 @@ const DOM = {
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-    loadSessions(state.selectedYear);
+    loadSessions(state.selectedYear, true);
 });
 
 // Event Listeners Registration
@@ -123,7 +123,7 @@ function setupEventListeners() {
         btn.classList.add('active');
         state.selectedYear = btn.dataset.year;
         
-        loadSessions(state.selectedYear);
+        loadSessions(state.selectedYear, true);
     });
 
     // Session Search Input
@@ -170,8 +170,34 @@ function setupEventListeners() {
     });
 }
 
+// Helper: Find the latest race event relative to current time
+function findLatestRaceEvent(sessions) {
+    const now = new Date();
+    // Filter to only 'Race' type sessions (session_name 'Race' or 'Sprint', or session_type 'Race')
+    const raceSessions = sessions.filter(s => 
+        s.session_name === 'Race' || s.session_type === 'Race'
+    );
+    
+    if (raceSessions.length === 0) return null;
+    
+    // Prefer non-cancelled races if available
+    const activeRaces = raceSessions.filter(s => !s.is_cancelled);
+    const targets = activeRaces.length > 0 ? activeRaces : raceSessions;
+    
+    // Find the last completed or ongoing race
+    const pastOrOngoing = targets.filter(s => new Date(s.date_start) <= now);
+    
+    if (pastOrOngoing.length > 0) {
+        // Return the one that started most recently
+        return pastOrOngoing[pastOrOngoing.length - 1];
+    } else {
+        // Return the first upcoming race
+        return targets[0];
+    }
+}
+
 // Fetch and load F1 sessions list for selected year
-async function loadSessions(year) {
+async function loadSessions(year, autoFocus = false) {
     DOM.sessionsList.innerHTML = `
         <div class="loading-state">
             <div class="spinner"></div>
@@ -191,7 +217,18 @@ async function loadSessions(year) {
         // Usually, order chronologically looks cleaner for F1 calendars
         state.sessions.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
         
+        if (autoFocus) {
+            const latestRace = findLatestRaceEvent(state.sessions);
+            if (latestRace) {
+                state.selectedSession = latestRace;
+            }
+        }
+        
         filterAndRenderSessions();
+        
+        if (autoFocus && state.selectedSession) {
+            selectSession(state.selectedSession);
+        }
     } catch (error) {
         console.error(error);
         DOM.sessionsList.innerHTML = `
@@ -268,6 +305,28 @@ function renderSessionsList() {
             badgeClass = 'badge-quali';
         }
 
+        // Determine status for badge
+        const now = new Date();
+        const startDate = new Date(session.date_start);
+        const endDate = new Date(session.date_end);
+
+        let statusText = '';
+        let statusClass = '';
+
+        if (isCancelled) {
+            statusText = 'Cancelled';
+            statusClass = 'status-cancelled';
+        } else if (now < startDate) {
+            statusText = 'Upcoming';
+            statusClass = 'status-upcoming';
+        } else if (now > endDate) {
+            statusText = 'Past';
+            statusClass = 'status-past';
+        } else {
+            statusText = 'Live';
+            statusClass = 'status-live';
+        }
+
         const flagEmoji = COUNTRY_FLAGS[session.country_code] || '🏁';
         const sessionDate = new Date(session.date_start).toLocaleDateString(undefined, {
             month: 'short',
@@ -283,7 +342,10 @@ function renderSessionsList() {
             <div class="session-card-main">
                 <div class="card-top">
                     <span class="session-type-badge ${badgeClass}">${badgeText}</span>
-                    <span class="session-date">${sessionDate}</span>
+                    <div class="card-top-right">
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                        <span class="session-date">${sessionDate}</span>
+                    </div>
                 </div>
                 <div class="session-gp">${grandPrixName}</div>
                 <div class="session-loc">
@@ -300,6 +362,13 @@ function renderSessionsList() {
         });
 
         DOM.sessionsList.appendChild(card);
+
+        // Scroll active card into view
+        if (state.selectedSession && state.selectedSession.session_key === session.session_key) {
+            setTimeout(() => {
+                card.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+            }, 50);
+        }
     });
 }
 
@@ -413,6 +482,34 @@ function renderSessionHeader() {
     DOM.headerLocation.textContent = s.location;
     DOM.headerGPName.textContent = `${s.circuit_short_name} Grand Prix`;
     DOM.headerSessionType.textContent = s.session_name;
+
+    // Render status badge in header
+    const headerStatusBadge = document.getElementById('headerStatusBadge');
+    if (headerStatusBadge) {
+        const now = new Date();
+        const startDate = new Date(s.date_start);
+        const endDate = new Date(s.date_end);
+        
+        let statusText = '';
+        let statusClass = '';
+        
+        if (s.is_cancelled) {
+            statusText = 'Cancelled';
+            statusClass = 'status-cancelled';
+        } else if (now < startDate) {
+            statusText = 'Upcoming';
+            statusClass = 'status-upcoming';
+        } else if (now > endDate) {
+            statusText = 'Past';
+            statusClass = 'status-past';
+        } else {
+            statusText = 'Live';
+            statusClass = 'status-live';
+        }
+        
+        headerStatusBadge.textContent = statusText;
+        headerStatusBadge.className = `status-badge ${statusClass}`;
+    }
 }
 
 // Render Weather Widget
