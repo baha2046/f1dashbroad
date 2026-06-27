@@ -1,0 +1,641 @@
+// F1 Dashboard Frontend Application State
+const state = {
+    selectedYear: '2026',
+    sessions: [],
+    filteredSessions: [],
+    selectedSession: null,
+    drivers: [],
+    weather: [],
+    stints: [],
+    laps: {}, // map of driverNumber -> laps array
+    selectedDriverStats: null,
+    currentTab: 'drivers-view'
+};
+
+// Mappers for country codes to emojis
+const COUNTRY_FLAGS = {
+    'AUS': '🇦🇺', 'AUT': '🇦🇹', 'AZE': '🇦🇿', 'BEL': '🇧🇪', 'BRA': '🇧🇷', 'BRN': '🇧🇭',
+    'CAN': '🇨🇦', 'CHN': '🇨🇳', 'ESP': '🇪🇸', 'GBR': '🇬🇧', 'HUN': '🇭🇺', 'ITA': '🇮🇹',
+    'JPN': '🇯🇵', 'MEX': '🇲🇽', 'MON': '🇲🇨', 'NED': '🇳🇱', 'QAT': '🇶🇦', 'SAU': '🇸🇦',
+    'SGP': '🇸🇬', 'USA': '🇺🇸', 'UAE': '🇦🇪', 'MCO': '🇲🇨', 'SMR': '🇸🇲'
+};
+
+// Fallback matching for team colors if not provided by API
+const TEAM_COLORS = {
+    'red bull': '3671C6', 'red bull racing': '3671C6',
+    'ferrari': 'F82D1E',
+    'mercedes': '27F4D2',
+    'mclaren': 'FF8000',
+    'aston martin': '229971',
+    'alpine': '0093CC',
+    'williams': '64C4FF',
+    'haas': 'B6BABD', 'haas f1 team': 'B6BABD',
+    'racing bulls': '6692FF', 'rb': '6692FF',
+    'audi': 'F50537', 'kick sauber': '52E252', 'sauber': '52E252',
+    'cadillac': '909090'
+};
+
+// Helper: Convert hex to rgb string for CSS custom properties
+function getRGBColor(hex) {
+    if (!hex) return '120, 120, 120';
+    hex = hex.replace('#', '');
+    if (hex.length === 3) {
+        hex = hex.split('').map(c => c + c).join('');
+    }
+    const num = parseInt(hex, 16);
+    const r = (num >> 16) & 255;
+    const g = (num >> 8) & 255;
+    const b = num & 255;
+    return `${r}, ${g}, ${b}`;
+}
+
+// Helper: Format lap times (e.g., 90.5 -> 1:30.500)
+function formatLapTime(seconds) {
+    if (!seconds || isNaN(seconds)) return '--';
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(3);
+    if (mins > 0) {
+        return `${mins}:${secs.padStart(6, '0')}`;
+    }
+    return `${secs}s`;
+}
+
+// DOM Selectors
+const DOM = {
+    yearSelector: document.getElementById('yearSelector'),
+    sessionSearch: document.getElementById('sessionSearch'),
+    typeFilters: document.getElementById('typeFilters'),
+    sessionsList: document.getElementById('sessionsList'),
+    emptyState: document.getElementById('emptyState'),
+    dashboardContent: document.getElementById('dashboardContent'),
+    
+    // Header
+    headerFlag: document.getElementById('headerFlag'),
+    headerYear: document.getElementById('headerYear'),
+    headerLocation: document.getElementById('headerLocation'),
+    headerGPName: document.getElementById('headerGPName'),
+    headerSessionType: document.getElementById('headerSessionType'),
+    
+    // Weather
+    weatherAirTemp: document.getElementById('weatherAirTemp'),
+    weatherTrackTemp: document.getElementById('weatherTrackTemp'),
+    weatherHumidity: document.getElementById('weatherHumidity'),
+    weatherWind: document.getElementById('weatherWind'),
+    weatherRainfall: document.getElementById('weatherRainfall'),
+    
+    // Drivers Grid
+    driverSearch: document.getElementById('driverSearch'),
+    driversGrid: document.getElementById('driversGrid'),
+    
+    // Laps/Stints Section
+    lapsDriverList: document.getElementById('lapsDriverList'),
+    lapsEmpty: document.getElementById('lapsEmpty'),
+    lapsData: document.getElementById('lapsData'),
+    statsColorBar: document.getElementById('statsColorBar'),
+    statsDriverName: document.getElementById('statsDriverName'),
+    statsDriverTeam: document.getElementById('statsDriverTeam'),
+    statsDriverNumber: document.getElementById('statsDriverNumber'),
+    statsFastestLap: document.getElementById('statsFastestLap'),
+    statsTotalLaps: document.getElementById('statsTotalLaps'),
+    stintsTimeline: document.getElementById('stintsTimeline'),
+    lapsTableBody: document.getElementById('lapsTableBody'),
+    
+    // Tabs
+    tabButtons: document.querySelectorAll('.tab-btn'),
+    tabViews: document.querySelectorAll('.tab-view')
+};
+
+// Initialize Application
+document.addEventListener('DOMContentLoaded', () => {
+    setupEventListeners();
+    loadSessions(state.selectedYear);
+});
+
+// Event Listeners Registration
+function setupEventListeners() {
+    // Year Buttons Click
+    DOM.yearSelector.addEventListener('click', (e) => {
+        const btn = e.target.closest('.year-btn');
+        if (!btn || btn.classList.contains('active')) return;
+        
+        document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.selectedYear = btn.dataset.year;
+        
+        loadSessions(state.selectedYear);
+    });
+
+    // Session Search Input
+    DOM.sessionSearch.addEventListener('input', () => {
+        filterAndRenderSessions();
+    });
+
+    // Session Type Filter Pills
+    DOM.typeFilters.addEventListener('click', (e) => {
+        const pill = e.target.closest('.filter-pill');
+        if (!pill || pill.classList.contains('active')) return;
+        
+        document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        
+        filterAndRenderSessions();
+    });
+
+    // Driver Search Input
+    DOM.driverSearch.addEventListener('input', () => {
+        renderDriversGrid();
+    });
+
+    // Dashboard Tabs Toggle
+    DOM.tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.dataset.tab;
+            if (state.currentTab === targetTab) return;
+            
+            DOM.tabButtons.forEach(b => b.classList.remove('active'));
+            DOM.tabViews.forEach(v => v.classList.remove('active'));
+            
+            btn.classList.add('active');
+            document.getElementById(targetTab).classList.add('active');
+            state.currentTab = targetTab;
+        });
+    });
+}
+
+// Fetch and load F1 sessions list for selected year
+async function loadSessions(year) {
+    DOM.sessionsList.innerHTML = `
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading sessions...</p>
+        </div>
+    `;
+    
+    hideDashboard();
+
+    try {
+        const response = await fetch(`/api/sessions?year=${year}`);
+        if (!response.ok) throw new Error('Failed to fetch sessions');
+        
+        state.sessions = await response.json();
+        
+        // Sort sessions by date (newest first, or oldest first)
+        // Usually, order chronologically looks cleaner for F1 calendars
+        state.sessions.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+        
+        filterAndRenderSessions();
+    } catch (error) {
+        console.error(error);
+        DOM.sessionsList.innerHTML = `
+            <div class="error-state">
+                <span class="material-icons-round" style="font-size:36px;color:var(--accent-red)">error_outline</span>
+                <p>Could not load sessions. Please try again.</p>
+                <button onclick="loadSessions('${year}')" class="filter-pill" style="margin-top:8px">Retry</button>
+            </div>
+        `;
+    }
+}
+
+// Filter and render F1 sessions
+function filterAndRenderSessions() {
+    const searchQuery = DOM.sessionSearch.value.toLowerCase().trim();
+    const typeFilter = document.querySelector('.filter-pill.active').dataset.type;
+
+    state.filteredSessions = state.sessions.filter(session => {
+        const matchesSearch = 
+            (session.session_name || '').toLowerCase().includes(searchQuery) ||
+            (session.location || '').toLowerCase().includes(searchQuery) ||
+            (session.circuit_short_name || '').toLowerCase().includes(searchQuery) ||
+            (session.country_name || '').toLowerCase().includes(searchQuery);
+
+        const matchesType = typeFilter === 'all' || 
+            (session.session_type || '').includes(typeFilter) || 
+            (typeFilter === 'Qualifying' && (session.session_name || '').includes('Qualifying')) ||
+            (typeFilter === 'Practice' && (session.session_name || '').includes('Practice'));
+
+        return matchesSearch && matchesType;
+    });
+
+    renderSessionsList();
+}
+
+// Render F1 sessions list
+function renderSessionsList() {
+    if (state.filteredSessions.length === 0) {
+        DOM.sessionsList.innerHTML = `
+            <div class="loading-state">
+                <p>No sessions found matching criteria.</p>
+            </div>
+        `;
+        return;
+    }
+
+    DOM.sessionsList.innerHTML = '';
+    state.filteredSessions.forEach(session => {
+        const card = document.createElement('div');
+        card.className = `session-card ${state.selectedSession && state.selectedSession.session_key === session.session_key ? 'active' : ''}`;
+        
+        let badgeClass = 'badge-practice';
+        if (session.session_name.includes('Race') || session.session_name.includes('Sprint')) {
+            badgeClass = 'badge-race';
+        } else if (session.session_name.includes('Quali')) {
+            badgeClass = 'badge-quali';
+        }
+
+        const flagEmoji = COUNTRY_FLAGS[session.country_code] || '🏁';
+        const sessionDate = new Date(session.date_start).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric'
+        });
+
+        card.innerHTML = `
+            <div class="card-top">
+                <span class="session-type-badge ${badgeClass}">${session.session_name}</span>
+                <span class="session-date">${sessionDate}</span>
+            </div>
+            <div class="session-gp">${session.circuit_short_name} GP</div>
+            <div class="session-loc">
+                <span class="loc-flag">${flagEmoji}</span>
+                <span>${session.location}, ${session.country_name}</span>
+            </div>
+        `;
+
+        card.addEventListener('click', () => {
+            document.querySelectorAll('.session-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            selectSession(session);
+        });
+
+        DOM.sessionsList.appendChild(card);
+    });
+}
+
+// Select a session and fetch its detailed data
+async function selectSession(session) {
+    state.selectedSession = session;
+    state.drivers = [];
+    state.weather = [];
+    state.stints = [];
+    state.laps = {};
+    state.selectedDriverStats = null;
+    
+    // UI Loading state
+    showDashboardLoading();
+
+    try {
+        // Fetch drivers list and weather concurrently
+        const [driversRes, weatherRes] = await Promise.all([
+            fetch(`/api/drivers?session_key=${session.session_key}`),
+            fetch(`/api/weather?session_key=${session.session_key}`)
+        ]);
+
+        if (!driversRes.ok) throw new Error('Failed to load drivers');
+        
+        state.drivers = await driversRes.json();
+        
+        if (weatherRes.ok) {
+            state.weather = await weatherRes.json();
+        }
+
+        // Fetch stints asynchronously
+        fetchStints(session.session_key);
+
+        renderSessionHeader();
+        renderWeather();
+        renderDriversGrid();
+        renderLapsDriverSidebar();
+        
+        // Hide empty state and show dashboard content
+        DOM.emptyState.style.display = 'none';
+        DOM.dashboardContent.style.display = 'flex';
+    } catch (error) {
+        console.error(error);
+        alert('Error loading session details.');
+        hideDashboard();
+    }
+}
+
+// Fetch stunts for selected session
+async function fetchStints(sessionKey) {
+    try {
+        const response = await fetch(`/api/stints?session_key=${sessionKey}`);
+        if (response.ok) {
+            state.stints = await response.json();
+        }
+    } catch (e) {
+        console.error('Error fetching stints:', e);
+    }
+}
+
+// Fetch laps for a specific driver
+async function fetchDriverLaps(sessionKey, driverNumber) {
+    if (state.laps[driverNumber]) return state.laps[driverNumber];
+    
+    try {
+        const response = await fetch(`/api/laps?session_key=${sessionKey}&driver_number=${driverNumber}`);
+        if (response.ok) {
+            const laps = await response.json();
+            // Sort laps chronologically
+            laps.sort((a, b) => a.lap_number - b.lap_number);
+            state.laps[driverNumber] = laps;
+            return laps;
+        }
+    } catch (e) {
+        console.error(`Error fetching laps for driver ${driverNumber}:`, e);
+    }
+    return [];
+}
+
+// Render session header
+function renderSessionHeader() {
+    const s = state.selectedSession;
+    const flag = COUNTRY_FLAGS[s.country_code] || '🏁';
+    
+    DOM.headerFlag.textContent = flag;
+    DOM.headerYear.textContent = s.year;
+    DOM.headerLocation.textContent = s.location;
+    DOM.headerGPName.textContent = `${s.circuit_short_name} Grand Prix`;
+    DOM.headerSessionType.textContent = s.session_name;
+}
+
+// Render Weather Widget
+function renderWeather() {
+    if (state.weather.length === 0) {
+        DOM.weatherAirTemp.textContent = '-- °C';
+        DOM.weatherTrackTemp.textContent = '-- °C';
+        DOM.weatherHumidity.textContent = '-- %';
+        DOM.weatherWind.textContent = '-- m/s';
+        DOM.weatherRainfall.style.display = 'none';
+        return;
+    }
+
+    let airSum = 0, trackSum = 0, humidSum = 0, windSum = 0;
+    let rainCount = 0;
+    
+    state.weather.forEach(w => {
+        airSum += w.air_temperature || 0;
+        trackSum += w.track_temperature || 0;
+        humidSum += w.humidity || 0;
+        windSum += w.wind_speed || 0;
+        if (w.rainfall === 1) rainCount++;
+    });
+
+    const total = state.weather.length;
+    DOM.weatherAirTemp.textContent = `${(airSum / total).toFixed(1)} °C`;
+    DOM.weatherTrackTemp.textContent = `${(trackSum / total).toFixed(1)} °C`;
+    DOM.weatherHumidity.textContent = `${(humidSum / total).toFixed(0)} %`;
+    DOM.weatherWind.textContent = `${(windSum / total).toFixed(1)} m/s`;
+    
+    if (rainCount > 0) {
+        DOM.weatherRainfall.style.display = 'flex';
+    } else {
+        DOM.weatherRainfall.style.display = 'none';
+    }
+}
+
+// Render Grid of Drivers
+function renderDriversGrid() {
+    const filter = DOM.driverSearch.value.toLowerCase().trim();
+    
+    const filteredDrivers = state.drivers.filter(d => {
+        return (d.full_name || '').toLowerCase().includes(filter) ||
+               (d.team_name || '').toLowerCase().includes(filter) ||
+               (d.name_acronym || '').toLowerCase().includes(filter) ||
+               String(d.driver_number).includes(filter);
+    });
+
+    if (filteredDrivers.length === 0) {
+        DOM.driversGrid.innerHTML = `
+            <div class="loading-state" style="grid-column: 1 / -1;">
+                <p>No drivers match filter.</p>
+            </div>
+        `;
+        return;
+    }
+
+    DOM.driversGrid.innerHTML = '';
+    filteredDrivers.forEach(d => {
+        // Resolve F1 Team Colors
+        let teamHex = d.team_colour;
+        if (!teamHex && d.team_name) {
+            teamHex = TEAM_COLORS[d.team_name.toLowerCase()];
+        }
+        if (!teamHex) teamHex = '787878';
+        
+        const rgb = getRGBColor(teamHex);
+        const card = document.createElement('div');
+        card.className = 'driver-card';
+        card.style.setProperty('--team-color', `#${teamHex}`);
+        card.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.2)`);
+
+        // Handle Fallback Headshots
+        const headshot = d.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png';
+
+        card.innerHTML = `
+            <div class="driver-card-top">
+                <div class="driver-info">
+                    <div class="driver-team">${d.team_name || 'Independent'}</div>
+                    <div class="driver-name">${d.first_name} ${d.last_name}</div>
+                    <div class="driver-acronym">${d.name_acronym || ''}</div>
+                </div>
+                <div class="driver-number-badge">${d.driver_number}</div>
+            </div>
+            <div class="driver-watermark-number">${d.driver_number}</div>
+            <div class="driver-headshot-container">
+                <img src="${headshot}" class="driver-headshot" alt="${d.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
+            </div>
+        `;
+
+        card.addEventListener('click', () => {
+            // Switch to Laps & Stints tab
+            const lapsTab = document.getElementById('tab-laps');
+            lapsTab.click();
+            
+            // Select driver in side panel
+            selectDriverForStats(d.driver_number);
+        });
+
+        DOM.driversGrid.appendChild(card);
+    });
+}
+
+// Render driver pills in Laps side panel
+function renderLapsDriverSidebar() {
+    DOM.lapsDriverList.innerHTML = '';
+    
+    // Sort drivers by driver number or team name
+    const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
+    
+    sortedDrivers.forEach(d => {
+        let teamHex = d.team_colour || TEAM_COLORS[(d.team_name || '').toLowerCase()] || '787878';
+        const rgb = getRGBColor(teamHex);
+        
+        const pill = document.createElement('button');
+        pill.className = 'driver-pill';
+        pill.id = `pill-driver-${d.driver_number}`;
+        pill.style.setProperty('--team-color', `#${teamHex}`);
+        pill.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.25)`);
+        
+        pill.innerHTML = `
+            <span>${d.name_acronym || d.last_name} &bull; ${d.driver_number}</span>
+            <span class="pill-team-dot"></span>
+        `;
+        
+        pill.addEventListener('click', () => {
+            selectDriverForStats(d.driver_number);
+        });
+        
+        DOM.lapsDriverList.appendChild(pill);
+    });
+}
+
+// Select driver and fetch laps & stint details to render analytics
+async function selectDriverForStats(driverNumber) {
+    // Highlight pill
+    document.querySelectorAll('.driver-pill').forEach(p => p.classList.remove('active'));
+    const activePill = document.getElementById(`pill-driver-${driverNumber}`);
+    if (activePill) activePill.classList.add('active');
+
+    // Get Driver details
+    const d = state.drivers.find(drv => drv.driver_number === driverNumber);
+    if (!d) return;
+
+    // Show loading sub-state
+    DOM.lapsEmpty.style.display = 'none';
+    DOM.lapsData.style.display = 'none';
+    
+    // Temporarily append a loading spinner inside laps panel
+    const loader = document.createElement('div');
+    loader.className = 'loading-state';
+    loader.innerHTML = '<div class="spinner"></div><p>Loading driver telemetry...</p>';
+    DOM.lapsContent.appendChild(loader);
+
+    try {
+        // Load driver laps
+        const laps = await fetchDriverLaps(state.selectedSession.session_key, driverNumber);
+        
+        // Remove loader
+        loader.remove();
+        
+        // Render stats header
+        let teamHex = d.team_colour || TEAM_COLORS[(d.team_name || '').toLowerCase()] || '787878';
+        DOM.statsColorBar.style.backgroundColor = `#${teamHex}`;
+        DOM.statsDriverName.textContent = `${d.first_name} ${d.last_name}`;
+        DOM.statsDriverTeam.textContent = d.team_name || 'Independent';
+        DOM.statsDriverNumber.textContent = d.driver_number;
+        DOM.statsDriverNumber.style.color = `#${teamHex}`;
+
+        // Compute lap statistics
+        let fastestDuration = Infinity;
+        let totalLaps = 0;
+        let lapsTableHTML = '';
+        
+        // Calculate fastest lap duration
+        laps.forEach(lap => {
+            if (lap.lap_duration && lap.lap_duration < fastestDuration) {
+                fastestDuration = lap.lap_duration;
+            }
+            if (lap.lap_duration) totalLaps++;
+        });
+
+        DOM.statsFastestLap.textContent = fastestDuration !== Infinity ? formatLapTime(fastestDuration) : '--';
+        DOM.statsTotalLaps.textContent = totalLaps;
+
+        // Render Laps Table
+        if (laps.length === 0) {
+            lapsTableHTML = '<tr><td colspan="5" style="text-align:center;">No lap data recorded for this driver.</td></tr>';
+        } else {
+            laps.forEach(lap => {
+                const isFastest = lap.lap_duration === fastestDuration;
+                lapsTableHTML += `
+                    <tr>
+                        <td>${lap.lap_number}</td>
+                        <td>${lap.duration_sector_1 ? lap.duration_sector_1.toFixed(3) + 's' : '--'}</td>
+                        <td>${lap.duration_sector_2 ? lap.duration_sector_2.toFixed(3) + 's' : '--'}</td>
+                        <td>${lap.duration_sector_3 ? lap.duration_sector_3.toFixed(3) + 's' : '--'}</td>
+                        <td class="${isFastest ? 'fastest-lap-highlight' : 'lap-duration-val'}">
+                            ${isFastest ? '<span class="material-icons-round" style="font-size:14px;vertical-align:middle;margin-right:4px;">grade</span>' : ''}
+                            ${formatLapTime(lap.lap_duration)}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+        DOM.lapsTableBody.innerHTML = lapsTableHTML;
+
+        // Render Stints Timeline
+        renderStintsTimeline(driverNumber);
+
+        // Display dashboard
+        DOM.lapsData.style.display = 'block';
+    } catch (e) {
+        console.error('Error rendering driver details:', e);
+        loader.remove();
+        DOM.lapsEmpty.style.display = 'flex';
+    }
+}
+
+// Render Stints Timeline
+function renderStintsTimeline(driverNumber) {
+    const driverStints = state.stints.filter(s => s.driver_number === driverNumber);
+    
+    if (driverStints.length === 0) {
+        DOM.stintsTimeline.innerHTML = '<div style="display:flex;align-items:center;padding:0 16px;color:var(--text-muted);font-size:13px;width:100%;height:100%;">No stint data recorded.</div>';
+        return;
+    }
+
+    // Sort stints by stint number
+    driverStints.sort((a, b) => a.stint_number - b.stint_number);
+
+    // Calculate total laps in stints for scaling
+    let maxLap = 0;
+    driverStints.forEach(s => {
+        if (s.lap_end > maxLap) maxLap = s.lap_end;
+    });
+
+    DOM.stintsTimeline.innerHTML = '';
+    driverStints.forEach(stint => {
+        const stintLaps = (stint.lap_end - stint.lap_start) + 1;
+        const widthPct = maxLap > 0 ? (stintLaps / maxLap) * 100 : 100;
+        
+        const segment = document.createElement('div');
+        const compound = (stint.compound || 'UNKNOWN').toUpperCase();
+        segment.className = `stint-segment stint-compound-${compound}`;
+        segment.style.width = `${widthPct}%`;
+        
+        // Label on tire segment (e.g. S, M, H, I, W)
+        const initial = stint.compound ? stint.compound.charAt(0) : '?';
+        segment.innerHTML = `
+            <span>${initial}</span>
+            <div class="stint-tooltip">
+                <strong>Stint ${stint.stint_number}: ${stint.compound || 'Unknown'}</strong><br>
+                Laps: ${stint.lap_start} - ${stint.lap_end} (${stintLaps} laps)<br>
+                Starting Age: ${stint.tyre_age_at_start} laps
+            </div>
+        `;
+        
+        DOM.stintsTimeline.appendChild(segment);
+    });
+}
+
+// Helper: Show full dashboard loading
+function showDashboardLoading() {
+    DOM.emptyState.style.display = 'flex';
+    DOM.emptyState.innerHTML = `
+        <div class="spinner"></div>
+        <h2 style="margin-top:16px;">Loading Session Details...</h2>
+        <p>Fetching driver, lap, weather, and stint data from OpenF1...</p>
+    `;
+    DOM.dashboardContent.style.display = 'none';
+}
+
+// Helper: Hide dashboard and reset empty state
+function hideDashboard() {
+    DOM.emptyState.style.display = 'flex';
+    DOM.emptyState.innerHTML = `
+        <span class="material-icons-round empty-icon">sports_score</span>
+        <h2>No Session Selected</h2>
+        <p>Select a Formula 1 session from the sidebar to view detailed driver telemetry, weather information, and session stats.</p>
+    `;
+    DOM.dashboardContent.style.display = 'none';
+}

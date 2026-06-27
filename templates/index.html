@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Data Dashboard</title>
+    <meta name="description" content="A modern, dark-themed Formula 1 data dashboard displaying sessions, weather, and driver data utilizing the OpenF1 API.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar for Session Selection -->
+        <aside class="sidebar" aria-label="Session sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="material-icons-round logo-icon">speed</span>
+                    <h1>F1 DASHBOARD</h1>
+                </div>
+            </div>
+            
+            <div class="sidebar-controls">
+                <!-- Year Selector -->
+                <div class="control-group">
+                    <span class="control-label">Select Year</span>
+                    <div class="year-selector" id="yearSelector">
+                        <button class="year-btn active" data-year="2026">2026</button>
+                        <button class="year-btn" data-year="2025">2025</button>
+                        <button class="year-btn" data-year="2024">2024</button>
+                        <button class="year-btn" data-year="2023">2023</button>
+                    </div>
+                </div>
+
+                <!-- Search Input -->
+                <div class="control-group">
+                    <div class="search-wrapper">
+                        <span class="material-icons-round search-icon">search</span>
+                        <input type="text" id="sessionSearch" placeholder="Search Grand Prix..." aria-label="Search Grand Prix">
+                    </div>
+                </div>
+
+                <!-- Session Type Filters -->
+                <div class="control-group">
+                    <div class="type-filters" id="typeFilters">
+                        <button class="filter-pill active" data-type="all">All</button>
+                        <button class="filter-pill" data-type="Race">Race</button>
+                        <button class="filter-pill" data-type="Qualifying">Quali</button>
+                        <button class="filter-pill" data-type="Practice">Practice</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sessions List -->
+            <nav class="sessions-container" id="sessionsList" aria-label="F1 Sessions list">
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <p>Loading sessions...</p>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Empty state -->
+            <div class="empty-state" id="emptyState">
+                <span class="material-icons-round empty-icon">sports_score</span>
+                <h2>No Session Selected</h2>
+                <p>Select a Formula 1 session from the sidebar to view detailed driver telemetry, weather information, and session stats.</p>
+            </div>
+
+            <!-- Session Details Dashboard -->
+            <div class="dashboard-grid" id="dashboardContent" style="display: none;">
+                <!-- Header Card -->
+                <header class="session-header-card glass">
+                    <div class="session-title-group">
+                        <span class="circuit-flag" id="headerFlag">🏁</span>
+                        <div>
+                            <div class="session-meta">
+                                <span id="headerYear">2026</span> &bull; <span id="headerLocation">Las Vegas</span>
+                            </div>
+                            <h2 id="headerGPName">Las Vegas Grand Prix</h2>
+                        </div>
+                    </div>
+                    <div class="session-badge" id="headerSessionType">Race</div>
+                </header>
+
+                <!-- Weather Stats Card -->
+                <section class="weather-widget glass" id="weatherWidget" aria-label="Weather widget">
+                    <h3>WEATHER CONDITIONS</h3>
+                    <div class="weather-grid">
+                        <div class="weather-item">
+                            <span class="material-icons-round weather-icon">thermostat</span>
+                            <div>
+                                <span class="weather-label">Air Temp</span>
+                                <span class="weather-val" id="weatherAirTemp">-- &deg;C</span>
+                            </div>
+                        </div>
+                        <div class="weather-item">
+                            <span class="material-icons-round weather-icon">wb_sunny</span>
+                            <div>
+                                <span class="weather-label">Track Temp</span>
+                                <span class="weather-val" id="weatherTrackTemp">-- &deg;C</span>
+                            </div>
+                        </div>
+                        <div class="weather-item">
+                            <span class="material-icons-round weather-icon">water_drop</span>
+                            <div>
+                                <span class="weather-label">Humidity</span>
+                                <span class="weather-val" id="weatherHumidity">-- %</span>
+                            </div>
+                        </div>
+                        <div class="weather-item">
+                            <span class="material-icons-round weather-icon">air</span>
+                            <div>
+                                <span class="weather-label">Wind Speed</span>
+                                <span class="weather-val" id="weatherWind">-- m/s</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="weather-alert" id="weatherRainfall" style="display: none;">
+                        <span class="material-icons-round">grain</span>
+                        <span>Rainfall detected during session!</span>
+                    </div>
+                </section>
+
+                <!-- Dynamic Content Navigation Tabs -->
+                <nav class="dashboard-tabs glass" aria-label="Dashboard sections">
+                    <button class="tab-btn active" id="tab-drivers" data-tab="drivers-view">
+                        <span class="material-icons-round">groups</span> Drivers
+                    </button>
+                    <button class="tab-btn" id="tab-laps" data-tab="laps-view">
+                        <span class="material-icons-round">timer</span> Laps & Stints
+                    </button>
+                </nav>
+
+                <!-- Drivers View -->
+                <section class="tab-view active" id="drivers-view" aria-label="Drivers grid">
+                    <div class="drivers-header">
+                        <h3>DRIVERS LIST</h3>
+                        <div class="drivers-search-wrapper">
+                            <span class="material-icons-round search-icon">search</span>
+                            <input type="text" id="driverSearch" placeholder="Filter by driver or team..." aria-label="Filter drivers">
+                        </div>
+                    </div>
+                    <div class="drivers-grid" id="driversGrid">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </section>
+
+                <!-- Laps View -->
+                <section class="tab-view" id="laps-view" aria-label="Laps and stints data">
+                    <div class="laps-layout">
+                        <!-- Driver Selector for stats -->
+                        <nav class="laps-sidebar" aria-label="Select driver for stats">
+                            <h4>Select Driver</h4>
+                            <div class="driver-pills" id="lapsDriverList">
+                                <!-- Loaded dynamically -->
+                            </div>
+                        </nav>
+                        <!-- Driver stats display -->
+                        <div class="laps-content glass">
+                            <div class="laps-empty" id="lapsEmpty">
+                                <span class="material-icons-round">query_stats</span>
+                                <h5>No Driver Selected</h5>
+                                <p>Select a driver from the left column to view their stint history and lap analysis for this session.</p>
+                            </div>
+                            <div class="laps-data" id="lapsData" style="display: none;">
+                                <div class="driver-profile-header">
+                                    <div class="driver-color-bar" id="statsColorBar"></div>
+                                    <div class="driver-profile-text">
+                                        <h4 id="statsDriverName">Lewis Hamilton</h4>
+                                        <p id="statsDriverTeam">Ferrari</p>
+                                    </div>
+                                    <div class="driver-profile-number" id="statsDriverNumber">44</div>
+                                </div>
+                                
+                                <div class="stats-grid">
+                                    <div class="stat-card">
+                                        <span class="stat-label">Fastest Lap</span>
+                                        <span class="stat-value" id="statsFastestLap">--</span>
+                                    </div>
+                                    <div class="stat-card">
+                                        <span class="stat-label">Total Laps</span>
+                                        <span class="stat-value" id="statsTotalLaps">--</span>
+                                    </div>
+                                </div>
+
+                                <div class="stints-section">
+                                    <h5>Tire Stints</h5>
+                                    <div class="stints-timeline" id="stintsTimeline">
+                                        <!-- Loaded dynamically -->
+                                    </div>
+                                </div>
+
+                                <div class="laps-list-section">
+                                    <h5>All Lap Times</h5>
+                                    <div class="laps-table-wrapper">
+                                        <table class="laps-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Lap</th>
+                                                    <th>Sector 1</th>
+                                                    <th>Sector 2</th>
+                                                    <th>Sector 3</th>
+                                                    <th>Lap Time</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="lapsTableBody">
+                                                <!-- Dynamic laps -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Script -->
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
