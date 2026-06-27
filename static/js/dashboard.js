@@ -442,7 +442,7 @@ function renderDriversGrid() {
             </div>
             <div class="driver-watermark-number">${d.driver_number}</div>
             <div class="driver-headshot-container">
-                <img src="${headshot}" class="driver-headshot" alt="${d.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
+                <img src="${headshot.replace('.transform/1col/image.png', '')}" class="driver-headshot" alt="${d.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
             </div>
         `;
 
