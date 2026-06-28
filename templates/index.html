@@ -177,7 +177,7 @@
                             </div>
                         </nav>
                         <!-- Driver stats display -->
-                        <div class="laps-content glass">
+                        <div class="laps-content glass" id="lapsContent">
                             <div class="laps-empty" id="lapsEmpty">
                                 <span class="material-icons-round">query_stats</span>
                                 <h5>No Driver Selected</h5>
@@ -185,6 +185,9 @@
                             </div>
                             <div class="laps-data" id="lapsData" style="display: none;">
                                 <div class="driver-profile-header">
+                                    <div class="driver-profile-avatar-container">
+                                        <img id="statsDriverHeadshot" src="https://media.formula1.com/d_driver_fallback_image.png" class="driver-profile-avatar" alt="Driver Headshot" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
+                                    </div>
                                     <div class="driver-color-bar" id="statsColorBar"></div>
                                     <div class="driver-profile-text">
                                         <h4 id="statsDriverName">Lewis Hamilton</h4>
@@ -199,6 +202,14 @@
                                         <span class="stat-value" id="statsFastestLap">--</span>
                                     </div>
                                     <div class="stat-card">
+                                        <span class="stat-label">Theoretical Best</span>
+                                        <span class="stat-value" id="statsTheoBestLap">--</span>
+                                    </div>
+                                    <div class="stat-card">
+                                        <span class="stat-label">Average Pace</span>
+                                        <span class="stat-value" id="statsAvgLap">--</span>
+                                    </div>
+                                    <div class="stat-card">
                                         <span class="stat-label">Total Laps</span>
                                         <span class="stat-value" id="statsTotalLaps">--</span>
                                     </div>
@@ -208,6 +219,21 @@
                                     <h5>Tire Stints</h5>
                                     <div class="stints-timeline" id="stintsTimeline">
                                         <!-- Loaded dynamically -->
+                                    </div>
+                                </div>
+
+                                <div class="chart-section">
+                                    <div class="chart-header">
+                                        <h5>Lap Time Progression</h5>
+                                        <label class="chart-toggle-wrapper">
+                                            <input type="checkbox" id="chartHideOutliers" checked>
+                                            <span class="toggle-text">Filter Pit/Slow Laps</span>
+                                        </label>
+                                    </div>
+                                    <div class="chart-container-wrapper glass">
+                                        <div id="lapsChartContainer">
+                                            <!-- SVG Chart generated dynamically -->
+                                        </div>
                                     </div>
                                 </div>
 

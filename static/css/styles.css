@@ -1255,6 +1255,193 @@ body {
     font-weight: 600;
 }
 
+/* Personal Best Sectors timing glow */
+.personal-best-sector {
+    color: #34c759 !important;
+    font-weight: 700;
+    text-shadow: 0 0 8px rgba(52, 199, 89, 0.4);
+}
+
+/* Garage Compound styling for Checkered timeline gaps */
+.stint-compound-GARAGE {
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.03),
+        rgba(255, 255, 255, 0.03) 6px,
+        rgba(255, 255, 255, 0.08) 6px,
+        rgba(255, 255, 255, 0.08) 12px
+    ) !important;
+    color: var(--text-muted) !important;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    font-weight: 500;
+    text-shadow: none !important;
+}
+
+/* Driver Profile Avatar container */
+.driver-profile-avatar-container {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    background: rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-normal);
+}
+
+.driver-profile-avatar-container:hover {
+    border-color: var(--team-color, rgba(255, 255, 255, 0.3));
+    box-shadow: 0 4px 16px var(--team-color-glow, rgba(255, 255, 255, 0.2));
+}
+
+.driver-profile-avatar {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(1.05);
+}
+
+/* Chart Section Styling */
+.chart-section {
+    margin-bottom: 28px;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.chart-header h5 {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.chart-toggle-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.chart-toggle-wrapper input[type="checkbox"] {
+    accent-color: var(--accent-red, #ff1801);
+    cursor: pointer;
+}
+
+.chart-container-wrapper {
+    padding: 16px 20px;
+    border-radius: 12px;
+    background: rgba(10, 10, 15, 0.25);
+    border: 1px solid var(--border-color);
+    position: relative;
+    overflow: visible; /* tooltips can show outside */
+}
+
+#lapsChartContainer {
+    width: 100%;
+    height: 220px;
+    position: relative;
+}
+
+/* SVG Chart Elements */
+.chart-grid-line {
+    stroke: rgba(255, 255, 255, 0.04);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+}
+
+.chart-axis-line {
+    stroke: rgba(255, 255, 255, 0.12);
+    stroke-width: 1;
+}
+
+.chart-axis-text {
+    fill: var(--text-muted);
+    font-size: 10px;
+    font-family: var(--font-sans);
+}
+
+.chart-line {
+    fill: none;
+    stroke: var(--team-color, #ff1801);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px var(--team-color-glow, rgba(255, 255, 255, 0.3)));
+    transition: stroke 0.3s ease, filter 0.3s ease;
+}
+
+.chart-dot {
+    fill: #0c0c12;
+    stroke: var(--team-color, #ff1801);
+    stroke-width: 2.5;
+    cursor: pointer;
+    transition: r 0.15s ease, fill 0.15s ease, stroke-width 0.15s ease;
+}
+
+.chart-dot:hover, .chart-dot.active {
+    fill: var(--team-color, #ff1801);
+    r: 6;
+    stroke-width: 3;
+}
+
+.chart-outlier-dot {
+    fill: rgba(255, 255, 255, 0.05);
+    stroke: rgba(255, 255, 255, 0.25);
+    stroke-width: 1.5;
+    cursor: pointer;
+    transition: r 0.15s ease, fill 0.15s ease;
+}
+
+.chart-outlier-dot:hover {
+    fill: rgba(255, 255, 255, 0.4);
+    r: 5;
+}
+
+/* Floating custom tooltip in chart */
+.chart-tooltip {
+    position: absolute;
+    background: rgba(12, 12, 18, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--text-primary);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    width: 160px;
+}
+
+.chart-tooltip-header {
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 4px;
+}
+
+/* Table sync highlight styling */
+.laps-table tbody tr.lap-row-highlight {
+    background: rgba(255, 255, 255, 0.06) !important;
+    box-shadow: inset 4px 0 0 var(--team-color, #ff1801);
+}
+
 /* Circuit Details Tab Layout */
 .circuit-layout {
     display: grid;
