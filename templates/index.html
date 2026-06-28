@@ -147,6 +147,9 @@
                     <button class="tab-btn" id="tab-laps" data-tab="laps-view">
                         <span class="material-icons-round">timer</span> Laps & Stints
                     </button>
+                    <button class="tab-btn" id="tab-results" data-tab="results-view">
+                        <span class="material-icons-round">emoji_events</span> Results
+                    </button>
                     <button class="tab-btn" id="tab-circuit" data-tab="circuit-view">
                         <span class="material-icons-round">map</span> Circuit Details
                     </button>
@@ -260,7 +263,38 @@
                         </div>
                     </div>
                 </section>
- 
+
+                <!-- Results View -->
+                <section class="tab-view" id="results-view" aria-label="Session results data">
+                    <div class="results-container">
+                        <div class="results-header">
+                            <h3>Session Results</h3>
+                        </div>
+                        <div class="results-table-wrapper glass" id="resultsTableWrapper">
+                            <table class="results-table">
+                                <thead>
+                                    <tr>
+                                        <th class="results-position-cell">Pos</th>
+                                        <th>Driver</th>
+                                        <th>Laps</th>
+                                        <th>Time / Gap</th>
+                                        <th>Status</th>
+                                        <th>Points</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="resultsTableBody">
+                                    <!-- Loaded dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="resultsEmptyState" class="results-empty glass" style="display: none;">
+                            <span class="material-icons-round results-empty-icon">emoji_events</span>
+                            <h4 id="resultsEmptyTitle">No Results Available</h4>
+                            <p id="resultsEmptyText">Results are not available for this session. It may be upcoming or in progress.</p>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Circuit Details View -->
                 <section class="tab-view" id="circuit-view" aria-label="Circuit details data">
                     <div class="circuit-layout">

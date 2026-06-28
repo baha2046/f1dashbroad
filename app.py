@@ -220,5 +220,29 @@ async def api_stints():
     data = await get_cached_api(url, cache_name, session_key=session_key)
     return jsonify(data)
 
+@app.route("/api/results")
+async def api_results():
+    session_key = request.args.get("session_key")
+    if not session_key:
+        return jsonify({"error": "session_key is required"}), 400
+        
+    url = f"https://api.openf1.org/v1/session_result?session_key={session_key}"
+    cache_name = f"results_{session_key}.json"
+    data = await get_cached_api(url, cache_name, session_key=session_key)
+    return jsonify(data)
+
+@app.route("/api/race_control")
+async def api_race_control():
+    session_key = request.args.get("session_key")
+    if not session_key:
+        return jsonify({"error": "session_key is required"}), 400
+        
+    url = f"https://api.openf1.org/v1/race_control?session_key={session_key}"
+    cache_name = f"race_control_{session_key}.json"
+    data = await get_cached_api(url, cache_name, session_key=session_key)
+    return jsonify(data)
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5300, debug=True)
+
+

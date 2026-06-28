@@ -1352,7 +1352,7 @@ body {
 
 #lapsChartContainer {
     width: 100%;
-    height: 220px;
+    height: 320px;
     position: relative;
 }
 
@@ -1361,6 +1361,49 @@ body {
     stroke: rgba(255, 255, 255, 0.04);
     stroke-width: 1;
     stroke-dasharray: 4 4;
+}
+
+/* Safety Car Zones in Chart */
+.chart-safety-car-shading {
+    fill: rgba(255, 145, 0, 0.07);
+    pointer-events: none;
+}
+
+.chart-vsc-shading {
+    fill: rgba(255, 214, 10, 0.05);
+    pointer-events: none;
+}
+
+.chart-safety-car-boundary {
+    stroke: rgba(255, 145, 0, 0.25);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    pointer-events: none;
+}
+
+.chart-vsc-boundary {
+    stroke: rgba(255, 214, 10, 0.20);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    pointer-events: none;
+}
+
+.chart-safety-car-text {
+    fill: rgba(255, 145, 0, 0.75);
+    font-size: 9px;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+}
+
+.chart-vsc-text {
+    fill: rgba(255, 214, 10, 0.75);
+    font-size: 9px;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    pointer-events: none;
 }
 
 .chart-axis-line {
@@ -1686,4 +1729,203 @@ body {
     .driver-pill {
         flex: 1 0 calc(50% - 8px);
     }
+}
+
+/* Results tab styling */
+.results-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    height: 100%;
+}
+
+.results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.results-table-wrapper {
+    flex-grow: 1;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(18, 18, 26, 0.4);
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 14px;
+}
+
+.results-table th, .results-table td {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.results-table th {
+    background: rgba(255, 255, 255, 0.03);
+    font-weight: 700;
+    color: var(--text-secondary);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.results-table tbody tr {
+    transition: var(--transition-fast);
+}
+
+.results-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.results-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Driver column in table */
+.results-driver-cell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.results-driver-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+    object-fit: cover;
+    border: 1px solid var(--border-color);
+}
+
+.results-driver-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.results-driver-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.results-driver-team {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.results-team-color-indicator {
+    width: 4px;
+    height: 24px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+/* Position cell styling */
+.results-position-cell {
+    font-weight: 800;
+    font-size: 15px;
+    width: 60px;
+    text-align: center;
+}
+
+.pos-podium-1 {
+    color: #ffd700;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+.pos-podium-2 {
+    color: #c0c0c0;
+    text-shadow: 0 0 10px rgba(192, 192, 192, 0.3);
+}
+
+.pos-podium-3 {
+    color: #cd7f32;
+    text-shadow: 0 0 10px rgba(205, 127, 50, 0.3);
+}
+
+.pos-non-podium {
+    color: var(--text-secondary);
+}
+
+.pos-dsq, .pos-dnf, .pos-dns, .pos-nc {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.pos-dsq {
+    color: var(--accent-red);
+}
+
+/* Status badge */
+.status-pill {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: inline-block;
+}
+
+.status-pill.finished {
+    background: rgba(40, 167, 69, 0.1);
+    color: #28a745;
+}
+
+.status-pill.dnf {
+    background: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+}
+
+.status-pill.dns {
+    background: rgba(255, 193, 7, 0.1);
+    color: #ffc107;
+}
+
+.status-pill.dsq {
+    background: rgba(220, 53, 69, 0.2);
+    color: var(--accent-red);
+}
+
+/* Results empty state */
+.results-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    background: rgba(18, 18, 26, 0.4);
+    border: 1px dashed var(--border-color);
+    border-radius: 16px;
+    color: var(--text-secondary);
+}
+
+.results-empty-icon {
+    font-size: 48px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}
+
+.results-empty h4 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.results-empty p {
+    font-size: 13px;
+    max-width: 320px;
+    line-height: 1.5;
 }

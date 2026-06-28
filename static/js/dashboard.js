@@ -7,6 +7,8 @@ const state = {
     drivers: [],
     weather: [],
     stints: [],
+    results: [],
+    raceControl: [],
     laps: {}, // map of driverNumber -> laps array
     selectedDriverStats: null,
     currentMeeting: null,
@@ -57,6 +59,21 @@ function formatLapTime(seconds) {
     const secs = (seconds % 60).toFixed(3);
     if (mins > 0) {
         return `${mins}:${secs.padStart(6, '0')}`;
+    }
+    return `${secs}s`;
+}
+
+// Helper: Format race/session total duration (e.g., 4986.801 -> 1:23:06.801)
+function formatDuration(seconds) {
+    if (!seconds || isNaN(seconds)) return '--';
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = (seconds % 60).toFixed(3);
+    if (hours > 0) {
+        return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(6, '0')}`;
+    }
+    if (mins > 0) {
+        return `${mins}:${String(secs).padStart(6, '0')}`;
     }
     return `${secs}s`;
 }
@@ -118,6 +135,13 @@ const DOM = {
     circuitStartDate: document.getElementById('circuitStartDate'),
     circuitEndDate: document.getElementById('circuitEndDate'),
     circuitMapContent: document.getElementById('circuitMapContent'),
+    
+    // Results
+    resultsTableBody: document.getElementById('resultsTableBody'),
+    resultsTableWrapper: document.getElementById('resultsTableWrapper'),
+    resultsEmptyState: document.getElementById('resultsEmptyState'),
+    resultsEmptyTitle: document.getElementById('resultsEmptyTitle'),
+    resultsEmptyText: document.getElementById('resultsEmptyText'),
     
     // Tabs
     tabButtons: document.querySelectorAll('.tab-btn'),
@@ -326,10 +350,10 @@ function renderSessionsList() {
         if (isCancelled) {
             badgeClass = 'badge-cancelled';
             badgeText = 'Cancelled';
-        } else if (session.session_name.includes('Race') || session.session_name.includes('Sprint')) {
-            badgeClass = 'badge-race';
         } else if (session.session_name.includes('Quali')) {
             badgeClass = 'badge-quali';
+        } else if (session.session_name.includes('Race') || session.session_name.includes('Sprint')) {
+            badgeClass = 'badge-race';
         }
 
         // Determine status for badge
@@ -405,6 +429,8 @@ async function selectSession(session) {
     state.drivers = [];
     state.weather = [];
     state.stints = [];
+    state.results = [];
+    state.raceControl = [];
     state.laps = {};
     state.selectedDriverStats = null;
     state.currentMeeting = null;
@@ -419,12 +445,14 @@ async function selectSession(session) {
     showDashboardLoading();
 
     try {
-        // Fetch drivers list, weather, stints, and meeting concurrently
-        const [driversRes, weatherRes, meetingRes, stintsRes] = await Promise.all([
+        // Fetch drivers list, weather, stints, meeting, results, and race control concurrently
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes] = await Promise.all([
             fetch(`/api/drivers?session_key=${session.session_key}`),
             fetch(`/api/weather?session_key=${session.session_key}`),
             fetch(`/api/meetings?meeting_key=${session.meeting_key}`),
-            fetch(`/api/stints?session_key=${session.session_key}`)
+            fetch(`/api/stints?session_key=${session.session_key}`),
+            fetch(`/api/results?session_key=${session.session_key}`),
+            fetch(`/api/race_control?session_key=${session.session_key}`)
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -443,11 +471,28 @@ async function selectSession(session) {
             state.stints = await stintsRes.json();
         }
 
+        if (resultsRes && resultsRes.ok) {
+            try {
+                state.results = await resultsRes.json();
+            } catch (e) {
+                console.error('Error parsing results:', e);
+            }
+        }
+
+        if (raceControlRes && raceControlRes.ok) {
+            try {
+                state.raceControl = await raceControlRes.json();
+            } catch (e) {
+                console.error('Error parsing race control:', e);
+            }
+        }
+
         renderSessionHeader();
         renderWeather();
         renderDriversGrid();
         renderLapsDriverSidebar();
         renderCircuitTab();
+        renderResultsTab();
         
         // Hide empty state and show dashboard content
         DOM.emptyState.style.display = 'none';
@@ -741,6 +786,129 @@ function showNoTrackMapState() {
     `;
 }
 
+// Render Results Tab
+function renderResultsTab() {
+    if (!state.results || state.results.length === 0) {
+        if (DOM.resultsTableWrapper) DOM.resultsTableWrapper.style.display = 'none';
+        if (DOM.resultsEmptyState) {
+            DOM.resultsEmptyState.style.display = 'flex';
+            DOM.resultsEmptyTitle.textContent = 'No Results Available';
+            DOM.resultsEmptyText.textContent = 'Results are not available for this session. It may be upcoming or in progress.';
+        }
+        return;
+    }
+
+    if (DOM.resultsEmptyState) DOM.resultsEmptyState.style.display = 'none';
+    if (DOM.resultsTableWrapper) DOM.resultsTableWrapper.style.display = 'block';
+
+    const sortedResults = [...state.results].sort((a, b) => {
+        const aPos = a.position !== null && a.position !== undefined ? Number(a.position) : Infinity;
+        const bPos = b.position !== null && b.position !== undefined ? Number(b.position) : Infinity;
+        
+        if (aPos !== bPos) {
+            return aPos - bPos;
+        }
+        
+        const aLaps = a.number_of_laps || 0;
+        const bLaps = b.number_of_laps || 0;
+        if (aLaps !== bLaps) {
+            return bLaps - aLaps;
+        }
+        
+        return a.driver_number - b.driver_number;
+    });
+
+    if (DOM.resultsTableBody) {
+        DOM.resultsTableBody.innerHTML = '';
+        sortedResults.forEach((item) => {
+            const driver = state.drivers.find(d => d.driver_number === item.driver_number) || {
+                first_name: 'Driver',
+                last_name: `#${item.driver_number}`,
+                full_name: `Driver #${item.driver_number}`,
+                team_name: 'Independent',
+                name_acronym: `D${item.driver_number}`,
+                team_colour: '787878'
+            };
+
+            let teamHex = driver.team_colour;
+            if (!teamHex && driver.team_name) {
+                teamHex = TEAM_COLORS[driver.team_name.toLowerCase()];
+            }
+            if (!teamHex) teamHex = '787878';
+
+            let posDisplay = '';
+            let posClass = 'pos-non-podium';
+            
+            if (item.dsq) {
+                posDisplay = 'DSQ';
+                posClass = 'pos-dsq';
+            } else if (item.dns) {
+                posDisplay = 'DNS';
+                posClass = 'pos-dns';
+            } else if (item.dnf) {
+                posDisplay = 'NC';
+                posClass = 'pos-dnf';
+            } else if (item.position === null || item.position === undefined) {
+                posDisplay = 'NC';
+                posClass = 'pos-nc';
+            } else {
+                posDisplay = item.position;
+                if (item.position === 1) posClass = 'pos-podium-1';
+                else if (item.position === 2) posClass = 'pos-podium-2';
+                else if (item.position === 3) posClass = 'pos-podium-3';
+            }
+
+            let statusText = 'Finished';
+            let statusClass = 'finished';
+            if (item.dsq) {
+                statusText = 'Disqualified';
+                statusClass = 'dsq';
+            } else if (item.dns) {
+                statusText = 'Did Not Start';
+                statusClass = 'dns';
+            } else if (item.dnf) {
+                statusText = 'Did Not Finish';
+                statusClass = 'dnf';
+            } else if (item.position === null || item.position === undefined) {
+                statusText = 'Not Classified';
+                statusClass = 'dnf';
+            }
+
+            let timeGapDisplay = '--';
+            if (item.position === 1 && item.duration) {
+                timeGapDisplay = formatDuration(item.duration);
+            } else if (item.gap_to_leader !== null && item.gap_to_leader !== undefined) {
+                if (typeof item.gap_to_leader === 'number') {
+                    timeGapDisplay = `+${item.gap_to_leader.toFixed(3)}s`;
+                } else {
+                    timeGapDisplay = item.gap_to_leader;
+                }
+            } else if (item.duration) {
+                timeGapDisplay = formatDuration(item.duration);
+            }
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="results-position-cell ${posClass}">${posDisplay}</td>
+                <td>
+                    <div class="results-driver-cell">
+                        <div class="results-team-color-indicator" style="background: #${teamHex};"></div>
+                        <img src="${(driver.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png').replace('.transform/1col/image.png', '')}" class="results-driver-avatar" alt="${driver.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
+                        <div class="results-driver-info">
+                            <span class="results-driver-name">${driver.first_name} ${driver.last_name}</span>
+                            <span class="results-driver-team">${driver.team_name || 'Independent'}</span>
+                        </div>
+                    </div>
+                </td>
+                <td>${item.number_of_laps !== null ? item.number_of_laps : '--'}</td>
+                <td class="lap-duration-val">${timeGapDisplay}</td>
+                <td><span class="status-pill ${statusClass}">${statusText}</span></td>
+                <td style="font-weight: 600; color: ${item.points > 0 ? 'var(--text-primary)' : 'var(--text-muted)'};">${item.points && true ? item.points : '-'}</td>
+            `;
+            DOM.resultsTableBody.appendChild(tr);
+        });
+    }
+}
 
 // Render Grid of Drivers
 function renderDriversGrid() {
@@ -1080,6 +1248,74 @@ function renderStintsTimeline(driverNumber) {
     });
 }
 
+// Parse Safety Car (SC) and Virtual Safety Car (VSC) periods from race control messages
+function extractSafetyCarPeriods(records) {
+    if (!records || !Array.isArray(records)) return [];
+    
+    // Sort records by date to process chronologically
+    const sorted = [...records].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    
+    const periods = [];
+    let currentType = null; // 'SC' or 'VSC'
+    let startLap = null;
+    
+    for (const r of sorted) {
+        const msg = (r.message || '').toUpperCase();
+        const lap = r.lap_number;
+        if (lap === null || lap === undefined) continue;
+        
+        // VSC Start
+        if (msg.includes("VSC DEPLOYED")) {
+            if (currentType && currentType !== "VSC") {
+                periods.push({ type: currentType, start: startLap, end: lap });
+            }
+            currentType = "VSC";
+            startLap = lap;
+        }
+        // VSC End
+        else if (msg.includes("VSC ENDING") || msg.includes("VSC TERMINATED")) {
+            if (currentType === "VSC") {
+                periods.push({ type: "VSC", start: startLap, end: lap });
+                currentType = null;
+                startLap = null;
+            }
+        }
+        // SC Start
+        else if (msg.includes("SAFETY CAR DEPLOYED")) {
+            if (currentType && currentType !== "SC") {
+                periods.push({ type: currentType, start: startLap, end: lap });
+            }
+            currentType = "SC";
+            startLap = lap;
+        }
+        // SC End
+        else if (msg.includes("SAFETY CAR IN THIS LAP") || msg.includes("SAFETY CAR IN")) {
+            if (currentType === "SC") {
+                periods.push({ type: "SC", start: startLap, end: lap });
+                currentType = null;
+                startLap = null;
+            }
+        }
+        // Red Flag / Aborted
+        else if (msg.includes("SESSION ABORTED") || msg.includes("RED FLAG")) {
+            if (currentType) {
+                periods.push({ type: currentType, start: startLap, end: lap });
+                currentType = null;
+                startLap = null;
+            }
+        }
+    }
+    
+    if (currentType && startLap !== null) {
+        const maxLap = records.reduce((max, r) => {
+            return (r.lap_number !== null && r.lap_number !== undefined && r.lap_number > max) ? r.lap_number : max;
+        }, startLap);
+        periods.push({ type: currentType, start: startLap, end: maxLap });
+    }
+    
+    return periods;
+}
+
 // Render SVG Timing Chart
 function renderLapChart(laps) {
     if (!DOM.lapsChartContainer) return;
@@ -1120,7 +1356,7 @@ function renderLapChart(laps) {
 
     // Chart margins and sizes
     const width = DOM.lapsChartContainer.clientWidth || 800;
-    const height = 220;
+    const height = 320;
     const padding = { top: 20, right: 30, bottom: 30, left: 55 };
     
     const chartWidth = width - padding.left - padding.right;
@@ -1213,6 +1449,65 @@ function renderLapChart(laps) {
     yAxis.setAttribute("class", "chart-axis-line");
     svg.appendChild(yAxis);
 
+    // Draw Safety Car & VSC Zones
+    const safetyCarPeriods = extractSafetyCarPeriods(state.raceControl);
+    safetyCarPeriods.forEach(period => {
+        // Clamp to chart boundaries
+        const start = Math.max(period.start, minLap);
+        const end = Math.min(period.end, maxLap);
+        if (start > end) return;
+        
+        const xStart = getX(start);
+        const xEnd = getX(end);
+        let width = xEnd - xStart;
+        if (width <= 0) width = 2; // thin line if single lap deployment
+        
+        const isVSC = period.type === 'VSC';
+        
+        // 1. Shading
+        const rect = document.createElementNS(svgNamespace, "rect");
+        rect.setAttribute("x", xStart);
+        rect.setAttribute("y", padding.top);
+        rect.setAttribute("width", width);
+        rect.setAttribute("height", chartHeight);
+        rect.setAttribute("class", isVSC ? "chart-vsc-shading" : "chart-safety-car-shading");
+        svg.appendChild(rect);
+        
+        // 2. Boundary Lines (left and right)
+        const lineLeft = document.createElementNS(svgNamespace, "line");
+        lineLeft.setAttribute("x1", xStart);
+        lineLeft.setAttribute("y1", padding.top);
+        lineLeft.setAttribute("x2", xStart);
+        lineLeft.setAttribute("y2", padding.top + chartHeight);
+        lineLeft.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+        svg.appendChild(lineLeft);
+        
+        if (xEnd > xStart) {
+            const lineRight = document.createElementNS(svgNamespace, "line");
+            lineRight.setAttribute("x1", xEnd);
+            lineRight.setAttribute("y1", padding.top);
+            lineRight.setAttribute("x2", xEnd);
+            lineRight.setAttribute("y2", padding.top + chartHeight);
+            lineRight.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+            svg.appendChild(lineRight);
+        }
+        
+        // 3. Label Text
+        let labelText = isVSC ? "VSC" : "Safety Car";
+        if (!isVSC && width < 50) {
+            labelText = "SC";
+        }
+        if (width > 12) {
+            const text = document.createElementNS(svgNamespace, "text");
+            text.setAttribute("x", xStart + width / 2);
+            text.setAttribute("y", padding.top + 15);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("class", isVSC ? "chart-vsc-text" : "chart-safety-car-text");
+            text.textContent = labelText;
+            svg.appendChild(text);
+        }
+    });
+
     // Build path points
     let points = [];
     plottableLaps.forEach(lap => {
@@ -1293,7 +1588,7 @@ function renderLapChart(laps) {
                     <span style="color:var(--text-muted)">S3:</span>
                     <span>${lap.duration_sector_3 ? lap.duration_sector_3.toFixed(3) + 's' : '--'}</span>
                 </div>
-                ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT LAP)</div>' : ''}
+                ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT/SLOW LAP)</div>' : ''}
             `;
             
             const rect = DOM.lapsChartContainer.getBoundingClientRect();
