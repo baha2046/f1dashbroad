@@ -1148,7 +1148,8 @@ body {
     display: flex;
     height: 48px;
     border-radius: 8px;
-    overflow: hidden;
+    /* Allow stint tooltips to overflow above the timeline instead of being clipped */
+    overflow: visible;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border-color);
 }
@@ -1169,6 +1170,17 @@ body {
 
 .stint-segment:last-child {
     border-right: none;
+}
+
+/* Preserve rounded corners now that the timeline no longer clips with overflow:hidden */
+.stint-segment:first-child {
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+}
+
+.stint-segment:last-child {
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
 }
 
 /* Tire compound colors standard F1 */
@@ -1928,4 +1940,263 @@ body {
     font-size: 13px;
     max-width: 320px;
     line-height: 1.5;
+}
+
+/* Warning Alert Banner */
+.alert-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    margin: 16px 24px 0 24px;
+    background: rgba(255, 179, 0, 0.08);
+    border: 1px solid rgba(255, 179, 0, 0.25);
+    border-radius: 12px;
+    gap: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.alert-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1 1 300px;
+}
+
+.alert-icon {
+    color: #ffb300;
+    font-size: 24px;
+}
+
+.alert-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+.alert-text strong {
+    color: #ffc107;
+    margin-right: 4px;
+}
+
+.alert-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.alert-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-decoration: none;
+}
+
+.sponsor-btn {
+    background: #ffb300;
+    color: #060609;
+    border: none;
+}
+
+.sponsor-btn:hover {
+    background: #ffa000;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255, 160, 0, 0.3);
+}
+
+.secondary-btn {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: var(--border-color-hover);
+}
+
+.alert-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    transition: color var(--transition-fast);
+}
+
+.alert-close:hover {
+    color: var(--text-primary);
+}
+
+/* Sidebar Footer & API Settings Panel */
+.sidebar-footer {
+    border-top: 1px solid var(--border-color);
+    background: rgba(10, 10, 15, 0.95);
+    padding: 12px 24px;
+    z-index: 11;
+}
+
+.api-status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    padding: 8px 0;
+    transition: color var(--transition-fast);
+    user-select: none;
+}
+
+.api-status-bar:hover {
+    color: var(--text-primary);
+}
+
+.api-status-bar .status-icon {
+    font-size: 18px;
+    color: var(--text-muted);
+    transition: color var(--transition-fast);
+}
+
+.api-status-bar:hover .status-icon {
+    color: var(--accent-red);
+}
+
+.api-status-bar.active .status-icon {
+    color: #4caf50;
+}
+
+.api-status-bar.active .status-text {
+    color: #4caf50;
+}
+
+.api-status-bar .status-text {
+    flex: 1;
+    margin-left: 10px;
+    font-weight: 500;
+}
+
+.api-status-bar .toggle-icon {
+    font-size: 18px;
+    transition: transform var(--transition-normal);
+}
+
+.api-status-bar.open .toggle-icon {
+    transform: rotate(180deg);
+}
+
+.api-settings-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    margin-top: 4px;
+    animation: slideDown 0.25s ease-out;
+}
+
+.api-settings-desc {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.api-key-input-wrapper {
+    display: flex;
+    gap: 8px;
+}
+
+.api-key-input-wrapper input {
+    flex: 1;
+    background: var(--bg-control);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: all var(--transition-fast);
+}
+
+.api-key-input-wrapper input:focus {
+    outline: none;
+    border-color: var(--accent-red);
+    box-shadow: 0 0 0 2px rgba(255, 24, 1, 0.15);
+}
+
+.api-key-input-wrapper button {
+    background: var(--accent-red);
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.api-key-input-wrapper button:hover {
+    background: #e01500;
+    box-shadow: 0 4px 12px var(--accent-red-glow);
+}
+
+.api-settings-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.sponsor-link {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #ffb300;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color var(--transition-fast);
+}
+
+.sponsor-link:hover {
+    color: #ffa000;
+    text-decoration: underline;
+}
+
+.sponsor-link .material-icons-round {
+    font-size: 14px;
+}
+
+.text-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    font-size: 12px;
+    transition: color var(--transition-fast);
+}
+
+.text-btn:hover {
+    color: var(--accent-red);
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }

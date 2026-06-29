@@ -45,13 +45,36 @@ def is_historical(session):
     except Exception:
         return False
 
-async def fetch_url(url: str):
+class OpenF1AuthError(Exception):
+    def __init__(self, message, status_code=403):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+async def fetch_url(url: str, api_key: str = None):
+    headers = {}
+    if not api_key:
+        api_key = os.environ.get("OPENF1_API_KEY")
+        
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["x-api-key"] = api_key
+        headers["api-key"] = api_key
+        headers["apikey"] = api_key
+        
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, timeout=15.0)
+        response = await client.get(url, headers=headers, timeout=15.0)
+        if response.status_code in (401, 403):
+            try:
+                error_data = response.json()
+                if isinstance(error_data, dict) and "detail" in error_data:
+                    raise OpenF1AuthError(error_data["detail"], response.status_code)
+            except Exception:
+                pass
         response.raise_for_status()
         return response.json()
 
-async def get_cached_api(url: str, cache_name: str, session_key=None, year=2026):
+async def get_cached_api(url: str, cache_name: str, session_key=None, year=2026, api_key: str = None):
     cache_path = os.path.join(CACHE_DIR, cache_name)
     
     # Determine TTL
@@ -80,10 +103,12 @@ async def get_cached_api(url: str, cache_name: str, session_key=None, year=2026)
                 
     # Fetch from API
     try:
-        data = await fetch_url(url)
+        data = await fetch_url(url, api_key=api_key)
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
         return data
+    except OpenF1AuthError as e:
+        raise e
     except Exception as e:
         print(f"Error fetching {url}: {e}")
         # Try to fallback to stale cache
@@ -123,6 +148,13 @@ async def get_cached_circuit_info(url: str, cache_name: str):
                 pass
         return None
 
+@app.errorhandler(OpenF1AuthError)
+async def handle_openf1_auth_error(error):
+    return jsonify({
+        "error": "live_session_restriction",
+        "detail": error.message
+    }), error.status_code
+
 @app.route("/api/meetings")
 async def api_meetings():
     meeting_key = request.args.get("meeting_key")
@@ -132,7 +164,8 @@ async def api_meetings():
     url = f"https://api.openf1.org/v1/meetings?meeting_key={meeting_key}"
     cache_name = f"meetings_{meeting_key}.json"
     
-    meeting_data = await get_cached_api(url, cache_name)
+    api_key = request.headers.get("X-OpenF1-Key")
+    meeting_data = await get_cached_api(url, cache_name, api_key=api_key)
     
     if not meeting_data:
         return jsonify({"error": "Meeting not found"}), 404
@@ -167,7 +200,8 @@ async def api_sessions():
     year = request.args.get("year", "2026")
     url = f"https://api.openf1.org/v1/sessions?year={year}"
     cache_name = f"sessions_{year}.json"
-    data = await get_cached_api(url, cache_name, year=year)
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, year=year, api_key=api_key)
     return jsonify(data)
 
 @app.route("/api/drivers")
@@ -178,7 +212,8 @@ async def api_drivers():
     
     url = f"https://api.openf1.org/v1/drivers?session_key={session_key}"
     cache_name = f"drivers_{session_key}.json"
-    data = await get_cached_api(url, cache_name, session_key=session_key)
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
 @app.route("/api/weather")
@@ -189,7 +224,8 @@ async def api_weather():
         
     url = f"https://api.openf1.org/v1/weather?session_key={session_key}"
     cache_name = f"weather_{session_key}.json"
-    data = await get_cached_api(url, cache_name, session_key=session_key)
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
 @app.route("/api/laps")
@@ -206,7 +242,8 @@ async def api_laps():
         url = f"https://api.openf1.org/v1/laps?session_key={session_key}"
         cache_name = f"laps_{session_key}.json"
         
-    data = await get_cached_api(url, cache_name, session_key=session_key)
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
 @app.route("/api/stints")
@@ -217,7 +254,8 @@ async def api_stints():
         
     url = f"https://api.openf1.org/v1/stints?session_key={session_key}"
     cache_name = f"stints_{session_key}.json"
-    data = await get_cached_api(url, cache_name, session_key=session_key)
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
 @app.route("/api/results")
@@ -228,7 +266,8 @@ async def api_results():
         
     url = f"https://api.openf1.org/v1/session_result?session_key={session_key}"
     cache_name = f"results_{session_key}.json"
-    data = await get_cached_api(url, cache_name, session_key=session_key)
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
 @app.route("/api/race_control")
@@ -239,7 +278,8 @@ async def api_race_control():
         
     url = f"https://api.openf1.org/v1/race_control?session_key={session_key}"
     cache_name = f"race_control_{session_key}.json"
-    data = await get_cached_api(url, cache_name, session_key=session_key)
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
 if __name__ == "__main__":

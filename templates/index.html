@@ -73,10 +73,48 @@
                     <p>Loading sessions...</p>
                 </div>
             </nav>
+            
+            <!-- API Key Settings Section -->
+            <div class="sidebar-footer">
+                <div class="api-status-bar" id="apiStatusBar">
+                    <span class="material-icons-round status-icon">vpn_key</span>
+                    <span class="status-text" id="apiStatusText">API Status: Free</span>
+                    <span class="material-icons-round toggle-icon" id="apiSettingsArrow">expand_less</span>
+                </div>
+                <div class="api-settings-panel" id="apiSettingsPanel" style="display: none;">
+                    <p class="api-settings-desc">During live sessions, access to OpenF1 is restricted. Enter an API key to bypass restrictions.</p>
+                    <div class="api-key-input-wrapper">
+                        <input type="password" id="openF1ApiKeyInput" placeholder="Paste your API key here..." aria-label="OpenF1 API Key">
+                        <button class="primary-btn" id="openF1ApiKeySaveBtn">Save</button>
+                    </div>
+                    <div class="api-settings-actions">
+                        <a href="https://buy.stripe.com/eVqcN41BPekP0iIalBcEw02" target="_blank" class="sponsor-link">
+                            <span class="material-icons-round">favorite</span> Get API Key
+                        </a>
+                        <button class="text-btn" id="openF1ApiKeyClearBtn" style="display: none;">Clear Key</button>
+                    </div>
+                </div>
+            </div>
         </aside>
 
         <!-- Main Content Area -->
         <main class="main-content">
+            <!-- Warning Banner for Live Session Restriction -->
+            <div class="alert-banner" id="liveRestrictionBanner" style="display: none;">
+                <div class="alert-banner-content">
+                    <span class="material-icons-round alert-icon">warning</span>
+                    <div class="alert-text">
+                        <strong>Live Session Restriction:</strong>
+                        <span id="liveRestrictionMessage">OpenF1 access is restricted to authenticated users during live races.</span>
+                    </div>
+                </div>
+                <div class="alert-actions">
+                    <a href="https://buy.stripe.com/eVqcN41BPekP0iIalBcEw02" target="_blank" class="alert-btn sponsor-btn">Get API Key</a>
+                    <button class="alert-btn secondary-btn" id="liveRestrictionEnterKeyBtn">Enter API Key</button>
+                    <button class="alert-close" id="liveRestrictionCloseBtn" aria-label="Close warning banner">&times;</button>
+                </div>
+            </div>
+
             <!-- Empty state -->
             <div class="empty-state" id="emptyState">
                 <span class="material-icons-round empty-icon">sports_score</span>
@@ -189,7 +227,7 @@
                             <div class="laps-data" id="lapsData" style="display: none;">
                                 <div class="driver-profile-header">
                                     <div class="driver-profile-avatar-container">
-                                        <img id="statsDriverHeadshot" src="https://media.formula1.com/d_driver_fallback_image.png" class="driver-profile-avatar" alt="Driver Headshot" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
+                                        <img id="statsDriverHeadshot" src="https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/" class="driver-profile-avatar" alt="Driver Headshot" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/'">
                                     </div>
                                     <div class="driver-color-bar" id="statsColorBar"></div>
                                     <div class="driver-profile-text">

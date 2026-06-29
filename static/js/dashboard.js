@@ -148,9 +148,121 @@ const DOM = {
     tabViews: document.querySelectorAll('.tab-view')
 };
 
+// Wrap standard fetch to include X-OpenF1-Key header and catch 403 live restrictions
+async function customFetch(url, options = {}) {
+    const apiKey = localStorage.getItem('openf1_api_key');
+    if (apiKey) {
+        options.headers = {
+            ...options.headers,
+            'X-OpenF1-Key': apiKey
+        };
+    }
+    
+    try {
+        const response = await fetch(url, options);
+        console.log(response);
+        
+        if (response.status === 403 || response.status === 401) {
+            try {
+                const clone = response.clone();
+                const errData = await clone.json();
+                if (errData && errData.error === 'live_session_restriction') {
+                    showLiveRestrictionBanner(errData.detail || 'Access restricted during live F1 session.');
+                }
+            } catch (e) {
+                console.error('Error parsing restriction details:', e);
+            }
+        } else if (response.ok) {
+            hideLiveRestrictionBanner();
+        }
+        
+        return response;
+    } catch (error) {
+        console.error('Fetch error:', error);
+        throw error;
+    }
+}
+
+function showLiveRestrictionBanner(message) {
+    if (DOM.liveRestrictionBanner) {
+        DOM.liveRestrictionBanner.style.display = 'flex';
+    }
+    if (DOM.liveRestrictionMessage) {
+        DOM.liveRestrictionMessage.textContent = message;
+    }
+}
+
+function hideLiveRestrictionBanner() {
+    if (DOM.liveRestrictionBanner) {
+        DOM.liveRestrictionBanner.style.display = 'none';
+    }
+}
+
+function toggleApiSettingsPanel() {
+    if (!DOM.apiSettingsPanel) return;
+    const isHidden = DOM.apiSettingsPanel.style.display === 'none';
+    DOM.apiSettingsPanel.style.display = isHidden ? 'flex' : 'none';
+    
+    if (DOM.apiStatusBar) {
+        DOM.apiStatusBar.classList.toggle('open', isHidden);
+    }
+}
+
+function updateApiStatusBarUI() {
+    const apiKey = localStorage.getItem('openf1_api_key');
+    if (DOM.apiStatusText) {
+        DOM.apiStatusText.textContent = apiKey ? 'API Status: Active Key' : 'API Status: Free';
+    }
+    if (DOM.apiStatusBar) {
+        DOM.apiStatusBar.classList.toggle('active', !!apiKey);
+    }
+    if (DOM.openF1ApiKeyInput) {
+        DOM.openF1ApiKeyInput.value = apiKey || '';
+    }
+    if (DOM.openF1ApiKeyClearBtn) {
+        DOM.openF1ApiKeyClearBtn.style.display = apiKey ? 'inline-block' : 'none';
+    }
+}
+
+function saveApiKey() {
+    if (!DOM.openF1ApiKeyInput) return;
+    const key = DOM.openF1ApiKeyInput.value.trim();
+    if (key) {
+        localStorage.setItem('openf1_api_key', key);
+        updateApiStatusBarUI();
+        hideLiveRestrictionBanner();
+        loadSessions(state.selectedYear, true);
+    }
+}
+
+function clearApiKey() {
+    localStorage.removeItem('openf1_api_key');
+    updateApiStatusBarUI();
+    loadSessions(state.selectedYear, true);
+}
+
+// Global scope bindings for inline calls
+window.toggleApiSettingsPanel = toggleApiSettingsPanel;
+window.saveApiKey = saveApiKey;
+window.clearApiKey = clearApiKey;
+
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
+    // Select elements that were dynamically added to the index.html
+    DOM.liveRestrictionBanner = document.getElementById('liveRestrictionBanner');
+    DOM.liveRestrictionMessage = document.getElementById('liveRestrictionMessage');
+    DOM.liveRestrictionEnterKeyBtn = document.getElementById('liveRestrictionEnterKeyBtn');
+    DOM.liveRestrictionCloseBtn = document.getElementById('liveRestrictionCloseBtn');
+    DOM.apiStatusBar = document.getElementById('apiStatusBar');
+    DOM.apiStatusText = document.getElementById('apiStatusText');
+    DOM.apiSettingsArrow = document.getElementById('apiSettingsArrow');
+    DOM.apiSettingsPanel = document.getElementById('apiSettingsPanel');
+    DOM.openF1ApiKeyInput = document.getElementById('openF1ApiKeyInput');
+    DOM.openF1ApiKeySaveBtn = document.getElementById('openF1ApiKeySaveBtn');
+    DOM.openF1ApiKeyClearBtn = document.getElementById('openF1ApiKeyClearBtn');
+
     setupEventListeners();
+    updateApiStatusBarUI();
     loadSessions(state.selectedYear, true);
 });
 
@@ -219,6 +331,38 @@ function setupEventListeners() {
             state.currentTab = targetTab;
         });
     });
+
+    // API Settings Toggle Click
+    if (DOM.apiStatusBar) {
+        DOM.apiStatusBar.addEventListener('click', toggleApiSettingsPanel);
+    }
+    
+    // Save Key Click
+    if (DOM.openF1ApiKeySaveBtn) {
+        DOM.openF1ApiKeySaveBtn.addEventListener('click', saveApiKey);
+    }
+    
+    // Clear Key Click
+    if (DOM.openF1ApiKeyClearBtn) {
+        DOM.openF1ApiKeyClearBtn.addEventListener('click', clearApiKey);
+    }
+    
+    // Banner Enter Key Click
+    if (DOM.liveRestrictionEnterKeyBtn) {
+        DOM.liveRestrictionEnterKeyBtn.addEventListener('click', () => {
+            if (DOM.apiSettingsPanel && DOM.apiSettingsPanel.style.display === 'none') {
+                toggleApiSettingsPanel();
+            }
+            if (DOM.openF1ApiKeyInput) {
+                DOM.openF1ApiKeyInput.focus();
+            }
+        });
+    }
+    
+    // Banner Close Click
+    if (DOM.liveRestrictionCloseBtn) {
+        DOM.liveRestrictionCloseBtn.addEventListener('click', hideLiveRestrictionBanner);
+    }
 }
 
 // Helper: Find the latest race event relative to current time
@@ -259,7 +403,7 @@ async function loadSessions(year, autoFocus = false) {
     hideDashboard();
 
     try {
-        const response = await fetch(`/api/sessions?year=${year}`);
+        const response = await customFetch(`/api/sessions?year=${year}`);
         if (!response.ok) throw new Error('Failed to fetch sessions');
         
         state.sessions = await response.json();
@@ -447,12 +591,12 @@ async function selectSession(session) {
     try {
         // Fetch drivers list, weather, stints, meeting, results, and race control concurrently
         const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes] = await Promise.all([
-            fetch(`/api/drivers?session_key=${session.session_key}`),
-            fetch(`/api/weather?session_key=${session.session_key}`),
-            fetch(`/api/meetings?meeting_key=${session.meeting_key}`),
-            fetch(`/api/stints?session_key=${session.session_key}`),
-            fetch(`/api/results?session_key=${session.session_key}`),
-            fetch(`/api/race_control?session_key=${session.session_key}`)
+            customFetch(`/api/drivers?session_key=${session.session_key}`),
+            customFetch(`/api/weather?session_key=${session.session_key}`),
+            customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
+            customFetch(`/api/stints?session_key=${session.session_key}`),
+            customFetch(`/api/results?session_key=${session.session_key}`),
+            customFetch(`/api/race_control?session_key=${session.session_key}`)
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -471,22 +615,15 @@ async function selectSession(session) {
             state.stints = await stintsRes.json();
         }
 
-        if (resultsRes && resultsRes.ok) {
-            try {
-                state.results = await resultsRes.json();
-            } catch (e) {
-                console.error('Error parsing results:', e);
-            }
+        if (resultsRes.ok) {
+            state.results = await resultsRes.json();
         }
 
-        if (raceControlRes && raceControlRes.ok) {
-            try {
-                state.raceControl = await raceControlRes.json();
-            } catch (e) {
-                console.error('Error parsing race control:', e);
-            }
+        if (raceControlRes.ok) {
+            state.raceControl = await raceControlRes.json();
         }
 
+        // Render dashboard components
         renderSessionHeader();
         renderWeather();
         renderDriversGrid();
@@ -497,8 +634,8 @@ async function selectSession(session) {
         // Hide empty state and show dashboard content
         DOM.emptyState.style.display = 'none';
         DOM.dashboardContent.style.display = 'flex';
-
-        // Auto-select the first driver in the sidebar list
+        
+        // Auto-select first driver for lap stats view if available
         if (state.drivers && state.drivers.length > 0) {
             const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
             if (sortedDrivers.length > 0) {
@@ -507,7 +644,10 @@ async function selectSession(session) {
         }
     } catch (error) {
         console.error(error);
-        alert('Error loading session details.');
+        const banner = document.getElementById('liveRestrictionBanner');
+        if (!banner || banner.style.display !== 'flex') {
+            alert('Error loading session details.');
+        }
         hideDashboard();
     }
 }
@@ -534,7 +674,7 @@ function showCancelledSessionState(session) {
 // Fetch stunts for selected session
 async function fetchStints(sessionKey) {
     try {
-        const response = await fetch(`/api/stints?session_key=${sessionKey}`);
+        const response = await customFetch(`/api/stints?session_key=${sessionKey}`);
         if (response.ok) {
             state.stints = await response.json();
         }
@@ -548,7 +688,7 @@ async function fetchDriverLaps(sessionKey, driverNumber) {
     if (state.laps[driverNumber]) return state.laps[driverNumber];
     
     try {
-        const response = await fetch(`/api/laps?session_key=${sessionKey}&driver_number=${driverNumber}`);
+        const response = await customFetch(`/api/laps?session_key=${sessionKey}&driver_number=${driverNumber}`);
         if (response.ok) {
             const laps = await response.json();
             // Sort laps chronologically
@@ -559,7 +699,7 @@ async function fetchDriverLaps(sessionKey, driverNumber) {
     } catch (e) {
         console.error(`Error fetching laps for driver ${driverNumber}:`, e);
     }
-    return [];
+    return null;
 }
 
 // Render session header
@@ -893,7 +1033,7 @@ function renderResultsTab() {
                 <td>
                     <div class="results-driver-cell">
                         <div class="results-team-color-indicator" style="background: #${teamHex};"></div>
-                        <img src="${(driver.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png').replace('.transform/1col/image.png', '')}" class="results-driver-avatar" alt="${driver.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
+                        <img src="${(driver.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/').replace('.transform/1col/image.png', '')}" class="results-driver-avatar" alt="${driver.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/'">
                         <div class="results-driver-info">
                             <span class="results-driver-name">${driver.first_name} ${driver.last_name}</span>
                             <span class="results-driver-team">${driver.team_name || 'Independent'}</span>
@@ -946,7 +1086,7 @@ function renderDriversGrid() {
         card.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.2)`);
 
         // Handle Fallback Headshots
-        const headshot = d.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png';
+        const headshot = d.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/';
 
         card.innerHTML = `
             <div class="driver-card-top">
@@ -959,7 +1099,7 @@ function renderDriversGrid() {
             </div>
             <div class="driver-watermark-number">${d.driver_number}</div>
             <div class="driver-headshot-container">
-                <img src="${headshot.replace('.transform/1col/image.png', '')}" class="driver-headshot" alt="${d.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png'">
+                <img src="${headshot.replace('.transform/1col/image.png', '')}" class="driver-headshot" alt="${d.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/'">
             </div>
         `;
 
@@ -1046,7 +1186,7 @@ async function selectDriverForStats(driverNumber) {
         DOM.statsDriverNumber.style.color = `#${teamHex}`;
         
         // Load driver avatar image
-        const headshot = d.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png';
+        const headshot = d.headshot_url || "";//'https://media.formula1.com/d_driver_fallback_image.png';
         DOM.statsDriverHeadshot.src = headshot.replace('.transform/1col/image.png', '');
         DOM.statsDriverHeadshot.style.setProperty('--team-color', `#${teamHex}`);
         const rgb = getRGBColor(teamHex);
