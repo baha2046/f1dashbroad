@@ -185,6 +185,9 @@
                     <button class="tab-btn" id="tab-laps" data-tab="laps-view">
                         <span class="material-icons-round">timer</span> Laps & Stints
                     </button>
+                    <button class="tab-btn" id="tab-compare" data-tab="compare-view">
+                        <span class="material-icons-round">stacked_line_chart</span> Compare
+                    </button>
                     <button class="tab-btn" id="tab-results" data-tab="results-view">
                         <span class="material-icons-round">emoji_events</span> Results
                     </button>
@@ -299,6 +302,41 @@
                                             </tbody>
                                         </table>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Compare View -->
+                <section class="tab-view" id="compare-view" aria-label="Compare driver lap time progression">
+                    <div class="compare-layout">
+                        <nav class="compare-sidebar" aria-label="Select drivers to compare">
+                            <div class="compare-sidebar-header">
+                                <h4>Select Drivers</h4>
+                                <span id="compareSelectedCount" class="compare-selected-count">0 selected</span>
+                            </div>
+                            <div class="compare-driver-pills" id="compareDriverList">
+                                <!-- Loaded dynamically -->
+                            </div>
+                        </nav>
+
+                        <div class="compare-content glass">
+                            <div class="compare-header">
+                                <h3>Lap Time Progression Compare</h3>
+                                <label class="chart-toggle-wrapper">
+                                    <input type="checkbox" id="compareHideOutliers" checked>
+                                    <span class="toggle-text">Filter Pit/Slow Laps</span>
+                                </label>
+                            </div>
+
+                            <div class="compare-legend" id="compareLegend">
+                                <!-- Loaded dynamically -->
+                            </div>
+
+                            <div class="compare-chart-shell">
+                                <div id="compareChartContainer">
+                                    <!-- SVG comparison chart generated dynamically -->
                                 </div>
                             </div>
                         </div>

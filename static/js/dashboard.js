@@ -11,6 +11,7 @@ const state = {
     raceControl: [],
     laps: {}, // map of driverNumber -> laps array
     selectedDriverStats: null,
+    selectedCompareDrivers: [],
     currentMeeting: null,
     currentTab: 'drivers-view'
 };
@@ -50,6 +51,11 @@ function getRGBColor(hex) {
     const g = (num >> 8) & 255;
     const b = num & 255;
     return `${r}, ${g}, ${b}`;
+}
+
+function getDriverTeamHex(driver, fallback = '787878') {
+    if (!driver) return fallback;
+    return (driver.team_colour || TEAM_COLORS[(driver.team_name || '').toLowerCase()] || fallback).replace('#', '');
 }
 
 // Helper: Format lap times (e.g., 90.5 -> 1:30.500)
@@ -145,6 +151,13 @@ const DOM = {
     chartHideOutliers: document.getElementById('chartHideOutliers'),
     lapsChartContainer: document.getElementById('lapsChartContainer'),
     lapsTableBody: document.getElementById('lapsTableBody'),
+
+    // Compare Section
+    compareDriverList: document.getElementById('compareDriverList'),
+    compareChartContainer: document.getElementById('compareChartContainer'),
+    compareLegend: document.getElementById('compareLegend'),
+    compareHideOutliers: document.getElementById('compareHideOutliers'),
+    compareSelectedCount: document.getElementById('compareSelectedCount'),
     
     // Circuit Details elements
     circuitOfficialName: document.getElementById('circuitOfficialName'),
@@ -341,6 +354,10 @@ function setupEventListeners() {
                 renderLapChart(state.laps[state.selectedDriverStats]);
             }
         });
+    }
+
+    if (DOM.compareHideOutliers) {
+        DOM.compareHideOutliers.addEventListener('change', renderCompareLapChart);
     }
 
     // Dashboard Tabs Toggle
@@ -603,6 +620,7 @@ async function selectSession(session) {
     state.raceControl = [];
     state.laps = {};
     state.selectedDriverStats = null;
+    state.selectedCompareDrivers = [];
     state.currentMeeting = null;
     
     // If the session was cancelled, show the custom cancelled view and stop
@@ -654,6 +672,8 @@ async function selectSession(session) {
         renderWeather();
         renderDriversGrid();
         renderLapsDriverSidebar();
+        renderCompareDriverSelector();
+        renderCompareLapChart();
         renderCircuitTab();
         renderResultsTab();
         renderRaceControlFeed();
@@ -1245,6 +1265,393 @@ function renderLapsDriverSidebar() {
         
         DOM.lapsDriverList.appendChild(pill);
     });
+}
+
+function renderCompareDriverSelector() {
+    if (!DOM.compareDriverList) return;
+
+    DOM.compareDriverList.innerHTML = '';
+
+    const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
+    sortedDrivers.forEach(d => {
+        const driverNumber = Number(d.driver_number);
+        if (Number.isNaN(driverNumber)) return;
+
+        const teamHex = getDriverTeamHex(d);
+        const rgb = getRGBColor(teamHex);
+        const isSelected = state.selectedCompareDrivers.includes(driverNumber);
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = `compare-driver-pill ${isSelected ? 'active' : ''}`;
+        pill.id = `compare-driver-${driverNumber}`;
+        pill.style.setProperty('--team-color', `#${teamHex}`);
+        pill.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.25)`);
+
+        pill.innerHTML = `
+            <span class="compare-driver-code">${escapeHtml(d.name_acronym || d.last_name || driverNumber)}</span>
+            <span class="compare-driver-meta">
+                <span class="pill-team-dot"></span>
+                <span>${driverNumber}</span>
+            </span>
+        `;
+
+        pill.addEventListener('click', () => {
+            toggleCompareDriver(driverNumber);
+        });
+
+        DOM.compareDriverList.appendChild(pill);
+    });
+
+    updateCompareSelectedCount();
+}
+
+function updateCompareSelectedCount() {
+    if (!DOM.compareSelectedCount) return;
+    const count = state.selectedCompareDrivers.length;
+    DOM.compareSelectedCount.textContent = `${count} selected`;
+}
+
+async function toggleCompareDriver(driverNumber) {
+    const normalizedDriverNumber = Number(driverNumber);
+    if (Number.isNaN(normalizedDriverNumber)) return;
+
+    const existingIndex = state.selectedCompareDrivers.indexOf(normalizedDriverNumber);
+    if (existingIndex >= 0) {
+        state.selectedCompareDrivers.splice(existingIndex, 1);
+        renderCompareDriverSelector();
+        renderCompareLapChart();
+        return;
+    }
+
+    state.selectedCompareDrivers.push(normalizedDriverNumber);
+    renderCompareDriverSelector();
+
+    const needsLapData = !state.laps[normalizedDriverNumber];
+    if (needsLapData && DOM.compareChartContainer) {
+        DOM.compareChartContainer.innerHTML = `
+            <div class="loading-state">
+                <div class="spinner"></div>
+                <p>Loading comparison laps...</p>
+            </div>
+        `;
+    }
+
+    if (needsLapData && state.selectedSession) {
+        await fetchDriverLaps(state.selectedSession.session_key, normalizedDriverNumber);
+    }
+
+    renderCompareLapChart();
+}
+
+function renderCompareLegend(selectedDrivers) {
+    if (!DOM.compareLegend) return;
+
+    if (selectedDrivers.length === 0) {
+        DOM.compareLegend.innerHTML = '<span class="compare-legend-empty">No drivers selected</span>';
+        return;
+    }
+
+    DOM.compareLegend.innerHTML = selectedDrivers.map(driver => {
+        const teamHex = getDriverTeamHex(driver);
+        const label = driver.name_acronym || driver.last_name || driver.driver_number;
+        return `
+            <div class="compare-legend-item" style="--team-color: #${teamHex};">
+                <span class="compare-legend-swatch"></span>
+                <span>${escapeHtml(label)}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderCompareEmptyState(icon, title, text) {
+    if (!DOM.compareChartContainer) return;
+    DOM.compareChartContainer.innerHTML = `
+        <div class="compare-empty">
+            <span class="material-icons-round">${icon}</span>
+            <h4>${escapeHtml(title)}</h4>
+            <p>${escapeHtml(text)}</p>
+        </div>
+    `;
+}
+
+function renderCompareLapChart() {
+    if (!DOM.compareChartContainer) return;
+
+    updateCompareSelectedCount();
+
+    const selectedDrivers = state.selectedCompareDrivers
+        .map(driverNumber => state.drivers.find(d => Number(d.driver_number) === Number(driverNumber)))
+        .filter(Boolean);
+
+    renderCompareLegend(selectedDrivers);
+
+    if (selectedDrivers.length === 0) {
+        renderCompareEmptyState('stacked_line_chart', 'No Drivers Selected', 'Select drivers from the list to compare lap time progression.');
+        return;
+    }
+
+    DOM.compareChartContainer.innerHTML = '';
+
+    const hideOutliers = DOM.compareHideOutliers ? DOM.compareHideOutliers.checked : true;
+    const series = selectedDrivers.map(driver => {
+        const driverNumber = Number(driver.driver_number);
+        const validLaps = (state.laps[driverNumber] || [])
+            .filter(lap => (
+                lap.lap_duration &&
+                !Number.isNaN(Number(lap.lap_duration)) &&
+                Number.isFinite(Number(lap.lap_number))
+            ));
+        const durations = validLaps.map(lap => Number(lap.lap_duration));
+        const fastest = durations.length > 0 ? Math.min(...durations) : null;
+        const outlierThreshold = fastest ? fastest * 1.15 : Infinity;
+        let plottableLaps = hideOutliers
+            ? validLaps.filter(lap => Number(lap.lap_duration) <= outlierThreshold)
+            : validLaps;
+
+        if (plottableLaps.length === 0 && validLaps.length > 0) {
+            plottableLaps = validLaps;
+        }
+
+        return {
+            driver,
+            driverNumber,
+            teamHex: getDriverTeamHex(driver),
+            validLaps,
+            plottableLaps,
+            outlierThreshold
+        };
+    }).filter(item => item.validLaps.length > 0);
+
+    if (series.length === 0) {
+        renderCompareEmptyState('query_stats', 'No Lap Times Available', 'The selected drivers do not have lap times recorded for this session.');
+        return;
+    }
+
+    const lapNumbers = series.flatMap(item => item.validLaps.map(lap => Number(lap.lap_number))).filter(Number.isFinite);
+    const plotDurations = series.flatMap(item => item.plottableLaps.map(lap => Number(lap.lap_duration))).filter(Number.isFinite);
+
+    const minLap = Math.min(...lapNumbers);
+    const maxLap = Math.max(...lapNumbers);
+    const minTime = Math.min(...plotDurations);
+    const maxTime = Math.max(...plotDurations);
+
+    const width = DOM.compareChartContainer.clientWidth || 900;
+    const height = 460;
+    const padding = { top: 24, right: 34, bottom: 34, left: 58 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const getX = (lapNum) => {
+        if (maxLap === minLap) return padding.left + chartWidth / 2;
+        return padding.left + ((lapNum - minLap) / (maxLap - minLap)) * chartWidth;
+    };
+
+    const getY = (duration) => {
+        if (maxTime === minTime) return padding.top + chartHeight / 2;
+        return padding.top + chartHeight - ((duration - minTime) / (maxTime - minTime)) * chartHeight;
+    };
+
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.style.overflow = "visible";
+
+    const yGridLines = 4;
+    for (let i = 0; i <= yGridLines; i++) {
+        const tVal = minTime + (i / yGridLines) * (maxTime - minTime);
+        const y = getY(tVal);
+
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", padding.left);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", padding.left + chartWidth);
+        line.setAttribute("y2", y);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", padding.left - 10);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = formatLapTime(tVal);
+        svg.appendChild(text);
+    }
+
+    const xGridLines = Math.min(10, maxLap - minLap + 1);
+    for (let i = 0; i < xGridLines; i++) {
+        const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
+        const x = getX(lapNum);
+
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", padding.top);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", padding.top + chartHeight);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", x);
+        text.setAttribute("y", padding.top + chartHeight + 20);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = `L${lapNum}`;
+        svg.appendChild(text);
+    }
+
+    const xAxis = document.createElementNS(svgNamespace, "line");
+    xAxis.setAttribute("x1", padding.left);
+    xAxis.setAttribute("y1", padding.top + chartHeight);
+    xAxis.setAttribute("x2", padding.left + chartWidth);
+    xAxis.setAttribute("y2", padding.top + chartHeight);
+    xAxis.setAttribute("class", "chart-axis-line");
+    svg.appendChild(xAxis);
+
+    const yAxis = document.createElementNS(svgNamespace, "line");
+    yAxis.setAttribute("x1", padding.left);
+    yAxis.setAttribute("y1", padding.top);
+    yAxis.setAttribute("x2", padding.left);
+    yAxis.setAttribute("y2", padding.top + chartHeight);
+    yAxis.setAttribute("class", "chart-axis-line");
+    svg.appendChild(yAxis);
+
+    const safetyCarPeriods = extractSafetyCarPeriods(state.raceControl);
+    safetyCarPeriods.forEach(period => {
+        const start = Math.max(period.start, minLap);
+        const end = Math.min(period.end, maxLap);
+        if (start > end) return;
+
+        const xStart = getX(start);
+        const xEnd = getX(end);
+        let width = xEnd - xStart;
+        if (width <= 0) width = 2;
+
+        const isVSC = period.type === 'VSC';
+        const rect = document.createElementNS(svgNamespace, "rect");
+        rect.setAttribute("x", xStart);
+        rect.setAttribute("y", padding.top);
+        rect.setAttribute("width", width);
+        rect.setAttribute("height", chartHeight);
+        rect.setAttribute("class", isVSC ? "chart-vsc-shading" : "chart-safety-car-shading");
+        svg.appendChild(rect);
+
+        const lineLeft = document.createElementNS(svgNamespace, "line");
+        lineLeft.setAttribute("x1", xStart);
+        lineLeft.setAttribute("y1", padding.top);
+        lineLeft.setAttribute("x2", xStart);
+        lineLeft.setAttribute("y2", padding.top + chartHeight);
+        lineLeft.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+        svg.appendChild(lineLeft);
+
+        if (xEnd > xStart) {
+            const lineRight = document.createElementNS(svgNamespace, "line");
+            lineRight.setAttribute("x1", xEnd);
+            lineRight.setAttribute("y1", padding.top);
+            lineRight.setAttribute("x2", xEnd);
+            lineRight.setAttribute("y2", padding.top + chartHeight);
+            lineRight.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+            svg.appendChild(lineRight);
+        }
+
+        if (width > 12) {
+            const text = document.createElementNS(svgNamespace, "text");
+            text.setAttribute("x", xStart + width / 2);
+            text.setAttribute("y", padding.top + 15);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("class", isVSC ? "chart-vsc-text" : "chart-safety-car-text");
+            text.textContent = isVSC ? "VSC" : (width < 50 ? "SC" : "Safety Car");
+            svg.appendChild(text);
+        }
+    });
+
+    let tooltip = document.querySelector(".chart-tooltip");
+    if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.className = "chart-tooltip";
+        tooltip.style.display = "none";
+        document.body.appendChild(tooltip);
+    }
+
+    series.forEach(item => {
+        const rgb = getRGBColor(item.teamHex);
+        const points = item.plottableLaps.map(lap => (
+            `${getX(Number(lap.lap_number)).toFixed(1)},${getY(Number(lap.lap_duration)).toFixed(1)}`
+        ));
+
+        if (points.length > 1) {
+            const path = document.createElementNS(svgNamespace, "path");
+            path.setAttribute("d", `M ${points.join(" L ")}`);
+            path.setAttribute("class", "compare-chart-line");
+            path.style.stroke = `#${item.teamHex}`;
+            path.style.setProperty('--team-color', `#${item.teamHex}`);
+            path.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.35)`);
+            svg.appendChild(path);
+        }
+
+        item.validLaps.forEach(lap => {
+            const isOutlier = hideOutliers && Number(lap.lap_duration) > item.outlierThreshold;
+            const x = getX(Number(lap.lap_number));
+            const y = isOutlier ? padding.top : getY(Number(lap.lap_duration));
+            const circle = document.createElementNS(svgNamespace, "circle");
+            circle.setAttribute("cx", x);
+            circle.setAttribute("cy", y);
+            circle.setAttribute("r", isOutlier ? 3.5 : 4.2);
+            circle.setAttribute("class", isOutlier ? "chart-outlier-dot compare-chart-outlier-dot" : "compare-chart-dot");
+            circle.style.stroke = `#${item.teamHex}`;
+            circle.style.setProperty('--team-color', `#${item.teamHex}`);
+
+            circle.addEventListener("mouseenter", () => {
+                circle.classList.add("active");
+                if (!isOutlier) {
+                    circle.style.fill = `#${item.teamHex}`;
+                }
+
+                const driverLabel = item.driver.name_acronym || item.driver.last_name || item.driver.driver_number;
+                tooltip.style.display = "block";
+                tooltip.innerHTML = `
+                    <div class="chart-tooltip-header">${escapeHtml(driverLabel)} - Lap ${lap.lap_number}</div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span style="color:var(--text-muted)">Time:</span>
+                        <strong style="color:var(--text-primary)">${formatLapTime(Number(lap.lap_duration))}</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:2px;font-size:10px;">
+                        <span style="color:var(--text-muted)">S1:</span>
+                        <span>${lap.duration_sector_1 ? Number(lap.duration_sector_1).toFixed(3) + 's' : '--'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:2px;font-size:10px;">
+                        <span style="color:var(--text-muted)">S2:</span>
+                        <span>${lap.duration_sector_2 ? Number(lap.duration_sector_2).toFixed(3) + 's' : '--'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;">
+                        <span style="color:var(--text-muted)">S3:</span>
+                        <span>${lap.duration_sector_3 ? Number(lap.duration_sector_3).toFixed(3) + 's' : '--'}</span>
+                    </div>
+                    ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT/SLOW LAP)</div>' : ''}
+                `;
+
+                const rect = DOM.compareChartContainer.getBoundingClientRect();
+                const circleX = rect.left + window.scrollX + x;
+                const circleY = rect.top + window.scrollY + y;
+                tooltip.style.left = `${circleX - 80}px`;
+                tooltip.style.top = `${circleY - tooltip.clientHeight - 12}px`;
+            });
+
+            circle.addEventListener("mouseleave", () => {
+                circle.classList.remove("active");
+                if (!isOutlier) {
+                    circle.style.fill = "#0c0c12";
+                }
+                tooltip.style.display = "none";
+            });
+
+            svg.appendChild(circle);
+        });
+    });
+
+    DOM.compareChartContainer.appendChild(svg);
 }
 
 // Select driver and fetch laps & stint details to render analytics

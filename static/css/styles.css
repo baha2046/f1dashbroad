@@ -1498,6 +1498,231 @@ body {
     box-shadow: inset 4px 0 0 var(--team-color, #ff1801);
 }
 
+/* Compare Tab */
+.compare-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+.compare-sidebar {
+    background: rgba(10, 10, 15, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 20px;
+    max-height: 640px;
+    overflow-y: auto;
+}
+
+.compare-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.compare-sidebar h4 {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+}
+
+.compare-selected-count {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.compare-driver-pills {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.compare-driver-pill {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 42px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    padding: 10px 14px;
+    transition: var(--transition-fast);
+}
+
+.compare-driver-pill:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.compare-driver-pill.active {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--team-color, rgba(255, 255, 255, 0.25));
+    box-shadow:
+        inset 4px 0 0 var(--team-color, var(--accent-red)),
+        0 4px 14px var(--team-color-glow, rgba(255, 255, 255, 0.08));
+    color: var(--text-primary);
+}
+
+.compare-driver-code {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+
+.compare-driver-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.compare-content {
+    min-height: 500px;
+    padding: 24px;
+}
+
+.compare-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.compare-header h3 {
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.compare-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 32px;
+    margin-bottom: 16px;
+}
+
+.compare-legend-empty {
+    align-items: center;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 28px;
+}
+
+.compare-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.compare-legend-swatch {
+    width: 18px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--team-color, var(--accent-red));
+    box-shadow: 0 0 10px var(--team-color, var(--accent-red));
+}
+
+.compare-chart-shell {
+    min-height: 396px;
+    padding: 16px 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(10, 10, 15, 0.25);
+    overflow: visible;
+}
+
+#compareChartContainer {
+    width: 100%;
+    height: 460px;
+    position: relative;
+}
+
+.compare-empty {
+    height: 100%;
+    min-height: 420px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.compare-empty span {
+    font-size: 44px;
+    opacity: 0.35;
+}
+
+.compare-empty h4 {
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.compare-empty p {
+    max-width: 340px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.compare-chart-line {
+    fill: none;
+    stroke: var(--team-color, #ff1801);
+    stroke-width: 2.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 5px var(--team-color-glow, rgba(255, 255, 255, 0.25)));
+}
+
+.compare-chart-dot {
+    fill: #0c0c12;
+    stroke: var(--team-color, #ff1801);
+    stroke-width: 2.2;
+    cursor: pointer;
+    transition: r 0.15s ease, fill 0.15s ease, stroke-width 0.15s ease;
+}
+
+.compare-chart-dot:hover,
+.compare-chart-dot.active {
+    fill: var(--team-color, #ff1801);
+    r: 5.8;
+    stroke-width: 3;
+}
+
+.compare-chart-outlier-dot {
+    cursor: pointer;
+}
+
 /* Circuit Details Tab Layout */
 .circuit-layout {
     display: grid;
@@ -1673,22 +1898,29 @@ body {
     .laps-layout {
         grid-template-columns: 1fr;
     }
+
+    .compare-layout {
+        grid-template-columns: 1fr;
+    }
     
     .circuit-layout {
         grid-template-columns: 1fr;
     }
 
     
-    .laps-sidebar {
+    .laps-sidebar,
+    .compare-sidebar {
         max-height: 220px;
     }
     
-    .driver-pills {
+    .driver-pills,
+    .compare-driver-pills {
         flex-direction: row;
         flex-wrap: wrap;
     }
     
-    .driver-pill {
+    .driver-pill,
+    .compare-driver-pill {
         flex: 1 0 calc(33.333% - 8px);
         min-width: 140px;
     }
@@ -1739,8 +1971,14 @@ body {
         align-self: flex-end;
     }
     
-    .driver-pill {
+    .driver-pill,
+    .compare-driver-pill {
         flex: 1 0 calc(50% - 8px);
+    }
+
+    .compare-header {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }
 

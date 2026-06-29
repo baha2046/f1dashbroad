@@ -1,0 +1,36 @@
+import unittest
+from pathlib import Path
+
+
+class CompareTabStaticWiringTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.dashboard_js = (self.root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    def test_dashboard_contains_compare_tab_and_chart_containers(self):
+        self.assertIn('data-tab="compare-view"', self.index_html)
+        self.assertIn('id="compareDriverList"', self.index_html)
+        self.assertIn('id="compareChartContainer"', self.index_html)
+        self.assertIn('id="compareLegend"', self.index_html)
+        self.assertIn('id="compareHideOutliers"', self.index_html)
+
+    def test_dashboard_js_wires_compare_state_and_rendering(self):
+        self.assertIn("selectedCompareDrivers: []", self.dashboard_js)
+        self.assertIn("compareDriverList: document.getElementById('compareDriverList')", self.dashboard_js)
+        self.assertIn("compareChartContainer: document.getElementById('compareChartContainer')", self.dashboard_js)
+        self.assertIn("function renderCompareDriverSelector()", self.dashboard_js)
+        self.assertIn("async function toggleCompareDriver(driverNumber)", self.dashboard_js)
+        self.assertIn("function renderCompareLapChart()", self.dashboard_js)
+
+    def test_compare_tab_has_dedicated_styles(self):
+        self.assertIn(".compare-layout", self.styles_css)
+        self.assertIn(".compare-driver-pill", self.styles_css)
+        self.assertIn(".compare-legend", self.styles_css)
+        self.assertIn("#compareChartContainer", self.styles_css)
+        self.assertIn(".compare-chart-line", self.styles_css)
+
+
+if __name__ == "__main__":
+    unittest.main()
