@@ -78,6 +78,27 @@ function formatDuration(seconds) {
     return `${secs}s`;
 }
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function formatRaceControlTime(dateValue) {
+    if (!dateValue) return '--';
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return '--';
+    return date.toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
 // DOM Selectors
 const DOM = {
     yearSelector: document.getElementById('yearSelector'),
@@ -142,6 +163,11 @@ const DOM = {
     resultsEmptyState: document.getElementById('resultsEmptyState'),
     resultsEmptyTitle: document.getElementById('resultsEmptyTitle'),
     resultsEmptyText: document.getElementById('resultsEmptyText'),
+
+    // Race Control
+    raceControlFeed: document.getElementById('raceControlFeed'),
+    raceControlEmptyState: document.getElementById('raceControlEmptyState'),
+    raceControlSummary: document.getElementById('raceControlSummary'),
     
     // Tabs
     tabButtons: document.querySelectorAll('.tab-btn'),
@@ -630,6 +656,7 @@ async function selectSession(session) {
         renderLapsDriverSidebar();
         renderCircuitTab();
         renderResultsTab();
+        renderRaceControlFeed();
         
         // Hide empty state and show dashboard content
         DOM.emptyState.style.display = 'none';
@@ -1048,6 +1075,80 @@ function renderResultsTab() {
             DOM.resultsTableBody.appendChild(tr);
         });
     }
+}
+
+function getRaceControlType(item) {
+    const message = (item.message || '').toUpperCase();
+    const category = item.category || 'Other';
+    const flag = item.flag || '';
+
+    if (flag) return flag;
+    if (category === 'SafetyCar' || message.includes('SAFETY CAR')) return 'Safety Car';
+    if (category === 'SessionStatus') return 'Session';
+    if (message.includes('PENALTY')) return 'Penalty';
+    if (message.includes('INVESTIGAT')) return 'Investigation';
+    if (message.includes('INCIDENT')) return 'Incident';
+    return category;
+}
+
+function getRaceControlClass(label) {
+    return `race-control-type-${String(label || 'other').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+}
+
+function renderRaceControlFeed() {
+    if (!DOM.raceControlFeed || !DOM.raceControlEmptyState) return;
+
+    if (!state.raceControl || state.raceControl.length === 0) {
+        DOM.raceControlFeed.style.display = 'none';
+        DOM.raceControlEmptyState.style.display = 'flex';
+        if (DOM.raceControlSummary) {
+            DOM.raceControlSummary.textContent = 'No session messages recorded';
+        }
+        return;
+    }
+
+    DOM.raceControlEmptyState.style.display = 'none';
+    DOM.raceControlFeed.style.display = 'flex';
+
+    const sortedMessages = [...state.raceControl].sort((a, b) => {
+        return (b.date || '').localeCompare(a.date || '');
+    });
+
+    if (DOM.raceControlSummary) {
+        const incidentCount = sortedMessages.filter(item => {
+            const msg = (item.message || '').toUpperCase();
+            return msg.includes('INCIDENT') || msg.includes('PENALTY') || msg.includes('INVESTIGAT');
+        }).length;
+        DOM.raceControlSummary.textContent = `${sortedMessages.length} messages, ${incidentCount} incident updates`;
+    }
+
+    DOM.raceControlFeed.innerHTML = sortedMessages.map((item) => {
+        const typeLabel = getRaceControlType(item);
+        const typeClass = getRaceControlClass(typeLabel);
+        const driver = item.driver_number ? state.drivers.find(d => d.driver_number === item.driver_number) : null;
+        const driverLabel = driver ? `${driver.name_acronym || driver.last_name} #${item.driver_number}` : (item.driver_number ? `Car ${item.driver_number}` : '');
+        const metaItems = [
+            item.lap_number !== null && item.lap_number !== undefined ? `Lap ${item.lap_number}` : '',
+            driverLabel,
+            item.scope ? item.scope : '',
+            item.sector !== null && item.sector !== undefined ? `Sector ${item.sector}` : ''
+        ].filter(Boolean);
+
+        return `
+            <article class="race-control-item">
+                <div class="race-control-time">${escapeHtml(formatRaceControlTime(item.date))}</div>
+                <div class="race-control-main">
+                    <div class="race-control-row">
+                        <span class="race-control-type ${typeClass}">${escapeHtml(typeLabel)}</span>
+                        <div class="race-control-meta">
+                            ${metaItems.map(meta => `<span class="race-control-meta-pill">${escapeHtml(meta)}</span>`).join('')}
+                        </div>
+                    </div>
+                    <p class="race-control-message">${escapeHtml(item.message || 'Race control notice')}</p>
+                </div>
+            </article>
+        `;
+    }).join('');
 }
 
 // Render Grid of Drivers

@@ -188,6 +188,9 @@
                     <button class="tab-btn" id="tab-results" data-tab="results-view">
                         <span class="material-icons-round">emoji_events</span> Results
                     </button>
+                    <button class="tab-btn" id="tab-race-control" data-tab="race-control-view">
+                        <span class="material-icons-round">campaign</span> Race Control
+                    </button>
                     <button class="tab-btn" id="tab-circuit" data-tab="circuit-view">
                         <span class="material-icons-round">map</span> Circuit Details
                     </button>
@@ -329,6 +332,26 @@
                             <span class="material-icons-round results-empty-icon">emoji_events</span>
                             <h4 id="resultsEmptyTitle">No Results Available</h4>
                             <p id="resultsEmptyText">Results are not available for this session. It may be upcoming or in progress.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Race Control View -->
+                <section class="tab-view" id="race-control-view" aria-label="Race control incident feed">
+                    <div class="race-control-container">
+                        <div class="race-control-header">
+                            <div>
+                                <h3>Race Control</h3>
+                                <p id="raceControlSummary">Session messages and incident notices</p>
+                            </div>
+                        </div>
+                        <div class="race-control-feed glass" id="raceControlFeed">
+                            <!-- Loaded dynamically -->
+                        </div>
+                        <div id="raceControlEmptyState" class="results-empty glass" style="display: none;">
+                            <span class="material-icons-round results-empty-icon">campaign</span>
+                            <h4>No Race Control Messages</h4>
+                            <p>No race-control notices are available for this session yet.</p>
                         </div>
                     </div>
                 </section>

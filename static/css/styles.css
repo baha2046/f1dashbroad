@@ -769,6 +769,7 @@ body {
 /* Tabs Navigation */
 .dashboard-tabs {
     display: flex;
+    flex-wrap: wrap;
     padding: 6px;
     gap: 4px;
     border-radius: 12px;
@@ -1940,6 +1941,159 @@ body {
     font-size: 13px;
     max-width: 320px;
     line-height: 1.5;
+}
+
+/* Race control incident feed */
+.race-control-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.race-control-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+}
+
+.race-control-header h3 {
+    font-size: 16px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.race-control-header p {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.race-control-feed {
+    display: flex;
+    flex-direction: column;
+    max-height: 620px;
+    overflow-y: auto;
+    border-radius: 12px;
+    background: rgba(18, 18, 26, 0.42);
+}
+
+.race-control-item {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 16px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-color);
+    transition: var(--transition-fast);
+}
+
+.race-control-item:hover {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.race-control-item:last-child {
+    border-bottom: none;
+}
+
+.race-control-time {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding-top: 2px;
+    white-space: nowrap;
+}
+
+.race-control-main {
+    min-width: 0;
+}
+
+.race-control-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.race-control-type {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.race-control-type-yellow,
+.race-control-type-double-yellow {
+    background: rgba(255, 214, 10, 0.12);
+    border-color: rgba(255, 214, 10, 0.28);
+    color: #ffd60a;
+}
+
+.race-control-type-green,
+.race-control-type-clear,
+.race-control-type-chequered {
+    background: rgba(52, 199, 89, 0.11);
+    border-color: rgba(52, 199, 89, 0.24);
+    color: #34c759;
+}
+
+.race-control-type-red,
+.race-control-type-penalty,
+.race-control-type-incident {
+    background: rgba(255, 24, 1, 0.11);
+    border-color: rgba(255, 24, 1, 0.26);
+    color: #ff523d;
+}
+
+.race-control-type-blue,
+.race-control-type-safety-car,
+.race-control-type-investigation {
+    background: rgba(77, 195, 255, 0.1);
+    border-color: rgba(77, 195, 255, 0.24);
+    color: #4dc3ff;
+}
+
+.race-control-type-session {
+    background: rgba(188, 59, 255, 0.12);
+    border-color: rgba(188, 59, 255, 0.26);
+    color: #d06bff;
+}
+
+.race-control-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.race-control-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.race-control-message {
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
 }
 
 /* Warning Alert Banner */
