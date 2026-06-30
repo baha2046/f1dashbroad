@@ -1779,7 +1779,8 @@ body {
     overflow: visible;
 }
 
-#compareChartContainer {
+#compareChartContainer,
+#compareGapChartContainer {
     width: 100%;
     height: 460px;
     position: relative;

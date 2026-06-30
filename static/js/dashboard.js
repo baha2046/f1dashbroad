@@ -11,6 +11,7 @@ const state = {
     raceControl: [],
     pitStops: [],
     laps: {}, // map of driverNumber -> laps array
+    allSessionLaps: null,
     selectedDriverStats: null,
     selectedCompareDrivers: [],
     currentMeeting: null,
@@ -159,6 +160,8 @@ const DOM = {
     compareLegend: document.getElementById('compareLegend'),
     compareHideOutliers: document.getElementById('compareHideOutliers'),
     compareSelectedCount: document.getElementById('compareSelectedCount'),
+    compareGapChartSection: document.getElementById('compareGapChartSection'),
+    compareGapChartContainer: document.getElementById('compareGapChartContainer'),
     
     // Circuit Details elements
     circuitOfficialName: document.getElementById('circuitOfficialName'),
@@ -701,6 +704,7 @@ async function selectSession(session) {
     state.raceControl = [];
     state.pitStops = [];
     state.laps = {};
+    state.allSessionLaps = null;
     state.selectedDriverStats = null;
     state.selectedCompareDrivers = [];
     state.currentMeeting = null;
@@ -719,14 +723,18 @@ async function selectSession(session) {
         const pitStopsRequest = isPitAnnotationSession(session)
             ? customFetch(`/api/pit?session_key=${session.session_key}`)
             : Promise.resolve(null);
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes] = await Promise.all([
+        const lapsRequest = isPitAnnotationSession(session)
+            ? customFetch(`/api/laps?session_key=${session.session_key}`)
+            : Promise.resolve(null);
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}`),
             customFetch(`/api/weather?session_key=${session.session_key}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
             customFetch(`/api/stints?session_key=${session.session_key}`),
             customFetch(`/api/results?session_key=${session.session_key}`),
             customFetch(`/api/race_control?session_key=${session.session_key}`),
-            pitStopsRequest
+            pitStopsRequest,
+            lapsRequest
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -761,6 +769,29 @@ async function selectSession(session) {
                     Number(a.lap_number || 0) - Number(b.lap_number || 0)
                 ))
                 : [];
+        }
+
+        if (lapsRes && lapsRes.ok) {
+            const allLaps = await lapsRes.json();
+            state.allSessionLaps = allLaps;
+            
+            // Group by driver_number and store in state.laps
+            const groupedLaps = {};
+            if (Array.isArray(allLaps)) {
+                allLaps.forEach(lap => {
+                    const dn = Number(lap.driver_number);
+                    if (Number.isNaN(dn)) return;
+                    if (!groupedLaps[dn]) {
+                        groupedLaps[dn] = [];
+                    }
+                    groupedLaps[dn].push(lap);
+                });
+                
+                for (const dn in groupedLaps) {
+                    groupedLaps[dn].sort((a, b) => Number(a.lap_number) - Number(b.lap_number));
+                    state.laps[dn] = groupedLaps[dn];
+                }
+            }
         }
 
         // Render dashboard components
@@ -1640,6 +1671,7 @@ function renderCompareLapChart() {
 
     if (selectedDrivers.length === 0) {
         renderCompareEmptyState('stacked_line_chart', 'No Drivers Selected', 'Select drivers from the list to compare lap time progression.');
+        if (DOM.compareGapChartSection) DOM.compareGapChartSection.style.display = 'none';
         return;
     }
 
@@ -1914,6 +1946,333 @@ function renderCompareLapChart() {
     });
 
     DOM.compareChartContainer.appendChild(svg);
+
+    // Render the Gap to Leader compare chart
+    renderCompareGapChart(selectedDrivers);
+}
+
+function renderCompareGapChart(selectedDrivers) {
+    if (!DOM.compareGapChartContainer || !DOM.compareGapChartSection) return;
+
+    // Check if the session is Race or Sprint
+    if (!isPitAnnotationSession(state.selectedSession)) {
+        DOM.compareGapChartSection.style.display = 'none';
+        return;
+    }
+
+    DOM.compareGapChartSection.style.display = 'block';
+    DOM.compareGapChartContainer.innerHTML = '';
+
+    if (selectedDrivers.length === 0) {
+        DOM.compareGapChartContainer.innerHTML = `
+            <div class="compare-empty">
+                <span class="material-icons-round">stacked_line_chart</span>
+                <h4>No Drivers Selected</h4>
+                <p>Select drivers from the list to compare their gap to the leader.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // 1. Calculate cumulative times
+    const lapsByDriver = {};
+    if (state.allSessionLaps && state.allSessionLaps.length > 0) {
+        state.allSessionLaps.forEach(lap => {
+            const dn = Number(lap.driver_number);
+            if (!lapsByDriver[dn]) {
+                lapsByDriver[dn] = [];
+            }
+            lapsByDriver[dn].push(lap);
+        });
+    } else {
+        selectedDrivers.forEach(d => {
+            const dn = Number(d.driver_number);
+            lapsByDriver[dn] = state.laps[dn] || [];
+        });
+    }
+
+    const allDriversCumulative = {};
+    for (const dn in lapsByDriver) {
+        lapsByDriver[dn].sort((a, b) => Number(a.lap_number) - Number(b.lap_number));
+        let cumulative = 0;
+        allDriversCumulative[dn] = {};
+        for (const lap of lapsByDriver[dn]) {
+            const lapNum = Number(lap.lap_number);
+            const duration = Number(lap.lap_duration);
+            if (duration && !isNaN(duration)) {
+                cumulative += duration;
+                allDriversCumulative[dn][lapNum] = cumulative;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 2. Find leader cumulative times at each lap
+    const leaderCumulativeAtLap = {};
+    let maxLapNum = 0;
+    for (const dn in allDriversCumulative) {
+        for (const lapStr in allDriversCumulative[dn]) {
+            const lapNum = Number(lapStr);
+            if (lapNum > maxLapNum) {
+                maxLapNum = lapNum;
+            }
+        }
+    }
+
+    for (let lapNum = 1; lapNum <= maxLapNum; lapNum++) {
+        let minCume = Infinity;
+        for (const dn in allDriversCumulative) {
+            const cume = allDriversCumulative[dn][lapNum];
+            if (cume !== undefined && cume < minCume) {
+                minCume = cume;
+            }
+        }
+        if (minCume !== Infinity) {
+            leaderCumulativeAtLap[lapNum] = minCume;
+        }
+    }
+
+    // 3. Compute gaps for selected drivers
+    const series = selectedDrivers.map(driver => {
+        const driverNumber = Number(driver.driver_number);
+        const driverLaps = state.laps[driverNumber] || [];
+        const gaps = [];
+
+        driverLaps.forEach(lap => {
+            const lapNum = Number(lap.lap_number);
+            const cume = allDriversCumulative[driverNumber]?.[lapNum];
+            const leaderCume = leaderCumulativeAtLap[lapNum];
+            if (cume !== undefined && leaderCume !== undefined) {
+                gaps.push({
+                    lap_number: lapNum,
+                    gap: cume - leaderCume,
+                    lap_duration: lap.lap_duration,
+                    duration_sector_1: lap.duration_sector_1,
+                    duration_sector_2: lap.duration_sector_2,
+                    duration_sector_3: lap.duration_sector_3
+                });
+            }
+        });
+
+        return {
+            driver,
+            driverNumber,
+            teamHex: getDriverTeamHex(driver),
+            gaps
+        };
+    }).filter(item => item.gaps.length > 0);
+
+    if (series.length === 0) {
+        DOM.compareGapChartContainer.innerHTML = `
+            <div class="compare-empty">
+                <span class="material-icons-round">query_stats</span>
+                <h4>No Gap Data Available</h4>
+                <p>Telemetry for calculating gaps is not available for this session.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // 4. Determine chart bounds
+    const lapNumbers = series.flatMap(item => item.gaps.map(g => g.lap_number));
+    const gapValues = series.flatMap(item => item.gaps.map(g => g.gap));
+
+    const minLap = Math.min(...lapNumbers);
+    const maxLap = Math.max(...lapNumbers);
+    const maxGap = Math.max(...gapValues, 1); // Ensure maxGap is at least 1 to avoid division by zero
+
+    const width = DOM.compareGapChartContainer.clientWidth || 900;
+    const height = 460;
+    const padding = { top: 24, right: 34, bottom: 34, left: 58 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const getX = (lapNum) => {
+        if (maxLap === minLap) return padding.left + chartWidth / 2;
+        return padding.left + ((lapNum - minLap) / (maxLap - minLap)) * chartWidth;
+    };
+
+    const getY = (gap) => {
+        // Leader is at the top (gap = 0), lagger at the bottom (gap = maxGap)
+        return padding.top + (gap / maxGap) * chartHeight;
+    };
+
+    // 5. Draw SVG
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.style.overflow = "visible";
+
+    // Draw Y-axis grid lines (gap grid lines)
+    const yGridLines = 4;
+    for (let i = 0; i <= yGridLines; i++) {
+        const gapVal = (i / yGridLines) * maxGap;
+        const y = getY(gapVal);
+
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", padding.left);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", padding.left + chartWidth);
+        line.setAttribute("y2", y);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", padding.left - 10);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = gapVal === 0 ? "Leader" : `+${gapVal.toFixed(1)}s`;
+        svg.appendChild(text);
+    }
+
+    // Draw X-axis grid lines (laps)
+    const xGridLines = Math.min(10, maxLap - minLap + 1);
+    for (let i = 0; i < xGridLines; i++) {
+        const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
+        const x = getX(lapNum);
+
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", padding.top);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", padding.top + chartHeight);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", x);
+        text.setAttribute("y", padding.top + chartHeight + 20);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = `L${lapNum}`;
+        svg.appendChild(text);
+    }
+
+    // Draw safety car shadings (same as the main chart to keep consistency)
+    const safetyCarPeriods = extractSafetyCarPeriods(state.raceControl);
+    safetyCarPeriods.forEach(period => {
+        const start = Math.max(period.start, minLap);
+        const end = Math.min(period.end, maxLap);
+        if (start > end) return;
+
+        const xStart = getX(start);
+        const xEnd = getX(end);
+        let w = xEnd - xStart;
+        if (w <= 0) w = 2;
+
+        const isVSC = period.type === 'VSC';
+        const rect = document.createElementNS(svgNamespace, "rect");
+        rect.setAttribute("x", xStart);
+        rect.setAttribute("y", padding.top);
+        rect.setAttribute("width", w);
+        rect.setAttribute("height", chartHeight);
+        rect.setAttribute("class", isVSC ? "chart-vsc-shading" : "chart-safety-car-shading");
+        svg.appendChild(rect);
+
+        const lineLeft = document.createElementNS(svgNamespace, "line");
+        lineLeft.setAttribute("x1", xStart);
+        lineLeft.setAttribute("y1", padding.top);
+        lineLeft.setAttribute("x2", xStart);
+        lineLeft.setAttribute("y2", padding.top + chartHeight);
+        lineLeft.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+        svg.appendChild(lineLeft);
+
+        if (xEnd > xStart) {
+            const lineRight = document.createElementNS(svgNamespace, "line");
+            lineRight.setAttribute("x1", xEnd);
+            lineRight.setAttribute("y1", padding.top);
+            lineRight.setAttribute("x2", xEnd);
+            lineRight.setAttribute("y2", padding.top + chartHeight);
+            lineRight.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+            svg.appendChild(lineRight);
+        }
+    });
+
+    // Tooltip reference
+    let tooltip = document.querySelector(".chart-tooltip");
+    if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.className = "chart-tooltip";
+        tooltip.style.display = "none";
+        document.body.appendChild(tooltip);
+    }
+
+    // Draw lines & points
+    series.forEach(item => {
+        const rgb = getRGBColor(item.teamHex);
+        const points = item.gaps.map(g => (
+            `${getX(g.lap_number).toFixed(1)},${getY(g.gap).toFixed(1)}`
+        ));
+
+        if (points.length > 1) {
+            const path = document.createElementNS(svgNamespace, "path");
+            path.setAttribute("d", `M ${points.join(" L ")}`);
+            path.setAttribute("class", "compare-chart-line");
+            path.style.stroke = `#${item.teamHex}`;
+            path.style.setProperty('--team-color', `#${item.teamHex}`);
+            path.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.35)`);
+            svg.appendChild(path);
+        }
+
+        item.gaps.forEach(g => {
+            const pitAnnotation = getLapPitAnnotation(item.driverNumber, g.lap_number);
+            const pitDotClasses = [
+                pitAnnotation.isPitIn ? 'chart-pit-in-dot' : '',
+                pitAnnotation.isPitOut ? 'chart-pit-out-dot' : ''
+            ].filter(Boolean).join(' ');
+
+            const x = getX(g.lap_number);
+            const y = getY(g.gap);
+
+            const circle = document.createElementNS(svgNamespace, "circle");
+            circle.setAttribute("cx", x);
+            circle.setAttribute("cy", y);
+            circle.setAttribute("r", 4.2);
+            circle.setAttribute("class", `compare-chart-dot${pitDotClasses ? ` ${pitDotClasses}` : ''}`);
+            circle.style.stroke = `#${item.teamHex}`;
+            circle.style.setProperty('--team-color', `#${item.teamHex}`);
+
+            circle.addEventListener("mouseenter", () => {
+                circle.classList.add("active");
+                circle.style.fill = `#${item.teamHex}`;
+
+                const driverLabel = item.driver.name_acronym || item.driver.last_name || item.driver.driver_number;
+                tooltip.style.display = "block";
+                tooltip.innerHTML = `
+                    <div class="chart-tooltip-header">${escapeHtml(driverLabel)} - Lap ${g.lap_number}</div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span style="color:var(--text-muted)">Gap to Leader:</span>
+                        <strong style="color:var(--text-primary)">${g.gap === 0 ? 'Leader' : `+${g.gap.toFixed(3)}s`}</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:2px;font-size:10px;">
+                        <span style="color:var(--text-muted)">Lap Time:</span>
+                        <span>${g.lap_duration ? formatLapTime(Number(g.lap_duration)) : '--'}</span>
+                    </div>
+                    ${renderPitTooltipRows(pitAnnotation)}
+                `;
+
+                const rect = DOM.compareGapChartContainer.getBoundingClientRect();
+                const circleX = rect.left + window.scrollX + x;
+                const circleY = rect.top + window.scrollY + y;
+                tooltip.style.left = `${circleX - 80}px`;
+                tooltip.style.top = `${circleY - tooltip.clientHeight - 12}px`;
+            });
+
+            circle.addEventListener("mouseleave", () => {
+                circle.classList.remove("active");
+                circle.style.fill = "#0c0c12";
+                tooltip.style.display = "none";
+            });
+
+            svg.appendChild(circle);
+        });
+    });
+
+    DOM.compareGapChartContainer.appendChild(svg);
 }
 
 // Select driver and fetch laps & stint details to render analytics
