@@ -15,6 +15,7 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         self.assertIn('id="compareChartContainer"', self.index_html)
         self.assertIn('id="compareLegend"', self.index_html)
         self.assertIn('id="compareHideOutliers"', self.index_html)
+        self.assertIn('id="compareResetZoom"', self.index_html)
 
     def test_dashboard_js_wires_compare_state_and_rendering(self):
         self.assertIn("selectedCompareDrivers: []", self.dashboard_js)
@@ -23,6 +24,14 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         self.assertIn("function renderCompareDriverSelector()", self.dashboard_js)
         self.assertIn("async function toggleCompareDriver(driverNumber)", self.dashboard_js)
         self.assertIn("function renderCompareLapChart()", self.dashboard_js)
+        self.assertIn("compareView: createCompareViewState()", self.dashboard_js)
+        self.assertIn("compareResetZoom: document.getElementById('compareResetZoom')", self.dashboard_js)
+        self.assertIn("function attachCompareCrosshair(svg, ctx)", self.dashboard_js)
+        self.assertIn("function renderCompareLegendInteractive(selectedDrivers)", self.dashboard_js)
+        self.assertIn("function attachCompareZoom(svg, ctx)", self.dashboard_js)
+        self.assertIn("hiddenDrivers", self.dashboard_js)
+        self.assertIn("lapWindow", self.dashboard_js)
+        self.assertIn("compareResetZoom", self.dashboard_js)
 
     def test_compare_tab_has_dedicated_styles(self):
         self.assertIn(".compare-layout", self.styles_css)
@@ -30,6 +39,12 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         self.assertIn(".compare-legend", self.styles_css)
         self.assertIn("#compareChartContainer", self.styles_css)
         self.assertIn(".compare-chart-line", self.styles_css)
+        self.assertIn(".compare-crosshair-line", self.styles_css)
+        self.assertIn(".compare-unified-tooltip", self.styles_css)
+        self.assertIn(".compare-legend-item.dimmed", self.styles_css)
+        self.assertIn(".compare-legend-item.hidden", self.styles_css)
+        self.assertIn(".compare-zoom-selection", self.styles_css)
+        self.assertIn(".compare-reset-zoom", self.styles_css)
 
 
 if __name__ == "__main__":

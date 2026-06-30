@@ -1731,6 +1731,41 @@ body {
     text-transform: uppercase;
 }
 
+.compare-controls {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.compare-reset-zoom {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 800;
+    gap: 6px;
+    min-height: 32px;
+    padding: 7px 10px;
+    transition: var(--transition-fast);
+}
+
+.compare-reset-zoom:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-color-hover);
+    color: var(--text-primary);
+}
+
+.compare-reset-zoom span {
+    font-size: 16px;
+}
+
 .compare-legend {
     display: flex;
     flex-wrap: wrap;
@@ -1749,6 +1784,7 @@ body {
 }
 
 .compare-legend-item {
+    appearance: none;
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -1758,8 +1794,28 @@ body {
     background: rgba(255, 255, 255, 0.035);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
+    cursor: pointer;
+    font-family: var(--font-sans);
     font-size: 12px;
     font-weight: 800;
+    transition: var(--transition-fast);
+}
+
+.compare-legend-item:hover,
+.compare-legend-item.highlighted {
+    background: rgba(255, 255, 255, 0.075);
+    border-color: var(--team-color, var(--border-color-hover));
+    color: var(--text-primary);
+}
+
+.compare-legend-item.dimmed {
+    opacity: 0.48;
+}
+
+.compare-legend-item.hidden {
+    background: rgba(255, 255, 255, 0.015);
+    color: var(--text-muted);
+    opacity: 0.62;
 }
 
 .compare-legend-swatch {
@@ -1768,6 +1824,12 @@ body {
     border-radius: 999px;
     background: var(--team-color, var(--accent-red));
     box-shadow: 0 0 10px var(--team-color, var(--accent-red));
+}
+
+.compare-legend-item.hidden .compare-legend-swatch {
+    background: transparent;
+    border-top: 2px dashed var(--team-color, var(--text-muted));
+    box-shadow: none;
 }
 
 .compare-chart-shell {
@@ -1825,6 +1887,10 @@ body {
     filter: drop-shadow(0 0 5px var(--team-color-glow, rgba(255, 255, 255, 0.25)));
 }
 
+.compare-chart-line.highlighted {
+    stroke-width: 3.5;
+}
+
 .compare-chart-dot {
     fill: #0c0c12;
     stroke: var(--team-color, #ff1801);
@@ -1844,11 +1910,101 @@ body {
     cursor: pointer;
 }
 
+.compare-chart-line.dimmed,
+.compare-chart-dot.dimmed,
+.compare-chart-outlier-dot.dimmed {
+    opacity: 0.16;
+}
+
+.compare-chart-line.hidden,
+.compare-chart-dot.hidden,
+.compare-chart-outlier-dot.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
 .compare-chart-dot.chart-pit-in-dot,
 .compare-chart-dot.chart-pit-out-dot,
 .compare-chart-outlier-dot.chart-pit-in-dot,
 .compare-chart-outlier-dot.chart-pit-out-dot {
     stroke-width: 3;
+}
+
+.compare-crosshair-line {
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-dasharray: 4 5;
+    stroke-width: 1.2;
+}
+
+.compare-interaction-overlay {
+    cursor: crosshair;
+    pointer-events: all;
+}
+
+.compare-zoom-selection {
+    fill: rgba(255, 24, 1, 0.16);
+    pointer-events: none;
+    stroke: rgba(255, 24, 1, 0.5);
+    stroke-width: 1;
+}
+
+.compare-unified-tooltip {
+    max-width: 300px;
+    width: 260px;
+}
+
+.compare-tooltip-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.compare-tooltip-row {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 7px;
+}
+
+.compare-tooltip-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.compare-tooltip-main {
+    align-items: center;
+    display: grid;
+    gap: 7px;
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+
+.compare-tooltip-main strong {
+    color: var(--text-primary);
+    font-size: 11px;
+}
+
+.compare-tooltip-swatch {
+    background: var(--team-color, var(--accent-red));
+    border-radius: 999px;
+    height: 4px;
+    width: 14px;
+}
+
+.compare-tooltip-sectors {
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 10px;
+    gap: 6px;
+    margin-left: 21px;
+    margin-top: 4px;
+}
+
+.compare-tooltip-note {
+    color: #ffd60a;
+    font-size: 9px;
+    font-weight: 800;
+    margin-left: 21px;
+    margin-top: 4px;
+    text-transform: uppercase;
 }
 
 /* Circuit Details Tab Layout */
@@ -2107,6 +2263,10 @@ body {
     .compare-header {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .compare-controls {
+        justify-content: flex-start;
     }
 }
 

@@ -325,10 +325,16 @@
                         <div class="compare-content glass">
                             <div class="compare-header">
                                 <h3>Lap Time Progression Compare</h3>
-                                <label class="chart-toggle-wrapper">
-                                    <input type="checkbox" id="compareHideOutliers" checked>
-                                    <span class="toggle-text">Filter Pit/Slow Laps</span>
-                                </label>
+                                <div class="compare-controls">
+                                    <button type="button" class="compare-reset-zoom" id="compareResetZoom" style="display: none;">
+                                        <span class="material-icons-round" aria-hidden="true">zoom_out_map</span>
+                                        Reset Zoom
+                                    </button>
+                                    <label class="chart-toggle-wrapper">
+                                        <input type="checkbox" id="compareHideOutliers" checked>
+                                        <span class="toggle-text">Filter Pit/Slow Laps</span>
+                                    </label>
+                                </div>
                             </div>
 
                             <div class="compare-legend" id="compareLegend">
