@@ -1,14 +1,23 @@
 import json
-import os
-import tempfile
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import app as dashboard_app
 
+PROJECT_TEMP_DIR = Path(__file__).resolve().parents[1] / "tests" / ".tmp"
+
 
 class RaceControlApiTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+
     async def test_race_control_endpoint_returns_cached_session_messages(self):
         sample_messages = [
             {
@@ -24,13 +33,12 @@ class RaceControlApiTests(unittest.IsolatedAsyncioTestCase):
             }
         ]
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = Path(tmpdir) / "race_control_4242.json"
-            cache_path.write_text(json.dumps(sample_messages), encoding="utf-8")
+        cache_path = self.cache_dir / "race_control_4242.json"
+        cache_path.write_text(json.dumps(sample_messages), encoding="utf-8")
 
-            with patch.object(dashboard_app, "CACHE_DIR", tmpdir):
-                client = dashboard_app.app.test_client()
-                response = await client.get("/api/race_control?session_key=4242")
+        with patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)):
+            client = dashboard_app.app.test_client()
+            response = await client.get("/api/race_control?session_key=4242")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(await response.get_json(), sample_messages)
