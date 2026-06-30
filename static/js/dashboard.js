@@ -9,6 +9,7 @@ const state = {
     stints: [],
     results: [],
     raceControl: [],
+    pitStops: [],
     laps: {}, // map of driverNumber -> laps array
     selectedDriverStats: null,
     selectedCompareDrivers: [],
@@ -409,11 +410,14 @@ function setupEventListeners() {
 }
 
 // Helper: Find the latest race event relative to current time
-function findLatestRaceEvent(sessions) {
-    const now = new Date();
+function findLatestRaceEvent(sessions, now = new Date()) {
+    const nowTime = now instanceof Date ? now.getTime() : new Date(now).getTime();
+    const sortedSessions = (Array.isArray(sessions) ? sessions : [])
+        .filter(s => Number.isFinite(new Date(s.date_start).getTime()))
+        .sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
     // Filter to only 'Race' type sessions (session_name 'Race' or 'Sprint', or session_type 'Race')
-    const raceSessions = sessions.filter(s => 
-        s.session_name === 'Race' || s.session_type === 'Race'
+    const raceSessions = sortedSessions.filter(s => 
+        s.session_name === 'Race' || s.session_name === 'Sprint' || s.session_type === 'Race'
     );
     
     if (raceSessions.length === 0) return null;
@@ -423,7 +427,7 @@ function findLatestRaceEvent(sessions) {
     const targets = activeRaces.length > 0 ? activeRaces : raceSessions;
     
     // Find the last completed or ongoing race
-    const pastOrOngoing = targets.filter(s => new Date(s.date_start) <= now);
+    const pastOrOngoing = targets.filter(s => new Date(s.date_start).getTime() <= nowTime);
     
     if (pastOrOngoing.length > 0) {
         // Return the one that started most recently
@@ -432,6 +436,83 @@ function findLatestRaceEvent(sessions) {
         // Return the first upcoming race
         return targets[0];
     }
+}
+
+// Helper: Pick the best initial session focus for the current race weekend
+function findInitialFocusSession(sessions, now = new Date()) {
+    const nowDate = now instanceof Date ? now : new Date(now);
+    const nowTime = nowDate.getTime();
+    if (!Number.isFinite(nowTime)) {
+        return findLatestRaceEvent(sessions);
+    }
+
+    const datedSessions = (Array.isArray(sessions) ? sessions : [])
+        .filter(s => Number.isFinite(new Date(s.date_start).getTime()))
+        .sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+
+    if (datedSessions.length === 0) return null;
+
+    const nonCancelledSessions = datedSessions.filter(s => !s.is_cancelled);
+    const selectableSessions = nonCancelledSessions.length > 0 ? nonCancelledSessions : datedSessions;
+    const sessionsByMeeting = new Map();
+    selectableSessions.forEach(session => {
+        if (session.meeting_key === undefined || session.meeting_key === null) return;
+        if (!sessionsByMeeting.has(session.meeting_key)) {
+            sessionsByMeeting.set(session.meeting_key, []);
+        }
+        sessionsByMeeting.get(session.meeting_key).push(session);
+    });
+
+    const weekendPaddingMs = 36 * 60 * 60 * 1000;
+    const currentMeetings = Array.from(sessionsByMeeting.values())
+        .map(meetingSessions => {
+            const sortedMeetingSessions = meetingSessions
+                .slice()
+                .sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+            const firstStart = new Date(sortedMeetingSessions[0].date_start).getTime();
+            const lastEnd = sortedMeetingSessions.reduce((latest, session) => {
+                const endTime = Number.isFinite(new Date(session.date_end).getTime())
+                    ? new Date(session.date_end).getTime()
+                    : new Date(session.date_start).getTime();
+                return Math.max(latest, endTime);
+            }, firstStart);
+
+            return {
+                sessions: sortedMeetingSessions,
+                firstStart,
+                lastEnd
+            };
+        })
+        .filter(meeting => (
+            meeting.firstStart - weekendPaddingMs <= nowTime &&
+            nowTime <= meeting.lastEnd + weekendPaddingMs
+        ))
+        .sort((a, b) => a.firstStart - b.firstStart);
+
+    if (currentMeetings.length > 0) {
+        const currentMeeting = currentMeetings[currentMeetings.length - 1].sessions;
+        const activeSessions = currentMeeting.filter(session => {
+            const startTime = new Date(session.date_start).getTime();
+            const endTime = Number.isFinite(new Date(session.date_end).getTime())
+                ? new Date(session.date_end).getTime()
+                : startTime;
+            return startTime <= nowTime && nowTime <= endTime;
+        });
+        if (activeSessions.length > 0) {
+            return activeSessions[activeSessions.length - 1];
+        }
+
+        const startedSessions = currentMeeting.filter(session => (
+            new Date(session.date_start).getTime() <= nowTime
+        ));
+        if (startedSessions.length > 0) {
+            return startedSessions[startedSessions.length - 1];
+        }
+
+        return currentMeeting[0];
+    }
+
+    return findLatestRaceEvent(selectableSessions, nowDate);
 }
 
 // Fetch and load F1 sessions list for selected year
@@ -456,9 +537,9 @@ async function loadSessions(year, autoFocus = false) {
         state.sessions.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
         
         if (autoFocus) {
-            const latestRace = findLatestRaceEvent(state.sessions);
-            if (latestRace) {
-                state.selectedSession = latestRace;
+            const focusSession = findInitialFocusSession(state.sessions);
+            if (focusSession) {
+                state.selectedSession = focusSession;
             }
         }
         
@@ -618,6 +699,7 @@ async function selectSession(session) {
     state.stints = [];
     state.results = [];
     state.raceControl = [];
+    state.pitStops = [];
     state.laps = {};
     state.selectedDriverStats = null;
     state.selectedCompareDrivers = [];
@@ -633,14 +715,18 @@ async function selectSession(session) {
     showDashboardLoading();
 
     try {
-        // Fetch drivers list, weather, stints, meeting, results, and race control concurrently
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes] = await Promise.all([
+        // Fetch session details concurrently. Pit data is useful only for Race/Sprint sessions.
+        const pitStopsRequest = isPitAnnotationSession(session)
+            ? customFetch(`/api/pit?session_key=${session.session_key}`)
+            : Promise.resolve(null);
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}`),
             customFetch(`/api/weather?session_key=${session.session_key}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
             customFetch(`/api/stints?session_key=${session.session_key}`),
             customFetch(`/api/results?session_key=${session.session_key}`),
-            customFetch(`/api/race_control?session_key=${session.session_key}`)
+            customFetch(`/api/race_control?session_key=${session.session_key}`),
+            pitStopsRequest
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -665,6 +751,16 @@ async function selectSession(session) {
 
         if (raceControlRes.ok) {
             state.raceControl = await raceControlRes.json();
+        }
+
+        if (pitStopsRes && pitStopsRes.ok) {
+            const pitStops = await pitStopsRes.json();
+            state.pitStops = Array.isArray(pitStops)
+                ? pitStops.sort((a, b) => (
+                    Number(a.driver_number || 0) - Number(b.driver_number || 0) ||
+                    Number(a.lap_number || 0) - Number(b.lap_number || 0)
+                ))
+                : [];
         }
 
         // Render dashboard components
@@ -747,6 +843,163 @@ async function fetchDriverLaps(sessionKey, driverNumber) {
         console.error(`Error fetching laps for driver ${driverNumber}:`, e);
     }
     return null;
+}
+
+function isPitAnnotationSession(session) {
+    if (!session) return false;
+    const allowedTypes = new Set(['race', 'sprint']);
+    return [session.session_type, session.session_name].some(value => (
+        allowedTypes.has(String(value || '').trim().toLowerCase())
+    ));
+}
+
+function formatPitStopDuration(pitStop) {
+    const duration = Number(pitStop && pitStop.pit_duration);
+    return Number.isFinite(duration) ? `${duration.toFixed(3)}s` : null;
+}
+
+function getLapPitAnnotation(driverNumber, lapNumber) {
+    const emptyAnnotation = {
+        isPitIn: false,
+        isPitOut: false,
+        pitIn: [],
+        pitOut: []
+    };
+    const targetDriver = Number(driverNumber);
+    const targetLap = Number(lapNumber);
+
+    if (
+        !isPitAnnotationSession(state.selectedSession) ||
+        !Array.isArray(state.pitStops) ||
+        !Number.isFinite(targetDriver) ||
+        !Number.isFinite(targetLap)
+    ) {
+        return emptyAnnotation;
+    }
+
+    const pitIn = [];
+    const pitOut = [];
+    state.pitStops.forEach(pitStop => {
+        const pitDriver = Number(pitStop && pitStop.driver_number);
+        const pitLap = Number(pitStop && pitStop.lap_number);
+        if (!Number.isFinite(pitDriver) || !Number.isFinite(pitLap) || pitDriver !== targetDriver) {
+            return;
+        }
+
+        if (pitLap === targetLap) {
+            pitIn.push(pitStop);
+        }
+        if (pitLap + 1 === targetLap) {
+            pitOut.push(pitStop);
+        }
+    });
+
+    return {
+        isPitIn: pitIn.length > 0,
+        isPitOut: pitOut.length > 0,
+        pitIn,
+        pitOut
+    };
+}
+
+function buildPitBadgeTitle(type, pitStops) {
+    const primaryStop = pitStops[0] || {};
+    const pitLap = Number(primaryStop.lap_number);
+    const duration = formatPitStopDuration(primaryStop);
+    const lapText = Number.isFinite(pitLap) ? `Lap ${pitLap}` : 'pit stop';
+    const durationText = duration ? ` (${duration})` : '';
+
+    if (type === 'in') {
+        return `Pit in on ${lapText}${durationText}`;
+    }
+    return `Pit out after ${lapText}${durationText}`;
+}
+
+function renderPitLapBadges(annotation) {
+    if (!annotation || (!annotation.isPitIn && !annotation.isPitOut)) {
+        return '<span class="pit-lap-empty">--</span>';
+    }
+
+    const badges = [];
+    if (annotation.isPitIn) {
+        badges.push(`<span class="pit-lap-badge pit-in" title="${escapeHtml(buildPitBadgeTitle('in', annotation.pitIn))}">Pit in</span>`);
+    }
+    if (annotation.isPitOut) {
+        badges.push(`<span class="pit-lap-badge pit-out" title="${escapeHtml(buildPitBadgeTitle('out', annotation.pitOut))}">Pit out</span>`);
+    }
+    return badges.join('');
+}
+
+function renderPitTooltipRows(annotation) {
+    if (!annotation || (!annotation.isPitIn && !annotation.isPitOut)) return '';
+
+    const rows = [];
+    if (annotation.isPitIn) {
+        const duration = formatPitStopDuration(annotation.pitIn[0]);
+        rows.push(`<div class="chart-tooltip-pit pit-in">Pit in${duration ? ` (${duration})` : ''}</div>`);
+    }
+    if (annotation.isPitOut) {
+        const duration = formatPitStopDuration(annotation.pitOut[0]);
+        rows.push(`<div class="chart-tooltip-pit pit-out">Pit out${duration ? ` (${duration})` : ''}</div>`);
+    }
+    return rows.join('');
+}
+
+function getDriverPitLapMarkers(driverNumber, minLap, maxLap) {
+    const targetDriver = Number(driverNumber);
+    if (
+        !isPitAnnotationSession(state.selectedSession) ||
+        !Array.isArray(state.pitStops) ||
+        !Number.isFinite(targetDriver)
+    ) {
+        return [];
+    }
+
+    return state.pitStops
+        .filter(pitStop => Number(pitStop && pitStop.driver_number) === targetDriver)
+        .map(pitStop => {
+            const pitInLap = Number(pitStop && pitStop.lap_number);
+            if (!Number.isFinite(pitInLap)) return null;
+            return {
+                pitStop,
+                pitInLap,
+                pitOutLap: pitInLap + 1
+            };
+        })
+        .filter(Boolean)
+        .filter(marker => marker.pitInLap <= maxLap && marker.pitOutLap >= minLap);
+}
+
+function renderPitLapMarkers(svg, markers, getX, minLap, maxLap, padding, chartHeight, svgNamespace) {
+    markers.forEach(marker => {
+        [
+            { lap: marker.pitInLap, type: 'in', label: 'PIT IN' },
+            { lap: marker.pitOutLap, type: 'out', label: 'PIT OUT' }
+        ].forEach(event => {
+            if (event.lap < minLap || event.lap > maxLap) return;
+
+            const x = getX(event.lap);
+            const isPitIn = event.type === 'in';
+            const guide = document.createElementNS(svgNamespace, "line");
+            guide.setAttribute("x1", x);
+            guide.setAttribute("y1", padding.top);
+            guide.setAttribute("x2", x);
+            guide.setAttribute("y2", padding.top + chartHeight);
+            guide.setAttribute("class", isPitIn ? "chart-pit-in-guide" : "chart-pit-out-guide");
+
+            const title = document.createElementNS(svgNamespace, "title");
+            title.textContent = buildPitBadgeTitle(event.type, [marker.pitStop]);
+            guide.appendChild(title);
+            svg.appendChild(guide);
+
+            const text = document.createElementNS(svgNamespace, "text");
+            text.setAttribute("x", x + 4);
+            text.setAttribute("y", padding.top + (isPitIn ? 13 : 27));
+            text.setAttribute("class", isPitIn ? "chart-pit-in-label" : "chart-pit-out-label");
+            text.textContent = event.label;
+            svg.appendChild(text);
+        });
+    });
 }
 
 // Render session header
@@ -1593,13 +1846,21 @@ function renderCompareLapChart() {
 
         item.validLaps.forEach(lap => {
             const isOutlier = hideOutliers && Number(lap.lap_duration) > item.outlierThreshold;
+            const pitAnnotation = getLapPitAnnotation(item.driverNumber, lap.lap_number);
+            const pitDotClasses = [
+                pitAnnotation.isPitIn ? 'chart-pit-in-dot' : '',
+                pitAnnotation.isPitOut ? 'chart-pit-out-dot' : ''
+            ].filter(Boolean).join(' ');
             const x = getX(Number(lap.lap_number));
             const y = isOutlier ? padding.top : getY(Number(lap.lap_duration));
             const circle = document.createElementNS(svgNamespace, "circle");
             circle.setAttribute("cx", x);
             circle.setAttribute("cy", y);
             circle.setAttribute("r", isOutlier ? 3.5 : 4.2);
-            circle.setAttribute("class", isOutlier ? "chart-outlier-dot compare-chart-outlier-dot" : "compare-chart-dot");
+            circle.setAttribute(
+                "class",
+                `${isOutlier ? "chart-outlier-dot compare-chart-outlier-dot" : "compare-chart-dot"}${pitDotClasses ? ` ${pitDotClasses}` : ''}`
+            );
             circle.style.stroke = `#${item.teamHex}`;
             circle.style.setProperty('--team-color', `#${item.teamHex}`);
 
@@ -1629,6 +1890,7 @@ function renderCompareLapChart() {
                         <span style="color:var(--text-muted)">S3:</span>
                         <span>${lap.duration_sector_3 ? Number(lap.duration_sector_3).toFixed(3) + 's' : '--'}</span>
                     </div>
+                    ${renderPitTooltipRows(pitAnnotation)}
                     ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT/SLOW LAP)</div>' : ''}
                 `;
 
@@ -1681,6 +1943,11 @@ async function selectDriverForStats(driverNumber) {
     try {
         // Load driver laps
         const laps = await fetchDriverLaps(state.selectedSession.session_key, driverNumber);
+
+        if (Number(state.selectedDriverStats) !== Number(driverNumber)) {
+            loader.remove();
+            return;
+        }
         
         // Remove loader
         loader.remove();
@@ -1753,17 +2020,23 @@ async function selectDriverForStats(driverNumber) {
         // Render Laps Table with Sector Personal Best highlights
         let lapsTableHTML = '';
         if (laps.length === 0) {
-            lapsTableHTML = '<tr><td colspan="5" style="text-align:center;">No lap data recorded for this driver.</td></tr>';
+            lapsTableHTML = '<tr><td colspan="6" style="text-align:center;">No lap data recorded for this driver.</td></tr>';
         } else {
             laps.forEach(lap => {
                 const isFastest = lap.lap_duration === fastestDuration;
                 const isBestS1 = lap.duration_sector_1 === bestS1;
                 const isBestS2 = lap.duration_sector_2 === bestS2;
                 const isBestS3 = lap.duration_sector_3 === bestS3;
+                const pitAnnotation = getLapPitAnnotation(driverNumber, lap.lap_number);
+                const rowClasses = [
+                    pitAnnotation.isPitIn ? 'lap-row-pit-in' : '',
+                    pitAnnotation.isPitOut ? 'lap-row-pit-out' : ''
+                ].filter(Boolean).join(' ');
 
                 lapsTableHTML += `
-                    <tr id="lap-row-${lap.lap_number}">
+                    <tr id="lap-row-${lap.lap_number}" class="${rowClasses}">
                         <td>${lap.lap_number}</td>
+                        <td class="pit-lap-cell">${renderPitLapBadges(pitAnnotation)}</td>
                         <td class="${isBestS1 ? 'personal-best-sector' : ''}">
                             ${lap.duration_sector_1 ? lap.duration_sector_1.toFixed(3) + 's' : '--'}
                         </td>
@@ -2156,6 +2429,9 @@ function renderLapChart(laps) {
         }
     });
 
+    const pitLapMarkers = getDriverPitLapMarkers(state.selectedDriverStats, minLap, maxLap);
+    renderPitLapMarkers(svg, pitLapMarkers, getX, minLap, maxLap, padding, chartHeight, svgNamespace);
+
     // Build path points
     let points = [];
     plottableLaps.forEach(lap => {
@@ -2192,6 +2468,11 @@ function renderLapChart(laps) {
     // Plot data points
     validLaps.forEach(lap => {
         const isOutlier = hideOutliers && lap.lap_duration > outlierThreshold;
+        const pitAnnotation = getLapPitAnnotation(state.selectedDriverStats, lap.lap_number);
+        const pitDotClasses = [
+            pitAnnotation.isPitIn ? 'chart-pit-in-dot' : '',
+            pitAnnotation.isPitOut ? 'chart-pit-out-dot' : ''
+        ].filter(Boolean).join(' ');
         const x = getX(lap.lap_number);
         const y = isOutlier ? padding.top : getY(lap.lap_duration);
 
@@ -2202,10 +2483,10 @@ function renderLapChart(laps) {
         
         if (isOutlier) {
             circle.setAttribute("r", 3.5);
-            circle.setAttribute("class", "chart-outlier-dot");
+            circle.setAttribute("class", `chart-outlier-dot${pitDotClasses ? ` ${pitDotClasses}` : ''}`);
         } else {
             circle.setAttribute("r", 4.5);
-            circle.setAttribute("class", "chart-dot");
+            circle.setAttribute("class", `chart-dot${pitDotClasses ? ` ${pitDotClasses}` : ''}`);
             circle.style.stroke = `#${teamHex}`;
         }
 
@@ -2236,6 +2517,7 @@ function renderLapChart(laps) {
                     <span style="color:var(--text-muted)">S3:</span>
                     <span>${lap.duration_sector_3 ? lap.duration_sector_3.toFixed(3) + 's' : '--'}</span>
                 </div>
+                ${renderPitTooltipRows(pitAnnotation)}
                 ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT/SLOW LAP)</div>' : ''}
             `;
             

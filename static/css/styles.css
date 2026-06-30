@@ -1264,6 +1264,54 @@ body {
     font-weight: 700;
 }
 
+.pit-lap-cell {
+    min-width: 82px;
+}
+
+.pit-lap-empty {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.pit-lap-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 22px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.pit-lap-badge + .pit-lap-badge {
+    margin-left: 4px;
+}
+
+.pit-lap-badge.pit-in {
+    background: rgba(255, 24, 1, 0.12);
+    border: 1px solid rgba(255, 24, 1, 0.3);
+    color: #ff523d;
+}
+
+.pit-lap-badge.pit-out {
+    background: rgba(77, 195, 255, 0.11);
+    border: 1px solid rgba(77, 195, 255, 0.28);
+    color: #4dc3ff;
+}
+
+.laps-table tbody tr.lap-row-pit-in {
+    box-shadow: inset 4px 0 0 rgba(255, 24, 1, 0.42);
+}
+
+.laps-table tbody tr.lap-row-pit-out {
+    box-shadow: inset 4px 0 0 rgba(77, 195, 255, 0.42);
+}
+
 .lap-duration-val {
     font-weight: 600;
 }
@@ -1419,6 +1467,37 @@ body {
     pointer-events: none;
 }
 
+.chart-pit-in-guide {
+    stroke: rgba(255, 82, 61, 0.68);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 4;
+    pointer-events: none;
+}
+
+.chart-pit-out-guide {
+    stroke: rgba(77, 195, 255, 0.62);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 4;
+    pointer-events: none;
+}
+
+.chart-pit-in-label,
+.chart-pit-out-label {
+    font-size: 9px;
+    font-family: var(--font-sans);
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+}
+
+.chart-pit-in-label {
+    fill: #ff523d;
+}
+
+.chart-pit-out-label {
+    fill: #4dc3ff;
+}
+
 .chart-axis-line {
     stroke: rgba(255, 255, 255, 0.12);
     stroke-width: 1;
@@ -1467,6 +1546,28 @@ body {
     r: 5;
 }
 
+.chart-pit-in-dot {
+    fill: rgba(255, 24, 1, 0.18);
+    stroke: #ff523d !important;
+    stroke-width: 3;
+}
+
+.chart-pit-out-dot {
+    fill: rgba(77, 195, 255, 0.14);
+    stroke: #4dc3ff !important;
+    stroke-width: 3;
+}
+
+.chart-pit-in-dot:hover,
+.chart-pit-in-dot.active {
+    fill: #ff523d;
+}
+
+.chart-pit-out-dot:hover,
+.chart-pit-out-dot.active {
+    fill: #4dc3ff;
+}
+
 /* Floating custom tooltip in chart */
 .chart-tooltip {
     position: absolute;
@@ -1490,6 +1591,25 @@ body {
     color: var(--text-secondary);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     padding-bottom: 4px;
+}
+
+.chart-tooltip-pit {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.4px;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.chart-tooltip-pit.pit-in {
+    color: #ff523d;
+}
+
+.chart-tooltip-pit.pit-out {
+    color: #4dc3ff;
 }
 
 /* Table sync highlight styling */
@@ -1721,6 +1841,13 @@ body {
 
 .compare-chart-outlier-dot {
     cursor: pointer;
+}
+
+.compare-chart-dot.chart-pit-in-dot,
+.compare-chart-dot.chart-pit-out-dot,
+.compare-chart-outlier-dot.chart-pit-in-dot,
+.compare-chart-outlier-dot.chart-pit-out-dot {
+    stroke-width: 3;
 }
 
 /* Circuit Details Tab Layout */
