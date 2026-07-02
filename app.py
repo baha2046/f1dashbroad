@@ -11,6 +11,106 @@ app = Quart(__name__)
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+NATIONALITY_TO_FLAG = {
+    'argentina': '🇦🇷',
+    'australia': '🇦🇺',
+    'austria': '🇦🇹',
+    'azerbaijan': '🇦🇿',
+    'belgium': '🇧🇪',
+    'brazil': '🇧🇷',
+    'bahrain': '🇧🇭',
+    'canada': '🇨🇦',
+    'china': '🇨🇳',
+    'denmark': '🇩🇰',
+    'finland': '🇫🇮',
+    'france': '🇫🇷',
+    'germany': '🇩🇪',
+    'great britain': '🇬🇧',
+    'british': '🇬🇧',
+    'italy': '🇮🇹',
+    'japan': '🇯🇵',
+    'mexico': '🇲🇽',
+    'monaco': '🇲🇨',
+    'netherlands': '🇳🇱',
+    'dutch': '🇳🇱',
+    'new zealand': '🇳🇿',
+    'spain': '🇪🇸',
+    'thailand': '🇹🇭',
+    'united states': '🇺🇸',
+    'american': '🇺🇸',
+    'switzerland': '🇨🇭',
+    'swiss': '🇨🇭',
+    'sweden': '🇸🇪',
+    'swedish': '🇸🇪',
+    'poland': '🇵🇱',
+    'polish': '🇵🇱',
+    'russia': '🇷🇺',
+    'russian': '🇷🇺',
+    'india': '🇮🇳',
+    'indian': '🇮🇳',
+    'venezuela': '🇻🇪',
+    'indonesia': '🇮🇩',
+    'colombia': '🇨🇴',
+}
+
+def find_session_year(session_key):
+    if not session_key:
+        return 2026
+    try:
+        skey = int(session_key)
+    except ValueError:
+        return 2026
+        
+    for filename in os.listdir(CACHE_DIR):
+        if filename.startswith("sessions_") and filename.endswith(".json"):
+            try:
+                with open(os.path.join(CACHE_DIR, filename), "r", encoding="utf-8") as f:
+                    sessions = json.load(f)
+                    for s in sessions:
+                        if s.get("session_key") == skey:
+                            return s.get("year", 2026)
+            except Exception:
+                pass
+    return 2026
+
+async def get_f1api_drivers(year):
+    url = f"https://f1api.dev/api/{year}/drivers"
+    cache_name = f"f1api_drivers_{year}.json"
+    cache_path = os.path.join(CACHE_DIR, cache_name)
+    
+    ttl = 86400  # 1 day
+    if int(year) < 2026:
+        ttl = None  # permanent for past years
+        
+    if os.path.exists(cache_path):
+        mtime = os.path.getmtime(cache_path)
+        age = datetime.now().timestamp() - mtime
+        if ttl is None or age < ttl:
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+                
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+            drivers = data.get("drivers", [])
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(drivers, f, ensure_ascii=False)
+            return drivers
+    except Exception as e:
+        print(f"Error fetching f1api drivers: {e}")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return []
+
 # Helper to load cached sessions
 def get_session_info(session_key, year=2026):
     sessions_file = os.path.join(CACHE_DIR, f"sessions_{year}.json")
@@ -213,8 +313,44 @@ async def api_drivers():
     url = f"https://api.openf1.org/v1/drivers?session_key={session_key}"
     cache_name = f"drivers_{session_key}.json"
     api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
-    return jsonify(data)
+    
+    openf1_drivers = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
+    
+    year = request.args.get("year")
+    if not year:
+        year = find_session_year(session_key)
+        
+    f1api_drivers = await get_f1api_drivers(year)
+    
+    f1api_map = {}
+    f1api_acronym_map = {}
+    for d in f1api_drivers:
+        num = d.get("number")
+        if num is not None:
+            f1api_map[int(num)] = d
+        acronym = d.get("shortName")
+        if acronym:
+            f1api_acronym_map[acronym.upper()] = d
+            
+    if isinstance(openf1_drivers, list):
+        for d in openf1_drivers:
+            driver_number = d.get("driver_number")
+            acronym = d.get("name_acronym")
+            extra = None
+            if driver_number is not None:
+                extra = f1api_map.get(int(driver_number))
+            if not extra and acronym:
+                extra = f1api_acronym_map.get(acronym.upper())
+                
+            if extra:
+                d["nationality"] = extra.get("nationality")
+                nationality_key = str(extra.get("nationality", "")).lower()
+                d["nationality_flag"] = NATIONALITY_TO_FLAG.get(nationality_key, "🏳️")
+                d["birthday"] = extra.get("birthday")
+                d["wiki_url"] = extra.get("url")
+                d["driver_id"] = extra.get("driverId")
+                
+    return jsonify(openf1_drivers)
 
 @app.route("/api/weather")
 async def api_weather():
