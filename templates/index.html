@@ -238,7 +238,12 @@
                                     <div class="driver-color-bar" id="statsColorBar"></div>
                                     <div class="driver-profile-text">
                                         <h4 id="statsDriverName">Lewis Hamilton</h4>
-                                        <p id="statsDriverTeam">Ferrari</p>
+                                        <div class="driver-profile-meta" style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                                            <p id="statsDriverTeam" style="margin: 0;">Ferrari</p>
+                                            <span id="statsDriverFlag" style="font-size: 16px;"></span>
+                                            <span id="statsDriverAge" style="font-size: 12px; background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 4px; color: var(--text-secondary);"></span>
+                                            <a id="statsDriverWiki" href="#" target="_blank" style="display: inline-flex; align-items: center; color: var(--text-muted); text-decoration: none;" title="Open Wikipedia Profile"><span class="material-icons-round" style="font-size: 14px;">open_in_new</span></a>
+                                        </div>
                                     </div>
                                     <div class="driver-profile-number" id="statsDriverNumber">44</div>
                                 </div>
