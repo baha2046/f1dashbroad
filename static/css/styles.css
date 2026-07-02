@@ -1467,6 +1467,31 @@ body {
     pointer-events: none;
 }
 
+.chart-qualifying-phase-shading {
+    fill: rgba(77, 195, 255, 0.035);
+    pointer-events: none;
+}
+
+.chart-qualifying-phase-shading.phase-odd {
+    fill: rgba(255, 255, 255, 0.028);
+}
+
+.chart-qualifying-phase-boundary {
+    stroke: rgba(77, 195, 255, 0.24);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+    pointer-events: none;
+}
+
+.chart-qualifying-phase-text {
+    fill: rgba(219, 242, 255, 0.82);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+    pointer-events: none;
+}
+
 .chart-pit-in-guide {
     stroke: rgba(255, 82, 61, 0.68);
     stroke-width: 1.5;

@@ -946,6 +946,148 @@ function isPitAnnotationSession(session) {
     ));
 }
 
+function isQualifyingSession(session) {
+    if (!session) return false;
+    return [session.session_type, session.session_name].some(value => {
+        const normalized = String(value || '').trim().toLowerCase();
+        return normalized.includes('qualifying') || normalized.includes('quali');
+    });
+}
+
+function getLapChartTime(lap) {
+    if (!lap || !lap.date_start) return null;
+    const start = new Date(lap.date_start).getTime();
+    if (!Number.isFinite(start)) return null;
+
+    const duration = Number(lap.lap_duration);
+    return Number.isFinite(duration) && duration > 0
+        ? start + duration * 1000
+        : start;
+}
+
+function extractQualifyingPhasePeriods(records) {
+    if (!Array.isArray(records)) return [];
+
+    const activeStarts = new Map();
+    const periods = [];
+    const sorted = records
+        .map(record => {
+            const phase = Number(record && record.qualifying_phase);
+            const timestamp = new Date(record && record.date).getTime();
+            return {
+                record,
+                phase,
+                timestamp,
+                message: String((record && record.message) || '').toUpperCase()
+            };
+        })
+        .filter(item => (
+            item.record &&
+            item.record.category === 'SessionStatus' &&
+            Number.isInteger(item.phase) &&
+            item.phase >= 1 &&
+            item.phase <= 3 &&
+            Number.isFinite(item.timestamp)
+        ))
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+    sorted.forEach(item => {
+        if (item.message.includes('SESSION STARTED')) {
+            activeStarts.set(item.phase, item.timestamp);
+            return;
+        }
+
+        if (!item.message.includes('SESSION FINISHED')) return;
+
+        const startTime = activeStarts.get(item.phase);
+        if (!Number.isFinite(startTime) || item.timestamp <= startTime) return;
+
+        const phase = item.phase;
+        periods.push({
+            phase,
+            label: `Q${phase}`,
+            startTime,
+            endTime: item.timestamp
+        });
+        activeStarts.delete(item.phase);
+    });
+
+    return periods.sort((a, b) => a.startTime - b.startTime);
+}
+
+function buildQualifyingPhaseAxis(laps, records, session) {
+    if (!isQualifyingSession(session)) return null;
+
+    const phases = extractQualifyingPhasePeriods(records);
+    if (phases.length === 0) return null;
+
+    const lapTimes = (Array.isArray(laps) ? laps : [])
+        .map(getLapChartTime)
+        .filter(Number.isFinite);
+    if (lapTimes.length === 0) return null;
+
+    const firstPhaseStart = Math.min(...phases.map(phase => phase.startTime));
+    const lastPhaseEnd = Math.max(...phases.map(phase => phase.endTime));
+    const min = Math.min(firstPhaseStart, ...lapTimes);
+    const max = Math.max(lastPhaseEnd, ...lapTimes);
+
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null;
+
+    return {
+        kind: 'qualifying',
+        min,
+        max,
+        phases
+    };
+}
+
+function getLapXValue(lap, qualifyingAxis = null) {
+    return qualifyingAxis ? getLapChartTime(lap) : Number(lap && lap.lap_number);
+}
+
+function chartValueWithinWindow(value, minValue, maxValue) {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) && normalized >= minValue && normalized <= maxValue;
+}
+
+function getQualifyingPhaseForValue(axis, value) {
+    if (!axis || !Array.isArray(axis.phases)) return null;
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)) return null;
+    return axis.phases.find(phase => normalized >= phase.startTime && normalized <= phase.endTime) || null;
+}
+
+function getQualifyingPhaseLabelForValue(axis, value) {
+    const phase = getQualifyingPhaseForValue(axis, value);
+    return phase ? phase.label : '';
+}
+
+function getQualifyingLapLabel(lap, axis) {
+    const lapNumber = Number(lap && lap.lap_number);
+    const lapText = Number.isFinite(lapNumber) ? `Lap ${lapNumber}` : 'Lap';
+    const phaseLabel = getQualifyingPhaseLabelForValue(axis, getLapChartTime(lap));
+    return phaseLabel ? `${phaseLabel} - ${lapText}` : lapText;
+}
+
+function findNearestLapByAxisValue(laps, axisValue) {
+    const target = Number(axisValue);
+    if (!Number.isFinite(target) || !Array.isArray(laps) || laps.length === 0) return null;
+
+    let nearest = null;
+    let nearestDistance = Infinity;
+    laps.forEach(lap => {
+        const value = getLapChartTime(lap);
+        if (!Number.isFinite(value)) return;
+        const distance = Math.abs(value - target);
+        if (distance < nearestDistance) {
+            nearest = lap;
+            nearestDistance = distance;
+        }
+    });
+
+    return nearest;
+}
+
 function formatPitStopDuration(pitStop) {
     const duration = Number(pitStop && pitStop.pit_duration);
     return Number.isFinite(duration) ? `${duration.toFixed(3)}s` : null;
@@ -1098,6 +1240,7 @@ function renderPitLapMarkers(svg, markers, getX, minLap, maxLap, padding, chartH
 // Render session header
 function renderSessionHeader() {
     const s = state.selectedSession;
+    if (!s) return;
     const flag = COUNTRY_FLAGS[s.country_code] || '🏁';
     
     DOM.headerFlag.textContent = flag;
@@ -2122,6 +2265,13 @@ function getCompareLapFromX(x, ctx) {
     return Math.round(ctx.minLap + ratio * (ctx.maxLap - ctx.minLap));
 }
 
+function getCompareHoverValueFromX(x, ctx) {
+    if (typeof ctx.getHoverValueFromX === 'function') {
+        return ctx.getHoverValueFromX(x, ctx);
+    }
+    return getCompareLapFromX(x, ctx);
+}
+
 function renderCompareUnifiedTooltip(ctx, event) {
     const hoverLap = state.compareView.hoverLap;
     if (hoverLap === null || hoverLap === undefined) {
@@ -2153,8 +2303,11 @@ function renderCompareUnifiedTooltip(ctx, event) {
 
     const tooltip = getCompareTooltip();
     tooltip.classList.remove("compare-strategy-tooltip");
+    const hoverLabel = typeof ctx.formatHoverLabel === 'function'
+        ? ctx.formatHoverLabel(hoverLap)
+        : `Lap ${hoverLap}`;
     tooltip.innerHTML = `
-        <div class="chart-tooltip-header">${escapeHtml(ctx.title)} - Lap ${hoverLap}</div>
+        <div class="chart-tooltip-header">${escapeHtml(ctx.title)} - ${escapeHtml(hoverLabel)}</div>
         <div class="compare-tooltip-rows">
             ${rows.map(row => {
                 const label = getCompareDriverLabel(row.item.driver);
@@ -2245,7 +2398,7 @@ function attachCompareCrosshair(svg, ctx) {
 
     overlay.addEventListener("mousemove", event => {
         const x = getComparePointerX(event, ctx);
-        state.compareView.hoverLap = getCompareLapFromX(x, ctx);
+        state.compareView.hoverLap = getCompareHoverValueFromX(x, ctx);
         drawCompareCrosshairs(ctx, event);
     });
 
@@ -2291,8 +2444,8 @@ function attachCompareZoom(svg, ctx) {
             return;
         }
 
-        const startLap = getCompareLapFromX(drag.startX, ctx);
-        const endLap = getCompareLapFromX(currentX, ctx);
+        const startLap = getCompareHoverValueFromX(drag.startX, ctx);
+        const endLap = getCompareHoverValueFromX(currentX, ctx);
         state.compareView.lapWindow = {
             min: Math.min(startLap, endLap),
             max: Math.max(startLap, endLap)
@@ -2368,6 +2521,48 @@ function renderCompareSafetyCarPeriods(svg, getX, minLap, maxLap, padding, chart
             text.setAttribute("text-anchor", "middle");
             text.setAttribute("class", isVSC ? "chart-vsc-text" : "chart-safety-car-text");
             text.textContent = isVSC ? "VSC" : (width < 50 ? "SC" : "Safety Car");
+            svg.appendChild(text);
+        }
+    });
+}
+
+function renderQualifyingPhaseRegions(svg, axis, getX, padding, chartHeight, svgNamespace, includeLabels = true) {
+    if (!axis || !Array.isArray(axis.phases)) return;
+
+    axis.phases.forEach((phase, index) => {
+        const start = Math.max(phase.startTime, axis.min);
+        const end = Math.min(phase.endTime, axis.max);
+        if (start > end) return;
+
+        const xStart = getX(start);
+        const xEnd = getX(end);
+        const width = Math.max(xEnd - xStart, 2);
+
+        const rect = document.createElementNS(svgNamespace, "rect");
+        rect.setAttribute("x", xStart);
+        rect.setAttribute("y", padding.top);
+        rect.setAttribute("width", width);
+        rect.setAttribute("height", chartHeight);
+        rect.setAttribute("class", `chart-qualifying-phase-shading phase-${index % 2 === 0 ? 'even' : 'odd'}`);
+        svg.appendChild(rect);
+
+        [xStart, xStart + width].forEach(x => {
+            const line = document.createElementNS(svgNamespace, "line");
+            line.setAttribute("x1", x);
+            line.setAttribute("y1", padding.top);
+            line.setAttribute("x2", x);
+            line.setAttribute("y2", padding.top + chartHeight);
+            line.setAttribute("class", "chart-qualifying-phase-boundary");
+            svg.appendChild(line);
+        });
+
+        if (includeLabels && width > 20) {
+            const text = document.createElementNS(svgNamespace, "text");
+            text.setAttribute("x", xStart + width / 2);
+            text.setAttribute("y", padding.top + chartHeight + 20);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("class", "chart-qualifying-phase-text");
+            text.textContent = phase.label;
             svg.appendChild(text);
         }
     });
@@ -2464,24 +2659,44 @@ function renderCompareLapChart() {
         return;
     }
 
-    const domain = getCompareChartDomain(activeSeries.flatMap(item => item.validLaps.map(lap => Number(lap.lap_number))));
-    if (!domain) {
-        renderCompareEmptyState('query_stats', 'No Lap Times Available', 'The selected drivers do not have lap times recorded for this session.');
-        renderVisibleSecondaryCompareCharts(selectedDrivers);
-        return;
+    const qualifyingAxis = buildQualifyingPhaseAxis(activeSeries.flatMap(item => item.validLaps), state.raceControl, state.selectedSession);
+    let minLap;
+    let maxLap;
+
+    if (qualifyingAxis) {
+        minLap = qualifyingAxis.min;
+        maxLap = qualifyingAxis.max;
+        if (isCompareZoomActive()) {
+            const requestedMin = Math.min(state.compareView.lapWindow.min, state.compareView.lapWindow.max);
+            const requestedMax = Math.max(state.compareView.lapWindow.min, state.compareView.lapWindow.max);
+            const clampedMin = Math.max(qualifyingAxis.min, requestedMin);
+            const clampedMax = Math.min(qualifyingAxis.max, requestedMax);
+            if (clampedMin <= clampedMax) {
+                minLap = clampedMin;
+                maxLap = clampedMax;
+            }
+        }
+    } else {
+        const domain = getCompareChartDomain(activeSeries.flatMap(item => item.validLaps.map(lap => Number(lap.lap_number))));
+        if (!domain) {
+            renderCompareEmptyState('query_stats', 'No Lap Times Available', 'The selected drivers do not have lap times recorded for this session.');
+            renderVisibleSecondaryCompareCharts(selectedDrivers);
+            return;
+        }
+        minLap = domain.minLap;
+        maxLap = domain.maxLap;
     }
 
-    const { minLap, maxLap } = domain;
     let plotDurations = activeSeries
         .flatMap(item => item.plottableLaps
-            .filter(lap => lapWithinCompareWindow(lap.lap_number, minLap, maxLap))
+            .filter(lap => chartValueWithinWindow(getLapXValue(lap, qualifyingAxis), minLap, maxLap))
             .map(lap => Number(lap.lap_duration)))
         .filter(Number.isFinite);
 
     if (plotDurations.length === 0) {
         plotDurations = activeSeries
             .flatMap(item => item.validLaps
-                .filter(lap => lapWithinCompareWindow(lap.lap_number, minLap, maxLap))
+                .filter(lap => chartValueWithinWindow(getLapXValue(lap, qualifyingAxis), minLap, maxLap))
                 .map(lap => Number(lap.lap_duration)))
             .filter(Number.isFinite);
     }
@@ -2540,26 +2755,35 @@ function renderCompareLapChart() {
         svg.appendChild(text);
     }
 
-    const xGridLines = Math.min(10, maxLap - minLap + 1);
-    for (let i = 0; i < xGridLines; i++) {
-        const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
-        const x = getX(lapNum);
+    if (qualifyingAxis) {
+        const windowedAxis = {
+            ...qualifyingAxis,
+            min: minLap,
+            max: maxLap
+        };
+        renderQualifyingPhaseRegions(svg, windowedAxis, getX, padding, chartHeight, svgNamespace, true);
+    } else {
+        const xGridLines = Math.min(10, maxLap - minLap + 1);
+        for (let i = 0; i < xGridLines; i++) {
+            const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
+            const x = getX(lapNum);
 
-        const line = document.createElementNS(svgNamespace, "line");
-        line.setAttribute("x1", x);
-        line.setAttribute("y1", padding.top);
-        line.setAttribute("x2", x);
-        line.setAttribute("y2", padding.top + chartHeight);
-        line.setAttribute("class", "chart-grid-line");
-        svg.appendChild(line);
+            const line = document.createElementNS(svgNamespace, "line");
+            line.setAttribute("x1", x);
+            line.setAttribute("y1", padding.top);
+            line.setAttribute("x2", x);
+            line.setAttribute("y2", padding.top + chartHeight);
+            line.setAttribute("class", "chart-grid-line");
+            svg.appendChild(line);
 
-        const text = document.createElementNS(svgNamespace, "text");
-        text.setAttribute("x", x);
-        text.setAttribute("y", padding.top + chartHeight + 20);
-        text.setAttribute("text-anchor", "middle");
-        text.setAttribute("class", "chart-axis-text");
-        text.textContent = `L${lapNum}`;
-        svg.appendChild(text);
+            const text = document.createElementNS(svgNamespace, "text");
+            text.setAttribute("x", x);
+            text.setAttribute("y", padding.top + chartHeight + 20);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("class", "chart-axis-text");
+            text.textContent = `L${lapNum}`;
+            svg.appendChild(text);
+        }
     }
 
     const xAxis = document.createElementNS(svgNamespace, "line");
@@ -2578,14 +2802,16 @@ function renderCompareLapChart() {
     yAxis.setAttribute("class", "chart-axis-line");
     svg.appendChild(yAxis);
 
-    renderCompareSafetyCarPeriods(svg, getX, minLap, maxLap, padding, chartHeight, svgNamespace, true);
+    if (!qualifyingAxis) {
+        renderCompareSafetyCarPeriods(svg, getX, minLap, maxLap, padding, chartHeight, svgNamespace, true);
+    }
 
     series.forEach(item => {
         const rgb = getRGBColor(item.teamHex);
         const stateClasses = getCompareItemStateClasses(item.driverNumber);
         const points = item.plottableLaps
-            .filter(lap => lapWithinCompareWindow(lap.lap_number, minLap, maxLap))
-            .map(lap => `${getX(Number(lap.lap_number)).toFixed(1)},${getY(Number(lap.lap_duration)).toFixed(1)}`);
+            .filter(lap => chartValueWithinWindow(getLapXValue(lap, qualifyingAxis), minLap, maxLap))
+            .map(lap => `${getX(getLapXValue(lap, qualifyingAxis)).toFixed(1)},${getY(Number(lap.lap_duration)).toFixed(1)}`);
 
         if (points.length > 1) {
             const path = document.createElementNS(svgNamespace, "path");
@@ -2599,7 +2825,7 @@ function renderCompareLapChart() {
         }
 
         item.validLaps
-            .filter(lap => lapWithinCompareWindow(lap.lap_number, minLap, maxLap))
+            .filter(lap => chartValueWithinWindow(getLapXValue(lap, qualifyingAxis), minLap, maxLap))
             .forEach(lap => {
                 const isOutlier = hideOutliers && Number(lap.lap_duration) > item.outlierThreshold;
                 const pitAnnotation = getLapPitAnnotation(item.driverNumber, lap.lap_number);
@@ -2607,7 +2833,7 @@ function renderCompareLapChart() {
                     pitAnnotation.isPitIn ? 'chart-pit-in-dot' : '',
                     pitAnnotation.isPitOut ? 'chart-pit-out-dot' : ''
                 ].filter(Boolean).join(' ');
-                const x = getX(Number(lap.lap_number));
+                const x = getX(getLapXValue(lap, qualifyingAxis));
                 const y = isOutlier ? padding.top : getY(Number(lap.lap_duration));
                 const circle = document.createElementNS(svgNamespace, "circle");
                 circle.setAttribute("cx", x);
@@ -2643,6 +2869,10 @@ function renderCompareLapChart() {
         chartHeight,
         valueFor(lapNumber, driverNumber) {
             const item = seriesByDriver.get(Number(driverNumber));
+            if (qualifyingAxis) {
+                const nearestLap = item ? findNearestLapByAxisValue(item.validLaps, lapNumber) : null;
+                return nearestLap ? Number(nearestLap.lap_duration) : null;
+            }
             const lap = item ? item.lapByNumber.get(Number(lapNumber)) : null;
             return lap ? Number(lap.lap_duration) : null;
         },
@@ -2651,13 +2881,17 @@ function renderCompareLapChart() {
         },
         detailFor(lapNumber, driverNumber) {
             const item = seriesByDriver.get(Number(driverNumber));
-            const lap = item ? item.lapByNumber.get(Number(lapNumber)) : null;
+            const lap = qualifyingAxis
+                ? (item ? findNearestLapByAxisValue(item.validLaps, lapNumber) : null)
+                : (item ? item.lapByNumber.get(Number(lapNumber)) : null);
             if (!lap) return '';
 
-            const pitAnnotation = getLapPitAnnotation(driverNumber, lapNumber);
+            const effectiveLapNumber = Number(lap.lap_number);
+            const pitAnnotation = getLapPitAnnotation(driverNumber, effectiveLapNumber);
             const isOutlier = hideOutliers && Number(lap.lap_duration) > item.outlierThreshold;
             return `
                 <div class="compare-tooltip-sectors">
+                    ${qualifyingAxis ? `<span>${escapeHtml(getQualifyingLapLabel(lap, qualifyingAxis))}</span>` : ''}
                     <span>S1 ${lap.duration_sector_1 ? Number(lap.duration_sector_1).toFixed(3) + 's' : '--'}</span>
                     <span>S2 ${lap.duration_sector_2 ? Number(lap.duration_sector_2).toFixed(3) + 's' : '--'}</span>
                     <span>S3 ${lap.duration_sector_3 ? Number(lap.duration_sector_3).toFixed(3) + 's' : '--'}</span>
@@ -2665,6 +2899,16 @@ function renderCompareLapChart() {
                 ${renderPitTooltipRows(pitAnnotation)}
                 ${isOutlier ? '<div class="compare-tooltip-note">Outlier</div>' : ''}
             `;
+        },
+        getHoverValueFromX(x) {
+            if (!qualifyingAxis) return getCompareLapFromX(x, ctx);
+            if (maxLap === minLap) return minLap;
+            const ratio = (x - padding.left) / (chartWidth || 1);
+            return minLap + ratio * (maxLap - minLap);
+        },
+        formatHoverLabel(value) {
+            if (!qualifyingAxis) return `Lap ${value}`;
+            return getQualifyingPhaseLabelForValue(qualifyingAxis, value) || formatRaceControlTime(value);
         }
     };
 
@@ -3732,6 +3976,11 @@ async function selectDriverForStats(driverNumber) {
     loader.innerHTML = '<div class="spinner"></div><p>Loading driver telemetry...</p>';
     DOM.lapsContent.appendChild(loader);
 
+    if (!state.selectedSession) {
+        loader.remove();
+        return;
+    }
+
     try {
         // Load driver laps
         const laps = await fetchDriverLaps(state.selectedSession.session_key, driverNumber);
@@ -4064,8 +4313,11 @@ function renderLapChart(laps) {
     const minTime = Math.min(...plotDurations);
     const maxTime = Math.max(...plotDurations);
     
+    const qualifyingAxis = buildQualifyingPhaseAxis(validLaps, state.raceControl, state.selectedSession);
     const minLap = Math.min(...validLaps.map(l => l.lap_number));
     const maxLap = Math.max(...validLaps.map(l => l.lap_number));
+    const minXValue = qualifyingAxis ? qualifyingAxis.min : minLap;
+    const maxXValue = qualifyingAxis ? qualifyingAxis.max : maxLap;
 
     // Chart margins and sizes
     const width = DOM.lapsChartContainer.clientWidth || 800;
@@ -4076,9 +4328,9 @@ function renderLapChart(laps) {
     const chartHeight = height - padding.top - padding.bottom;
 
     // Scale helper functions
-    const getX = (lapNum) => {
-        if (maxLap === minLap) return padding.left + chartWidth / 2;
-        return padding.left + ((lapNum - minLap) / (maxLap - minLap)) * chartWidth;
+    const getX = (xValue) => {
+        if (maxXValue === minXValue) return padding.left + chartWidth / 2;
+        return padding.left + ((xValue - minXValue) / (maxXValue - minXValue)) * chartWidth;
     };
 
     const getY = (duration) => {
@@ -4120,29 +4372,33 @@ function renderLapChart(laps) {
         svg.appendChild(text);
     }
 
-    // Draw X Grid Lines & Labels (Lap number)
-    const xGridLines = Math.min(10, maxLap - minLap + 1);
-    for (let i = 0; i < xGridLines; i++) {
-        const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
-        const x = getX(lapNum);
-        
-        // Grid Line
-        const line = document.createElementNS(svgNamespace, "line");
-        line.setAttribute("x1", x);
-        line.setAttribute("y1", padding.top);
-        line.setAttribute("x2", x);
-        line.setAttribute("y2", padding.top + chartHeight);
-        line.setAttribute("class", "chart-grid-line");
-        svg.appendChild(line);
+    if (qualifyingAxis) {
+        renderQualifyingPhaseRegions(svg, qualifyingAxis, getX, padding, chartHeight, svgNamespace, true);
+    } else {
+        // Draw X Grid Lines & Labels (Lap number)
+        const xGridLines = Math.min(10, maxLap - minLap + 1);
+        for (let i = 0; i < xGridLines; i++) {
+            const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
+            const x = getX(lapNum);
+            
+            // Grid Line
+            const line = document.createElementNS(svgNamespace, "line");
+            line.setAttribute("x1", x);
+            line.setAttribute("y1", padding.top);
+            line.setAttribute("x2", x);
+            line.setAttribute("y2", padding.top + chartHeight);
+            line.setAttribute("class", "chart-grid-line");
+            svg.appendChild(line);
 
-        // X Label
-        const text = document.createElementNS(svgNamespace, "text");
-        text.setAttribute("x", x);
-        text.setAttribute("y", padding.top + chartHeight + 18);
-        text.setAttribute("text-anchor", "middle");
-        text.setAttribute("class", "chart-axis-text");
-        text.textContent = `L${lapNum}`;
-        svg.appendChild(text);
+            // X Label
+            const text = document.createElementNS(svgNamespace, "text");
+            text.setAttribute("x", x);
+            text.setAttribute("y", padding.top + chartHeight + 18);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("class", "chart-axis-text");
+            text.textContent = `L${lapNum}`;
+            svg.appendChild(text);
+        }
     }
 
     // Draw Main Axis lines
@@ -4162,72 +4418,76 @@ function renderLapChart(laps) {
     yAxis.setAttribute("class", "chart-axis-line");
     svg.appendChild(yAxis);
 
-    // Draw Safety Car & VSC Zones
-    const safetyCarPeriods = extractSafetyCarPeriods(state.raceControl);
-    safetyCarPeriods.forEach(period => {
-        // Clamp to chart boundaries
-        const start = Math.max(period.start, minLap);
-        const end = Math.min(period.end, maxLap);
-        if (start > end) return;
-        
-        const xStart = getX(start);
-        const xEnd = getX(end);
-        let width = xEnd - xStart;
-        if (width <= 0) width = 2; // thin line if single lap deployment
-        
-        const isVSC = period.type === 'VSC';
-        
-        // 1. Shading
-        const rect = document.createElementNS(svgNamespace, "rect");
-        rect.setAttribute("x", xStart);
-        rect.setAttribute("y", padding.top);
-        rect.setAttribute("width", width);
-        rect.setAttribute("height", chartHeight);
-        rect.setAttribute("class", isVSC ? "chart-vsc-shading" : "chart-safety-car-shading");
-        svg.appendChild(rect);
-        
-        // 2. Boundary Lines (left and right)
-        const lineLeft = document.createElementNS(svgNamespace, "line");
-        lineLeft.setAttribute("x1", xStart);
-        lineLeft.setAttribute("y1", padding.top);
-        lineLeft.setAttribute("x2", xStart);
-        lineLeft.setAttribute("y2", padding.top + chartHeight);
-        lineLeft.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
-        svg.appendChild(lineLeft);
-        
-        if (xEnd > xStart) {
-            const lineRight = document.createElementNS(svgNamespace, "line");
-            lineRight.setAttribute("x1", xEnd);
-            lineRight.setAttribute("y1", padding.top);
-            lineRight.setAttribute("x2", xEnd);
-            lineRight.setAttribute("y2", padding.top + chartHeight);
-            lineRight.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
-            svg.appendChild(lineRight);
-        }
-        
-        // 3. Label Text
-        let labelText = isVSC ? "VSC" : "Safety Car";
-        if (!isVSC && width < 50) {
-            labelText = "SC";
-        }
-        if (width > 12) {
-            const text = document.createElementNS(svgNamespace, "text");
-            text.setAttribute("x", xStart + width / 2);
-            text.setAttribute("y", padding.top + 15);
-            text.setAttribute("text-anchor", "middle");
-            text.setAttribute("class", isVSC ? "chart-vsc-text" : "chart-safety-car-text");
-            text.textContent = labelText;
-            svg.appendChild(text);
-        }
-    });
+    if (!qualifyingAxis) {
+        // Draw Safety Car & VSC Zones
+        const safetyCarPeriods = extractSafetyCarPeriods(state.raceControl);
+        safetyCarPeriods.forEach(period => {
+            // Clamp to chart boundaries
+            const start = Math.max(period.start, minLap);
+            const end = Math.min(period.end, maxLap);
+            if (start > end) return;
+            
+            const xStart = getX(start);
+            const xEnd = getX(end);
+            let width = xEnd - xStart;
+            if (width <= 0) width = 2; // thin line if single lap deployment
+            
+            const isVSC = period.type === 'VSC';
+            
+            // 1. Shading
+            const rect = document.createElementNS(svgNamespace, "rect");
+            rect.setAttribute("x", xStart);
+            rect.setAttribute("y", padding.top);
+            rect.setAttribute("width", width);
+            rect.setAttribute("height", chartHeight);
+            rect.setAttribute("class", isVSC ? "chart-vsc-shading" : "chart-safety-car-shading");
+            svg.appendChild(rect);
+            
+            // 2. Boundary Lines (left and right)
+            const lineLeft = document.createElementNS(svgNamespace, "line");
+            lineLeft.setAttribute("x1", xStart);
+            lineLeft.setAttribute("y1", padding.top);
+            lineLeft.setAttribute("x2", xStart);
+            lineLeft.setAttribute("y2", padding.top + chartHeight);
+            lineLeft.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+            svg.appendChild(lineLeft);
+            
+            if (xEnd > xStart) {
+                const lineRight = document.createElementNS(svgNamespace, "line");
+                lineRight.setAttribute("x1", xEnd);
+                lineRight.setAttribute("y1", padding.top);
+                lineRight.setAttribute("x2", xEnd);
+                lineRight.setAttribute("y2", padding.top + chartHeight);
+                lineRight.setAttribute("class", isVSC ? "chart-vsc-boundary" : "chart-safety-car-boundary");
+                svg.appendChild(lineRight);
+            }
+            
+            // 3. Label Text
+            let labelText = isVSC ? "VSC" : "Safety Car";
+            if (!isVSC && width < 50) {
+                labelText = "SC";
+            }
+            if (width > 12) {
+                const text = document.createElementNS(svgNamespace, "text");
+                text.setAttribute("x", xStart + width / 2);
+                text.setAttribute("y", padding.top + 15);
+                text.setAttribute("text-anchor", "middle");
+                text.setAttribute("class", isVSC ? "chart-vsc-text" : "chart-safety-car-text");
+                text.textContent = labelText;
+                svg.appendChild(text);
+            }
+        });
 
-    const pitLapMarkers = getDriverPitLapMarkers(state.selectedDriverStats, minLap, maxLap);
-    renderPitLapMarkers(svg, pitLapMarkers, getX, minLap, maxLap, padding, chartHeight, svgNamespace);
+        const pitLapMarkers = getDriverPitLapMarkers(state.selectedDriverStats, minLap, maxLap);
+        renderPitLapMarkers(svg, pitLapMarkers, getX, minLap, maxLap, padding, chartHeight, svgNamespace);
+    }
 
     // Build path points
     let points = [];
     plottableLaps.forEach(lap => {
-        points.push(`${getX(lap.lap_number).toFixed(1)},${getY(lap.lap_duration).toFixed(1)}`);
+        const xValue = getLapXValue(lap, qualifyingAxis);
+        if (!Number.isFinite(xValue)) return;
+        points.push(`${getX(xValue).toFixed(1)},${getY(lap.lap_duration).toFixed(1)}`);
     });
 
     // Set line color dynamically based on driver's team color
@@ -4265,7 +4525,10 @@ function renderLapChart(laps) {
             pitAnnotation.isPitIn ? 'chart-pit-in-dot' : '',
             pitAnnotation.isPitOut ? 'chart-pit-out-dot' : ''
         ].filter(Boolean).join(' ');
-        const x = getX(lap.lap_number);
+        const xValue = getLapXValue(lap, qualifyingAxis);
+        if (!Number.isFinite(xValue)) return;
+
+        const x = getX(xValue);
         const y = isOutlier ? padding.top : getY(lap.lap_duration);
 
         const circle = document.createElementNS(svgNamespace, "circle");
@@ -4292,7 +4555,7 @@ function renderLapChart(laps) {
             // Show Tooltip
             tooltip.style.display = "block";
             tooltip.innerHTML = `
-                <div class="chart-tooltip-header">Lap ${lap.lap_number}</div>
+                <div class="chart-tooltip-header">${escapeHtml(getQualifyingLapLabel(lap, qualifyingAxis))}</div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
                     <span style="color:var(--text-muted)">Time:</span>
                     <strong style="color:var(--text-primary)">${formatLapTime(lap.lap_duration)}</strong>

@@ -151,6 +151,14 @@ class SessionAutoFocusTests(unittest.TestCase):
             202,
         )
 
+    def test_session_header_ignores_missing_selected_session(self):
+        self.assertIn("function renderSessionHeader()", self.dashboard_js)
+        self.assertIn("if (!s) return;", self.dashboard_js)
+
+    def test_driver_stats_ignores_missing_selected_session(self):
+        self.assertIn("async function selectDriverForStats(driverNumber)", self.dashboard_js)
+        self.assertIn("if (!state.selectedSession) {", self.dashboard_js)
+
 
 if __name__ == "__main__":
     unittest.main()
