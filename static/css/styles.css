@@ -3069,3 +3069,42 @@ body {
         transform: translateY(0);
     }
 }
+
+/* Driver card enhanced metadata styles */
+.driver-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    z-index: 3;
+}
+
+.driver-flag {
+    font-size: 16px;
+    line-height: 1;
+    cursor: help;
+}
+
+.driver-age {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.driver-wiki-link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-muted);
+    transition: var(--transition-normal);
+}
+
+.driver-wiki-link:hover {
+    color: var(--text-primary);
+}
+
+.driver-wiki-link span {
+    font-size: 14px;
+}
