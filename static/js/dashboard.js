@@ -75,6 +75,41 @@ function getDriverTeamHex(driver, fallback = '787878') {
     return (driver.team_colour || TEAM_COLORS[(driver.team_name || '').toLowerCase()] || fallback).replace('#', '');
 }
 
+function calculateAgeAtDate(birthdayStr, targetDateStr) {
+    if (!birthdayStr) return null;
+    try {
+        let birthDate;
+        birthdayStr = birthdayStr.trim();
+        if (birthdayStr.includes('/')) {
+            const parts = birthdayStr.split('/');
+            if (parts.length === 3) {
+                if (parts[0].length === 4) {
+                    birthDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                } else {
+                    birthDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+                }
+            }
+        } else {
+            birthDate = new Date(birthdayStr);
+        }
+
+        if (isNaN(birthDate.getTime())) return null;
+
+        const targetDate = targetDateStr ? new Date(targetDateStr) : new Date();
+        if (isNaN(targetDate.getTime())) return null;
+
+        let age = targetDate.getFullYear() - birthDate.getFullYear();
+        const m = targetDate.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && targetDate.getDate() < birthDate.getDate())) {
+            age--;
+        }
+        return age;
+    } catch (e) {
+        console.error('Error calculating age:', e);
+        return null;
+    }
+}
+
 // Helper: Format lap times (e.g., 90.5 -> 1:30.500)
 function formatLapTime(seconds) {
     if (!seconds || isNaN(seconds)) return '--';
@@ -159,6 +194,9 @@ const DOM = {
     statsDriverHeadshot: document.getElementById('statsDriverHeadshot'),
     statsDriverName: document.getElementById('statsDriverName'),
     statsDriverTeam: document.getElementById('statsDriverTeam'),
+    statsDriverFlag: document.getElementById('statsDriverFlag'),
+    statsDriverAge: document.getElementById('statsDriverAge'),
+    statsDriverWiki: document.getElementById('statsDriverWiki'),
     statsDriverNumber: document.getElementById('statsDriverNumber'),
     statsFastestLap: document.getElementById('statsFastestLap'),
     statsTheoBestLap: document.getElementById('statsTheoBestLap'),
@@ -1698,12 +1736,18 @@ function renderDriversGrid() {
         // Handle Fallback Headshots
         const headshot = d.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/';
 
+        const age = calculateAgeAtDate(d.birthday, state.selectedSession ? state.selectedSession.date_start : null);
         card.innerHTML = `
             <div class="driver-card-top">
                 <div class="driver-info">
                     <div class="driver-team">${d.team_name || 'Independent'}</div>
                     <div class="driver-name">${d.first_name} ${d.last_name}</div>
                     <div class="driver-acronym">${d.name_acronym || ''}</div>
+                    <div class="driver-meta">
+                        ${d.nationality_flag ? `<span class="driver-flag" title="${d.nationality || ''}">${d.nationality_flag}</span>` : ''}
+                        ${age ? `<span class="driver-age">${age} yrs</span>` : ''}
+                        ${d.wiki_url ? `<a href="${d.wiki_url}" target="_blank" class="driver-wiki-link" title="Wikipedia Page"><span class="material-icons-round">open_in_new</span></a>` : ''}
+                    </div>
                 </div>
                 <div class="driver-number-badge">${d.driver_number}</div>
             </div>
@@ -1721,6 +1765,14 @@ function renderDriversGrid() {
             // Select driver in side panel
             selectDriverForStats(d.driver_number);
         });
+
+        // Prevent switching tabs when clicking Wikipedia link
+        const wikiLink = card.querySelector('.driver-wiki-link');
+        if (wikiLink) {
+            wikiLink.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
 
         DOM.driversGrid.appendChild(card);
     });
@@ -4000,6 +4052,37 @@ async function selectDriverForStats(driverNumber) {
         DOM.statsDriverTeam.textContent = d.team_name || 'Independent';
         DOM.statsDriverNumber.textContent = d.driver_number;
         DOM.statsDriverNumber.style.color = `#${teamHex}`;
+        
+        // Render flag, age, and wiki link
+        const age = calculateAgeAtDate(d.birthday, state.selectedSession ? state.selectedSession.date_start : null);
+        
+        if (DOM.statsDriverFlag) {
+            if (d.nationality_flag) {
+                DOM.statsDriverFlag.textContent = d.nationality_flag;
+                DOM.statsDriverFlag.title = d.nationality || '';
+                DOM.statsDriverFlag.style.display = 'inline';
+            } else {
+                DOM.statsDriverFlag.style.display = 'none';
+            }
+        }
+
+        if (DOM.statsDriverAge) {
+            if (age) {
+                DOM.statsDriverAge.textContent = `${age} yrs`;
+                DOM.statsDriverAge.style.display = 'inline-block';
+            } else {
+                DOM.statsDriverAge.style.display = 'none';
+            }
+        }
+
+        if (DOM.statsDriverWiki) {
+            if (d.wiki_url) {
+                DOM.statsDriverWiki.href = d.wiki_url;
+                DOM.statsDriverWiki.style.display = 'inline-flex';
+            } else {
+                DOM.statsDriverWiki.style.display = 'none';
+            }
+        }
         
         // Load driver avatar image
         const headshot = d.headshot_url || "";//'https://media.formula1.com/d_driver_fallback_image.png';
