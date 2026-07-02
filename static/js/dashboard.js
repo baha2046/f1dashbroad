@@ -10,6 +10,8 @@ const state = {
     results: [],
     raceControl: [],
     pitStops: [],
+    position: [],
+    positionByLap: {},
     laps: {}, // map of driverNumber -> laps array
     allSessionLaps: null,
     selectedDriverStats: null,
@@ -21,6 +23,8 @@ const state = {
 
 function createCompareViewState() {
     return {
+        visibleCharts: new Set(['lapTimes', 'gap']),
+        headToHeadRef: null,
         lapWindow: { min: null, max: null },
         hiddenDrivers: new Set(),
         highlightedDriver: null,
@@ -172,8 +176,17 @@ const DOM = {
     compareHideOutliers: document.getElementById('compareHideOutliers'),
     compareResetZoom: document.getElementById('compareResetZoom'),
     compareSelectedCount: document.getElementById('compareSelectedCount'),
+    compareChartToggles: document.getElementById('compareChartToggles'),
+    compareLapTimesChartSection: document.getElementById('compareLapTimesChartSection'),
     compareGapChartSection: document.getElementById('compareGapChartSection'),
     compareGapChartContainer: document.getElementById('compareGapChartContainer'),
+    comparePositionChartSection: document.getElementById('comparePositionChartSection'),
+    comparePositionChartContainer: document.getElementById('comparePositionChartContainer'),
+    compareHeadToHeadChartSection: document.getElementById('compareHeadToHeadChartSection'),
+    compareHeadToHeadChartContainer: document.getElementById('compareHeadToHeadChartContainer'),
+    compareHeadToHeadRef: document.getElementById('compareHeadToHeadRef'),
+    compareTyreStrategyChartSection: document.getElementById('compareTyreStrategyChartSection'),
+    compareTyreStrategyChartContainer: document.getElementById('compareTyreStrategyChartContainer'),
     
     // Circuit Details elements
     circuitOfficialName: document.getElementById('circuitOfficialName'),
@@ -376,6 +389,17 @@ function setupEventListeners() {
 
     if (DOM.compareHideOutliers) {
         DOM.compareHideOutliers.addEventListener('change', () => {
+            state.compareView.hoverLap = null;
+            renderCompareLapChart();
+        });
+    }
+
+    setupCompareChartToggles();
+
+    if (DOM.compareHeadToHeadRef) {
+        DOM.compareHeadToHeadRef.addEventListener('change', () => {
+            const ref = Number(DOM.compareHeadToHeadRef.value);
+            state.compareView.headToHeadRef = Number.isFinite(ref) ? ref : null;
             state.compareView.hoverLap = null;
             renderCompareLapChart();
         });
@@ -728,6 +752,8 @@ async function selectSession(session) {
     state.results = [];
     state.raceControl = [];
     state.pitStops = [];
+    state.position = [];
+    state.positionByLap = {};
     state.laps = {};
     state.allSessionLaps = null;
     state.selectedDriverStats = null;
@@ -752,7 +778,10 @@ async function selectSession(session) {
         const lapsRequest = isPitAnnotationSession(session)
             ? customFetch(`/api/laps?session_key=${session.session_key}`)
             : Promise.resolve(null);
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes] = await Promise.all([
+        const positionRequest = isPitAnnotationSession(session)
+            ? customFetch(`/api/position?session_key=${session.session_key}`)
+            : Promise.resolve(null);
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes, positionRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}`),
             customFetch(`/api/weather?session_key=${session.session_key}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
@@ -760,7 +789,8 @@ async function selectSession(session) {
             customFetch(`/api/results?session_key=${session.session_key}`),
             customFetch(`/api/race_control?session_key=${session.session_key}`),
             pitStopsRequest,
-            lapsRequest
+            lapsRequest,
+            positionRequest
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -818,6 +848,12 @@ async function selectSession(session) {
                     state.laps[dn] = groupedLaps[dn];
                 }
             }
+        }
+
+        if (positionRes && positionRes.ok) {
+            const position = await positionRes.json();
+            state.position = Array.isArray(position) ? position : [];
+            state.positionByLap = buildPositionByLapMap();
         }
 
         // Render dashboard components
@@ -1621,6 +1657,242 @@ function updateCompareSelectedCount() {
     DOM.compareSelectedCount.textContent = `${count} selected`;
 }
 
+function isCompareChartVisible(chartId) {
+    return state.compareView.visibleCharts.has(chartId);
+}
+
+function hasCompareStintData() {
+    return Array.isArray(state.stints) && state.stints.length > 0;
+}
+
+function isCompareChartAvailable(chartId) {
+    if (['gap', 'position', 'headToHead'].includes(chartId)) {
+        return isPitAnnotationSession(state.selectedSession);
+    }
+    if (chartId === 'tyreStrategy') {
+        return hasCompareStintData();
+    }
+    return true;
+}
+
+function setCompareChartSectionVisibility(section, visible) {
+    if (!section) return;
+    section.style.display = visible ? 'block' : 'none';
+}
+
+function setupCompareChartToggles() {
+    if (!DOM.compareChartToggles) return;
+
+    DOM.compareChartToggles.addEventListener('click', event => {
+        const button = event.target.closest('[data-chart-id]');
+        if (!button || button.disabled) return;
+
+        const chartId = button.dataset.chartId;
+        if (!isCompareChartAvailable(chartId)) return;
+
+        if (isCompareChartVisible(chartId)) {
+            state.compareView.visibleCharts.delete(chartId);
+        } else {
+            state.compareView.visibleCharts.add(chartId);
+        }
+
+        state.compareView.hoverLap = null;
+        renderCompareLapChart();
+    });
+}
+
+function updateCompareChartToggles() {
+    if (!DOM.compareChartToggles) return;
+
+    DOM.compareChartToggles.querySelectorAll('[data-chart-id]').forEach(button => {
+        const chartId = button.dataset.chartId;
+        const available = isCompareChartAvailable(chartId);
+        const active = available && isCompareChartVisible(chartId);
+
+        button.style.display = available ? 'inline-flex' : 'none';
+        button.disabled = !available;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
+}
+
+function getLapEndTime(lap) {
+    if (!lap || !lap.date_start) return null;
+    const start = new Date(lap.date_start).getTime();
+    const duration = Number(lap.lap_duration);
+    if (!Number.isFinite(start) || !Number.isFinite(duration)) return null;
+    return start + duration * 1000;
+}
+
+function buildPositionByLapMap() {
+    const positionByLap = {};
+    const eventsByDriver = {};
+
+    if (!Array.isArray(state.position) || state.position.length === 0) {
+        state.positionByLap = positionByLap;
+        return positionByLap;
+    }
+
+    state.position.forEach(event => {
+        const driverNumber = Number(event.driver_number);
+        const position = Number(event.position);
+        const timestamp = new Date(event.date).getTime();
+        if (!Number.isFinite(driverNumber) || !Number.isFinite(position) || !Number.isFinite(timestamp)) return;
+        if (!eventsByDriver[driverNumber]) eventsByDriver[driverNumber] = [];
+        eventsByDriver[driverNumber].push({ ...event, driverNumber, position, timestamp });
+    });
+
+    Object.keys(eventsByDriver).forEach(driverKey => {
+        const driverNumber = Number(driverKey);
+        const events = eventsByDriver[driverNumber].sort((a, b) => a.timestamp - b.timestamp);
+        const laps = (state.laps[driverNumber] || [])
+            .filter(lap => Number.isFinite(Number(lap.lap_number)))
+            .sort((a, b) => Number(a.lap_number) - Number(b.lap_number));
+
+        if (events.length === 0 || laps.length === 0) return;
+
+        positionByLap[driverNumber] = {};
+        let eventIndex = 0;
+
+        laps.forEach(lap => {
+            const lapNumber = Number(lap.lap_number);
+            const lapEnd = getLapEndTime(lap);
+            if (!Number.isFinite(lapEnd)) return;
+
+            while (eventIndex + 1 < events.length && events[eventIndex + 1].timestamp <= lapEnd) {
+                eventIndex += 1;
+            }
+
+            const event = events[eventIndex].timestamp <= lapEnd ? events[eventIndex] : events[0];
+            positionByLap[driverNumber][lapNumber] = event.position;
+        });
+    });
+
+    state.positionByLap = positionByLap;
+    return positionByLap;
+}
+
+function formatComparePositionDelta(delta) {
+    if (!Number.isFinite(delta) || delta === 0) {
+        return '<span class="compare-position-delta-even">-</span>';
+    }
+    if (delta > 0) {
+        return `<span class="compare-position-delta-gain">▲${delta}</span>`;
+    }
+    return `<span class="compare-position-delta-loss">▼${Math.abs(delta)}</span>`;
+}
+
+function formatSignedDelta(value) {
+    const delta = Number(value);
+    if (!Number.isFinite(delta)) return '--';
+    if (delta === 0) return '0.000s';
+    return `${delta > 0 ? '+' : ''}${delta.toFixed(3)}s`;
+}
+
+function getCompareLapsByDriver(resolvedDrivers = null) {
+    const lapsByDriver = {};
+    if (state.allSessionLaps && state.allSessionLaps.length > 0) {
+        state.allSessionLaps.forEach(lap => {
+            const dn = Number(lap.driver_number);
+            if (!Number.isFinite(dn)) return;
+            if (!lapsByDriver[dn]) {
+                lapsByDriver[dn] = [];
+            }
+            lapsByDriver[dn].push(lap);
+        });
+    } else {
+        (resolvedDrivers || []).forEach(driver => {
+            const dn = Number(driver.driver_number);
+            lapsByDriver[dn] = state.laps[dn] || [];
+        });
+    }
+    return lapsByDriver;
+}
+
+function buildCompareCumulativeTimes(resolvedDrivers = null) {
+    const lapsByDriver = getCompareLapsByDriver(resolvedDrivers);
+    const allDriversCumulative = {};
+
+    for (const dn in lapsByDriver) {
+        lapsByDriver[dn].sort((a, b) => Number(a.lap_number) - Number(b.lap_number));
+        let cumulative = 0;
+        allDriversCumulative[dn] = {};
+        for (const lap of lapsByDriver[dn]) {
+            const lapNum = Number(lap.lap_number);
+            const duration = Number(lap.lap_duration);
+            if (duration && !isNaN(duration)) {
+                cumulative += duration;
+                allDriversCumulative[dn][lapNum] = cumulative;
+            } else {
+                break;
+            }
+        }
+    }
+
+    const leaderCumulativeAtLap = {};
+    let maxLapNum = 0;
+    for (const dn in allDriversCumulative) {
+        for (const lapStr in allDriversCumulative[dn]) {
+            const lapNum = Number(lapStr);
+            if (lapNum > maxLapNum) {
+                maxLapNum = lapNum;
+            }
+        }
+    }
+
+    for (let lapNum = 1; lapNum <= maxLapNum; lapNum++) {
+        let minCume = Infinity;
+        for (const dn in allDriversCumulative) {
+            const cume = allDriversCumulative[dn][lapNum];
+            if (cume !== undefined && cume < minCume) {
+                minCume = cume;
+            }
+        }
+        if (minCume !== Infinity) {
+            leaderCumulativeAtLap[lapNum] = minCume;
+        }
+    }
+
+    return { lapsByDriver, allDriversCumulative, leaderCumulativeAtLap, maxLapNum };
+}
+
+function chooseHeadToHeadReference(selectedDrivers, allDriversCumulative = null) {
+    const selectedNumbers = selectedDrivers.map(driver => Number(driver.driver_number));
+    const currentRef = Number(state.compareView.headToHeadRef);
+    if (selectedNumbers.includes(currentRef)) {
+        return currentRef;
+    }
+
+    let bestDriver = null;
+    let bestCumulative = Infinity;
+    selectedNumbers.forEach(driverNumber => {
+        const cumulativeByLap = (allDriversCumulative || {})[driverNumber] || {};
+        const lapNumbers = Object.keys(cumulativeByLap).map(Number).filter(Number.isFinite);
+        if (lapNumbers.length === 0) return;
+
+        const finalLap = Math.max(...lapNumbers);
+        const finalCumulative = cumulativeByLap[finalLap];
+        if (Number.isFinite(finalCumulative) && finalCumulative < bestCumulative) {
+            bestCumulative = finalCumulative;
+            bestDriver = driverNumber;
+        }
+    });
+
+    if (bestDriver !== null) {
+        state.compareView.headToHeadRef = bestDriver;
+    }
+    return bestDriver;
+}
+
+function populateHeadToHeadReferencePicker(selectedDrivers, refDriverNumber) {
+    if (!DOM.compareHeadToHeadRef) return;
+
+    DOM.compareHeadToHeadRef.innerHTML = selectedDrivers.map(driver => {
+        const driverNumber = Number(driver.driver_number);
+        return `<option value="${driverNumber}"${driverNumber === Number(refDriverNumber) ? ' selected' : ''}>${escapeHtml(getCompareDriverLabel(driver))}</option>`;
+    }).join('');
+}
+
 async function toggleCompareDriver(driverNumber) {
     const normalizedDriverNumber = Number(driverNumber);
     if (Number.isNaN(normalizedDriverNumber)) return;
@@ -1686,6 +1958,13 @@ function pruneCompareViewState(selectedDrivers) {
         !selectedNumbers.has(Number(state.compareView.highlightedDriver))
     ) {
         state.compareView.highlightedDriver = null;
+    }
+
+    if (
+        state.compareView.headToHeadRef !== null &&
+        !selectedNumbers.has(Number(state.compareView.headToHeadRef))
+    ) {
+        state.compareView.headToHeadRef = null;
     }
 }
 
@@ -1827,6 +2106,7 @@ function hideCompareTooltip() {
     if (!tooltip) return;
     tooltip.style.display = "none";
     tooltip.classList.remove("compare-unified-tooltip");
+    tooltip.classList.remove("compare-strategy-tooltip");
 }
 
 function getComparePointerX(event, ctx) {
@@ -1872,12 +2152,13 @@ function renderCompareUnifiedTooltip(ctx, event) {
     }
 
     const tooltip = getCompareTooltip();
+    tooltip.classList.remove("compare-strategy-tooltip");
     tooltip.innerHTML = `
         <div class="chart-tooltip-header">${escapeHtml(ctx.title)} - Lap ${hoverLap}</div>
         <div class="compare-tooltip-rows">
             ${rows.map(row => {
                 const label = getCompareDriverLabel(row.item.driver);
-                const displayValue = row.value === null ? '--' : ctx.formatValue(row.value);
+                const displayValue = row.value === null ? '--' : ctx.formatValue(row.value, row.item.driverNumber);
                 return `
                     <div class="compare-tooltip-row" style="--team-color: #${row.item.teamHex};">
                         <div class="compare-tooltip-main">
@@ -1901,6 +2182,14 @@ function renderCompareUnifiedTooltip(ctx, event) {
     tooltip.style.display = "block";
 }
 
+function renderCompareContextTooltip(ctx, event) {
+    if (typeof ctx.renderTooltip === 'function') {
+        ctx.renderTooltip(ctx, event);
+        return;
+    }
+    renderCompareUnifiedTooltip(ctx, event);
+}
+
 function drawCompareCrosshairs(sourceCtx = null, event = null) {
     const hoverLap = state.compareView.hoverLap;
     let tooltipRendered = false;
@@ -1921,7 +2210,7 @@ function drawCompareCrosshairs(sourceCtx = null, event = null) {
         ctx.crosshairGroup.style.display = "block";
 
         if (sourceCtx && event && ctx.kind === sourceCtx.kind) {
-            renderCompareUnifiedTooltip(ctx, event);
+            renderCompareContextTooltip(ctx, event);
             tooltipRendered = true;
         }
     });
@@ -2084,12 +2373,21 @@ function renderCompareSafetyCarPeriods(svg, getX, minLap, maxLap, padding, chart
     });
 }
 
+function renderVisibleSecondaryCompareCharts(selectedDrivers) {
+    renderCompareGapChart(selectedDrivers);
+    renderComparePositionChart(selectedDrivers);
+    renderCompareHeadToHeadChart(selectedDrivers);
+    renderCompareTyreStrategyChart(selectedDrivers);
+    updateCompareChartToggles();
+}
+
 function renderCompareLapChart() {
     if (!DOM.compareChartContainer) return;
 
     compareInteractionContexts = [];
     hideCompareTooltip();
     updateCompareSelectedCount();
+    updateCompareChartToggles();
 
     const selectedDrivers = state.selectedCompareDrivers
         .map(driverNumber => state.drivers.find(d => Number(d.driver_number) === Number(driverNumber)))
@@ -2100,8 +2398,22 @@ function renderCompareLapChart() {
     updateCompareZoomControl();
 
     if (selectedDrivers.length === 0) {
-        renderCompareEmptyState('stacked_line_chart', 'No Drivers Selected', 'Select drivers from the list to compare lap time progression.');
-        if (DOM.compareGapChartSection) DOM.compareGapChartSection.style.display = 'none';
+        setCompareChartSectionVisibility(DOM.compareLapTimesChartSection, isCompareChartVisible('lapTimes'));
+        if (isCompareChartVisible('lapTimes')) {
+            renderCompareEmptyState('stacked_line_chart', 'No Drivers Selected', 'Select drivers from the list to compare lap time progression.');
+        } else {
+            DOM.compareChartContainer.innerHTML = '';
+        }
+        renderVisibleSecondaryCompareCharts(selectedDrivers);
+        return;
+    }
+
+    const showLapTimes = isCompareChartVisible('lapTimes');
+    setCompareChartSectionVisibility(DOM.compareLapTimesChartSection, showLapTimes);
+    if (!showLapTimes) {
+        DOM.compareChartContainer.innerHTML = '';
+        renderVisibleSecondaryCompareCharts(selectedDrivers);
+        drawCompareCrosshairs();
         return;
     }
 
@@ -2141,21 +2453,21 @@ function renderCompareLapChart() {
 
     if (series.length === 0) {
         renderCompareEmptyState('query_stats', 'No Lap Times Available', 'The selected drivers do not have lap times recorded for this session.');
-        renderCompareGapChart(selectedDrivers);
+        renderVisibleSecondaryCompareCharts(selectedDrivers);
         return;
     }
 
     const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
     if (activeSeries.length === 0) {
         renderCompareEmptyState('visibility_off', 'All Lines Hidden', 'Use the legend to show one or more drivers again.');
-        renderCompareGapChart(selectedDrivers);
+        renderVisibleSecondaryCompareCharts(selectedDrivers);
         return;
     }
 
     const domain = getCompareChartDomain(activeSeries.flatMap(item => item.validLaps.map(lap => Number(lap.lap_number))));
     if (!domain) {
         renderCompareEmptyState('query_stats', 'No Lap Times Available', 'The selected drivers do not have lap times recorded for this session.');
-        renderCompareGapChart(selectedDrivers);
+        renderVisibleSecondaryCompareCharts(selectedDrivers);
         return;
     }
 
@@ -2176,7 +2488,7 @@ function renderCompareLapChart() {
 
     if (plotDurations.length === 0) {
         renderCompareEmptyState('zoom_out_map', 'No Laps In Range', 'Reset zoom or choose a wider lap range to see comparison data.');
-        renderCompareGapChart(selectedDrivers);
+        renderVisibleSecondaryCompareCharts(selectedDrivers);
         return;
     }
 
@@ -2363,7 +2675,7 @@ function renderCompareLapChart() {
     updateCompareHighlightClasses();
     drawCompareCrosshairs();
 
-    renderCompareGapChart(selectedDrivers);
+    renderVisibleSecondaryCompareCharts(selectedDrivers);
 }
 
 function renderCompareGapChart(selectedDrivers = null) {
@@ -2373,12 +2685,13 @@ function renderCompareGapChart(selectedDrivers = null) {
         .map(driverNumber => state.drivers.find(d => Number(d.driver_number) === Number(driverNumber)))
         .filter(Boolean);
 
-    if (!isPitAnnotationSession(state.selectedSession)) {
-        DOM.compareGapChartSection.style.display = 'none';
+    const shouldShow = isCompareChartVisible('gap') && isCompareChartAvailable('gap');
+    setCompareChartSectionVisibility(DOM.compareGapChartSection, shouldShow);
+    if (!shouldShow) {
+        DOM.compareGapChartContainer.innerHTML = '';
         return;
     }
 
-    DOM.compareGapChartSection.style.display = 'block';
     DOM.compareGapChartContainer.innerHTML = '';
 
     if (resolvedDrivers.length === 0) {
@@ -2391,62 +2704,7 @@ function renderCompareGapChart(selectedDrivers = null) {
         return;
     }
 
-    const lapsByDriver = {};
-    if (state.allSessionLaps && state.allSessionLaps.length > 0) {
-        state.allSessionLaps.forEach(lap => {
-            const dn = Number(lap.driver_number);
-            if (!lapsByDriver[dn]) {
-                lapsByDriver[dn] = [];
-            }
-            lapsByDriver[dn].push(lap);
-        });
-    } else {
-        resolvedDrivers.forEach(d => {
-            const dn = Number(d.driver_number);
-            lapsByDriver[dn] = state.laps[dn] || [];
-        });
-    }
-
-    const allDriversCumulative = {};
-    for (const dn in lapsByDriver) {
-        lapsByDriver[dn].sort((a, b) => Number(a.lap_number) - Number(b.lap_number));
-        let cumulative = 0;
-        allDriversCumulative[dn] = {};
-        for (const lap of lapsByDriver[dn]) {
-            const lapNum = Number(lap.lap_number);
-            const duration = Number(lap.lap_duration);
-            if (duration && !isNaN(duration)) {
-                cumulative += duration;
-                allDriversCumulative[dn][lapNum] = cumulative;
-            } else {
-                break;
-            }
-        }
-    }
-
-    const leaderCumulativeAtLap = {};
-    let maxLapNum = 0;
-    for (const dn in allDriversCumulative) {
-        for (const lapStr in allDriversCumulative[dn]) {
-            const lapNum = Number(lapStr);
-            if (lapNum > maxLapNum) {
-                maxLapNum = lapNum;
-            }
-        }
-    }
-
-    for (let lapNum = 1; lapNum <= maxLapNum; lapNum++) {
-        let minCume = Infinity;
-        for (const dn in allDriversCumulative) {
-            const cume = allDriversCumulative[dn][lapNum];
-            if (cume !== undefined && cume < minCume) {
-                minCume = cume;
-            }
-        }
-        if (minCume !== Infinity) {
-            leaderCumulativeAtLap[lapNum] = minCume;
-        }
-    }
+    const { allDriversCumulative, leaderCumulativeAtLap } = buildCompareCumulativeTimes(resolvedDrivers);
 
     const series = resolvedDrivers.map(driver => {
         const driverNumber = Number(driver.driver_number);
@@ -2664,6 +2922,788 @@ function renderCompareGapChart(selectedDrivers = null) {
     attachCompareZoom(svg, ctx);
 
     DOM.compareGapChartContainer.appendChild(svg);
+    updateCompareHighlightClasses();
+    drawCompareCrosshairs();
+}
+
+function renderComparePositionChart(selectedDrivers = null) {
+    if (!DOM.comparePositionChartContainer || !DOM.comparePositionChartSection) return;
+
+    const resolvedDrivers = selectedDrivers || state.selectedCompareDrivers
+        .map(driverNumber => state.drivers.find(d => Number(d.driver_number) === Number(driverNumber)))
+        .filter(Boolean);
+    const shouldShow = isCompareChartVisible('position') && isCompareChartAvailable('position');
+    setCompareChartSectionVisibility(DOM.comparePositionChartSection, shouldShow);
+    if (!shouldShow) {
+        DOM.comparePositionChartContainer.innerHTML = '';
+        return;
+    }
+
+    DOM.comparePositionChartContainer.innerHTML = '';
+
+    if (resolvedDrivers.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.comparePositionChartContainer,
+            'format_list_numbered',
+            'No Drivers Selected',
+            'Select drivers from the list to compare their track position.'
+        );
+        return;
+    }
+
+    if (!state.positionByLap || Object.keys(state.positionByLap).length === 0) {
+        buildPositionByLapMap();
+    }
+
+    const series = resolvedDrivers.map(driver => {
+        const driverNumber = Number(driver.driver_number);
+        const positionsByLap = state.positionByLap[driverNumber] || {};
+        const positions = Object.keys(positionsByLap)
+            .map(lapNumber => ({
+                lap_number: Number(lapNumber),
+                position: Number(positionsByLap[lapNumber])
+            }))
+            .filter(point => Number.isFinite(point.lap_number) && Number.isFinite(point.position))
+            .sort((a, b) => a.lap_number - b.lap_number);
+
+        return {
+            driver,
+            driverNumber,
+            teamHex: getDriverTeamHex(driver),
+            positions,
+            positionByNumber: new Map(positions.map(point => [point.lap_number, point.position]))
+        };
+    }).filter(item => item.positions.length > 0);
+
+    if (series.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.comparePositionChartContainer,
+            'query_stats',
+            'No Position Data Available',
+            'Position events are not available for this session.'
+        );
+        return;
+    }
+
+    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
+    if (activeSeries.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.comparePositionChartContainer,
+            'visibility_off',
+            'All Lines Hidden',
+            'Use the legend to show one or more drivers again.'
+        );
+        return;
+    }
+
+    const domain = getCompareChartDomain(activeSeries.flatMap(item => item.positions.map(point => point.lap_number)));
+    if (!domain) {
+        renderCompareContainerEmptyState(
+            DOM.comparePositionChartContainer,
+            'query_stats',
+            'No Position Data Available',
+            'Position events are not available for this session.'
+        );
+        return;
+    }
+
+    const { minLap, maxLap } = domain;
+    const positionValues = activeSeries
+        .flatMap(item => item.positions
+            .filter(point => lapWithinCompareWindow(point.lap_number, minLap, maxLap))
+            .map(point => point.position))
+        .filter(Number.isFinite);
+
+    if (positionValues.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.comparePositionChartContainer,
+            'zoom_out_map',
+            'No Positions In Range',
+            'Reset zoom or choose a wider lap range to see position data.'
+        );
+        return;
+    }
+
+    const minPosition = 1;
+    const maxPosition = Math.max(...positionValues, resolvedDrivers.length, 2);
+    const width = DOM.comparePositionChartContainer.clientWidth || 900;
+    const height = 460;
+    const padding = { top: 24, right: 34, bottom: 34, left: 58 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const getX = (lapNum) => {
+        if (maxLap === minLap) return padding.left + chartWidth / 2;
+        return padding.left + ((lapNum - minLap) / (maxLap - minLap)) * chartWidth;
+    };
+
+    const getY = (position) => {
+        if (maxPosition === minPosition) return padding.top + chartHeight / 2;
+        return padding.top + ((position - minPosition) / (maxPosition - minPosition)) * chartHeight;
+    };
+
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.style.overflow = "visible";
+
+    const yTicks = Array.from({ length: Math.min(maxPosition, 10) }, (_, index) => {
+        if (maxPosition <= 10) return index + 1;
+        return Math.round(1 + (index / 9) * (maxPosition - 1));
+    }).filter((value, index, values) => values.indexOf(value) === index);
+
+    yTicks.forEach(position => {
+        const y = getY(position);
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", padding.left);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", padding.left + chartWidth);
+        line.setAttribute("y2", y);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", padding.left - 10);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = `P${position}`;
+        svg.appendChild(text);
+    });
+
+    const xGridLines = Math.min(10, maxLap - minLap + 1);
+    for (let i = 0; i < xGridLines; i++) {
+        const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
+        const x = getX(lapNum);
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", padding.top);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", padding.top + chartHeight);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", x);
+        text.setAttribute("y", padding.top + chartHeight + 20);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = `L${lapNum}`;
+        svg.appendChild(text);
+    }
+
+    renderCompareSafetyCarPeriods(svg, getX, minLap, maxLap, padding, chartHeight, svgNamespace, false);
+
+    series.forEach(item => {
+        const rgb = getRGBColor(item.teamHex);
+        const stateClasses = getCompareItemStateClasses(item.driverNumber);
+        const visiblePoints = item.positions
+            .filter(point => lapWithinCompareWindow(point.lap_number, minLap, maxLap))
+            .map(point => ({
+                ...point,
+                x: getX(point.lap_number),
+                y: getY(point.position)
+            }));
+
+        if (visiblePoints.length > 1) {
+            let d = `M ${visiblePoints[0].x.toFixed(1)},${visiblePoints[0].y.toFixed(1)}`;
+            for (let i = 1; i < visiblePoints.length; i++) {
+                d += ` L ${visiblePoints[i].x.toFixed(1)},${visiblePoints[i - 1].y.toFixed(1)} L ${visiblePoints[i].x.toFixed(1)},${visiblePoints[i].y.toFixed(1)}`;
+            }
+
+            const path = document.createElementNS(svgNamespace, "path");
+            path.setAttribute("d", d);
+            path.setAttribute("class", `compare-chart-line compare-position-line ${stateClasses}`.trim());
+            path.dataset.compareDriverNumber = String(item.driverNumber);
+            path.style.stroke = `#${item.teamHex}`;
+            path.style.setProperty('--team-color', `#${item.teamHex}`);
+            path.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.35)`);
+            svg.appendChild(path);
+        }
+
+        visiblePoints.forEach(point => {
+            const circle = document.createElementNS(svgNamespace, "circle");
+            circle.setAttribute("cx", point.x);
+            circle.setAttribute("cy", point.y);
+            circle.setAttribute("r", 4.2);
+            circle.setAttribute("class", `compare-chart-dot ${stateClasses}`.trim());
+            circle.dataset.compareDriverNumber = String(item.driverNumber);
+            circle.style.stroke = `#${item.teamHex}`;
+            circle.style.setProperty('--team-color', `#${item.teamHex}`);
+            svg.appendChild(circle);
+        });
+    });
+
+    const seriesByDriver = new Map(series.map(item => [item.driverNumber, item]));
+    const ctx = {
+        kind: 'position',
+        title: 'Position',
+        svgNamespace,
+        svg,
+        width,
+        height,
+        container: DOM.comparePositionChartContainer,
+        getX,
+        getY,
+        series,
+        minLap,
+        maxLap,
+        padding,
+        chartWidth,
+        chartHeight,
+        valueFor(lapNumber, driverNumber) {
+            const item = seriesByDriver.get(Number(driverNumber));
+            return item ? item.positionByNumber.get(Number(lapNumber)) ?? null : null;
+        },
+        formatValue(value) {
+            return `P${value}`;
+        },
+        detailFor(lapNumber, driverNumber) {
+            const item = seriesByDriver.get(Number(driverNumber));
+            if (!item) return '';
+            const current = item.positionByNumber.get(Number(lapNumber));
+            const previous = item.positionByNumber.get(Number(lapNumber) - 1);
+            if (!Number.isFinite(current) || !Number.isFinite(previous)) return '';
+            return `<div class="compare-position-delta">${formatComparePositionDelta(previous - current)}</div>`;
+        }
+    };
+
+    attachCompareCrosshair(svg, ctx);
+    attachCompareZoom(svg, ctx);
+
+    DOM.comparePositionChartContainer.appendChild(svg);
+    updateCompareHighlightClasses();
+    drawCompareCrosshairs();
+}
+
+function renderCompareHeadToHeadChart(selectedDrivers = null) {
+    if (!DOM.compareHeadToHeadChartContainer || !DOM.compareHeadToHeadChartSection) return;
+
+    const resolvedDrivers = selectedDrivers || state.selectedCompareDrivers
+        .map(driverNumber => state.drivers.find(d => Number(d.driver_number) === Number(driverNumber)))
+        .filter(Boolean);
+    const shouldShow = isCompareChartVisible('headToHead') && isCompareChartAvailable('headToHead');
+    setCompareChartSectionVisibility(DOM.compareHeadToHeadChartSection, shouldShow);
+    if (!shouldShow) {
+        DOM.compareHeadToHeadChartContainer.innerHTML = '';
+        return;
+    }
+
+    DOM.compareHeadToHeadChartContainer.innerHTML = '';
+
+    if (resolvedDrivers.length === 0) {
+        populateHeadToHeadReferencePicker([], null);
+        renderCompareContainerEmptyState(
+            DOM.compareHeadToHeadChartContainer,
+            'compare_arrows',
+            'No Drivers Selected',
+            'Select drivers from the list to compare their delta to a reference driver.'
+        );
+        return;
+    }
+
+    const { allDriversCumulative } = buildCompareCumulativeTimes(resolvedDrivers);
+    const refDriverNumber = chooseHeadToHeadReference(resolvedDrivers, allDriversCumulative);
+    populateHeadToHeadReferencePicker(resolvedDrivers, refDriverNumber);
+
+    if (refDriverNumber === null) {
+        renderCompareContainerEmptyState(
+            DOM.compareHeadToHeadChartContainer,
+            'query_stats',
+            'No Delta Data Available',
+            'Lap timing data is not available for these drivers.'
+        );
+        return;
+    }
+
+    const refCumulative = allDriversCumulative[refDriverNumber] || {};
+    const series = resolvedDrivers.map(driver => {
+        const driverNumber = Number(driver.driver_number);
+        const driverCumulative = allDriversCumulative[driverNumber] || {};
+        const deltas = Object.keys(driverCumulative)
+            .map(Number)
+            .filter(lapNumber => Number.isFinite(lapNumber) && refCumulative[lapNumber] !== undefined)
+            .map(lapNumber => ({
+                lap_number: lapNumber,
+                delta: driverCumulative[lapNumber] - refCumulative[lapNumber]
+            }))
+            .sort((a, b) => a.lap_number - b.lap_number);
+
+        return {
+            driver,
+            driverNumber,
+            teamHex: getDriverTeamHex(driver),
+            deltas,
+            deltaByNumber: new Map(deltas.map(delta => [delta.lap_number, delta.delta]))
+        };
+    }).filter(item => item.deltas.length > 0);
+
+    if (series.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.compareHeadToHeadChartContainer,
+            'query_stats',
+            'No Delta Data Available',
+            'Lap timing data is not available for these drivers.'
+        );
+        return;
+    }
+
+    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
+    if (activeSeries.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.compareHeadToHeadChartContainer,
+            'visibility_off',
+            'All Lines Hidden',
+            'Use the legend to show one or more drivers again.'
+        );
+        return;
+    }
+
+    const domain = getCompareChartDomain(activeSeries.flatMap(item => item.deltas.map(delta => delta.lap_number)));
+    if (!domain) {
+        renderCompareContainerEmptyState(
+            DOM.compareHeadToHeadChartContainer,
+            'query_stats',
+            'No Delta Data Available',
+            'Lap timing data is not available for these drivers.'
+        );
+        return;
+    }
+
+    const { minLap, maxLap } = domain;
+    const deltaValues = activeSeries
+        .flatMap(item => item.deltas
+            .filter(delta => lapWithinCompareWindow(delta.lap_number, minLap, maxLap))
+            .map(delta => Math.abs(delta.delta)))
+        .filter(Number.isFinite);
+
+    if (deltaValues.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.compareHeadToHeadChartContainer,
+            'zoom_out_map',
+            'No Deltas In Range',
+            'Reset zoom or choose a wider lap range to see delta data.'
+        );
+        return;
+    }
+
+    const maxAbsDelta = Math.max(...deltaValues, 1);
+    const width = DOM.compareHeadToHeadChartContainer.clientWidth || 900;
+    const height = 460;
+    const padding = { top: 24, right: 34, bottom: 34, left: 58 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const getX = (lapNum) => {
+        if (maxLap === minLap) return padding.left + chartWidth / 2;
+        return padding.left + ((lapNum - minLap) / (maxLap - minLap)) * chartWidth;
+    };
+
+    const getY = (delta) => padding.top + chartHeight / 2 + (delta / maxAbsDelta) * (chartHeight / 2);
+
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.style.overflow = "visible";
+
+    [-maxAbsDelta, 0, maxAbsDelta].forEach(delta => {
+        const y = getY(delta);
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", padding.left);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", padding.left + chartWidth);
+        line.setAttribute("y2", y);
+        line.setAttribute("class", delta === 0 ? "compare-zero-line" : "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", padding.left - 10);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = delta === 0 ? "REF" : formatSignedDelta(delta);
+        svg.appendChild(text);
+    });
+
+    const xGridLines = Math.min(10, maxLap - minLap + 1);
+    for (let i = 0; i < xGridLines; i++) {
+        const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
+        const x = getX(lapNum);
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", padding.top);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", padding.top + chartHeight);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", x);
+        text.setAttribute("y", padding.top + chartHeight + 20);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = `L${lapNum}`;
+        svg.appendChild(text);
+    }
+
+    renderCompareSafetyCarPeriods(svg, getX, minLap, maxLap, padding, chartHeight, svgNamespace, false);
+
+    series.forEach(item => {
+        const rgb = getRGBColor(item.teamHex);
+        const stateClasses = getCompareItemStateClasses(item.driverNumber);
+        const points = item.deltas
+            .filter(delta => lapWithinCompareWindow(delta.lap_number, minLap, maxLap))
+            .map(delta => `${getX(delta.lap_number).toFixed(1)},${getY(delta.delta).toFixed(1)}`);
+
+        if (points.length > 1) {
+            const path = document.createElementNS(svgNamespace, "path");
+            path.setAttribute("d", `M ${points.join(" L ")}`);
+            path.setAttribute("class", `compare-chart-line ${stateClasses}`.trim());
+            path.dataset.compareDriverNumber = String(item.driverNumber);
+            path.style.stroke = `#${item.teamHex}`;
+            path.style.setProperty('--team-color', `#${item.teamHex}`);
+            path.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.35)`);
+            svg.appendChild(path);
+        }
+
+        item.deltas
+            .filter(delta => lapWithinCompareWindow(delta.lap_number, minLap, maxLap))
+            .forEach(delta => {
+                const circle = document.createElementNS(svgNamespace, "circle");
+                circle.setAttribute("cx", getX(delta.lap_number));
+                circle.setAttribute("cy", getY(delta.delta));
+                circle.setAttribute("r", 4.2);
+                circle.setAttribute("class", `compare-chart-dot ${stateClasses}`.trim());
+                circle.dataset.compareDriverNumber = String(item.driverNumber);
+                circle.style.stroke = `#${item.teamHex}`;
+                circle.style.setProperty('--team-color', `#${item.teamHex}`);
+                svg.appendChild(circle);
+            });
+    });
+
+    const seriesByDriver = new Map(series.map(item => [item.driverNumber, item]));
+    const ctx = {
+        kind: 'headToHead',
+        title: 'Head-to-Head Delta',
+        svgNamespace,
+        svg,
+        width,
+        height,
+        container: DOM.compareHeadToHeadChartContainer,
+        getX,
+        getY,
+        series,
+        minLap,
+        maxLap,
+        padding,
+        chartWidth,
+        chartHeight,
+        valueFor(lapNumber, driverNumber) {
+            const item = seriesByDriver.get(Number(driverNumber));
+            return item ? item.deltaByNumber.get(Number(lapNumber)) ?? null : null;
+        },
+        formatValue(value, driverNumber) {
+            return Number(driverNumber) === Number(refDriverNumber) ? 'REF' : formatSignedDelta(value);
+        }
+    };
+
+    attachCompareCrosshair(svg, ctx);
+    attachCompareZoom(svg, ctx);
+
+    DOM.compareHeadToHeadChartContainer.appendChild(svg);
+    updateCompareHighlightClasses();
+    drawCompareCrosshairs();
+}
+
+function getTyreCompoundClass(compound) {
+    const normalized = String(compound || 'UNKNOWN').trim().toUpperCase();
+    const supported = new Set(['SOFT', 'MEDIUM', 'HARD', 'INTERMEDIATE', 'WET']);
+    return `stint-compound-${supported.has(normalized) ? normalized : 'UNKNOWN'}`;
+}
+
+function getTyreCompoundColor(compound) {
+    const normalized = String(compound || 'UNKNOWN').trim().toUpperCase();
+    return {
+        SOFT: '#ff3c30',
+        MEDIUM: '#ffd60a',
+        HARD: '#f3f3f7',
+        INTERMEDIATE: '#34c759',
+        WET: '#007aff'
+    }[normalized] || '#6c6c80';
+}
+
+function getDriverStints(driverNumber) {
+    return (state.stints || [])
+        .filter(stint => Number(stint.driver_number) === Number(driverNumber))
+        .filter(stint => Number.isFinite(Number(stint.lap_start)) && Number.isFinite(Number(stint.lap_end)))
+        .sort((a, b) => Number(a.lap_start) - Number(b.lap_start));
+}
+
+function getStintAtLap(driverNumber, lapNumber) {
+    return getDriverStints(driverNumber).find(stint => (
+        Number(stint.lap_start) <= Number(lapNumber) &&
+        Number(stint.lap_end) >= Number(lapNumber)
+    ));
+}
+
+function renderCompareStrategyTooltip(ctx, event) {
+    const hoverLap = state.compareView.hoverLap;
+    if (hoverLap === null || hoverLap === undefined) {
+        hideCompareTooltip();
+        return;
+    }
+
+    const rows = ctx.series
+        .filter(item => !isCompareDriverHidden(item.driverNumber))
+        .map(item => {
+            const stint = getStintAtLap(item.driverNumber, hoverLap);
+            return { item, stint };
+        });
+
+    if (rows.length === 0) {
+        hideCompareTooltip();
+        return;
+    }
+
+    const tooltip = getCompareTooltip();
+    tooltip.classList.add("compare-strategy-tooltip");
+    tooltip.innerHTML = `
+        <div class="chart-tooltip-header">Tyre Strategy - Lap ${hoverLap}</div>
+        <div class="compare-tooltip-rows">
+            ${rows.map(row => {
+                const label = getCompareDriverLabel(row.item.driver);
+                if (!row.stint) {
+                    return `
+                        <div class="compare-tooltip-row" style="--team-color: #${row.item.teamHex};">
+                            <div class="compare-tooltip-main">
+                                <span class="compare-tooltip-swatch"></span>
+                                <span>${escapeHtml(label)}</span>
+                                <strong>--</strong>
+                            </div>
+                        </div>
+                    `;
+                }
+                const start = Number(row.stint.lap_start);
+                const end = Number(row.stint.lap_end);
+                const length = end - start + 1;
+                const compound = row.stint.compound || 'Unknown';
+                return `
+                    <div class="compare-tooltip-row" style="--team-color: #${row.item.teamHex};">
+                        <div class="compare-tooltip-main">
+                            <span class="compare-tooltip-swatch"></span>
+                            <span>${escapeHtml(label)}</span>
+                            <strong>${escapeHtml(compound)}</strong>
+                        </div>
+                        <div class="compare-tooltip-sectors">
+                            <span>Stint ${row.stint.stint_number ?? '--'}</span>
+                            <span>L${start}-${end}</span>
+                            <span>${length} laps</span>
+                            <span>Age ${row.stint.tyre_age_at_start ?? 0}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+
+    const rect = ctx.container.getBoundingClientRect();
+    const pointerX = getComparePointerX(event, ctx);
+    const left = rect.left + window.scrollX + Math.min(pointerX + 14, ctx.padding.left + ctx.chartWidth - 120);
+    const top = rect.top + window.scrollY + ctx.padding.top + 10;
+    tooltip.style.left = `${Math.max(rect.left + window.scrollX + ctx.padding.left, left)}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.style.display = "block";
+}
+
+function renderCompareTyreStrategyChart(selectedDrivers = null) {
+    if (!DOM.compareTyreStrategyChartContainer || !DOM.compareTyreStrategyChartSection) return;
+
+    const resolvedDrivers = selectedDrivers || state.selectedCompareDrivers
+        .map(driverNumber => state.drivers.find(d => Number(d.driver_number) === Number(driverNumber)))
+        .filter(Boolean);
+    const shouldShow = isCompareChartVisible('tyreStrategy') && isCompareChartAvailable('tyreStrategy');
+    setCompareChartSectionVisibility(DOM.compareTyreStrategyChartSection, shouldShow);
+    if (!shouldShow) {
+        DOM.compareTyreStrategyChartContainer.innerHTML = '';
+        return;
+    }
+
+    DOM.compareTyreStrategyChartContainer.innerHTML = '';
+
+    if (resolvedDrivers.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.compareTyreStrategyChartContainer,
+            'tire_repair',
+            'No Drivers Selected',
+            'Select drivers from the list to compare tyre strategy.'
+        );
+        return;
+    }
+
+    const series = resolvedDrivers.map(driver => {
+        const driverNumber = Number(driver.driver_number);
+        return {
+            driver,
+            driverNumber,
+            teamHex: getDriverTeamHex(driver),
+            stints: getDriverStints(driverNumber)
+        };
+    }).filter(item => item.stints.length > 0);
+
+    if (series.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.compareTyreStrategyChartContainer,
+            'query_stats',
+            'No Stint Data Available',
+            'Tyre stint data is not available for the selected drivers.'
+        );
+        return;
+    }
+
+    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
+    if (activeSeries.length === 0) {
+        renderCompareContainerEmptyState(
+            DOM.compareTyreStrategyChartContainer,
+            'visibility_off',
+            'All Rows Hidden',
+            'Use the legend to show one or more drivers again.'
+        );
+        return;
+    }
+
+    const domain = getCompareChartDomain(activeSeries.flatMap(item => item.stints.flatMap(stint => [
+        Number(stint.lap_start),
+        Number(stint.lap_end)
+    ])));
+
+    if (!domain) {
+        renderCompareContainerEmptyState(
+            DOM.compareTyreStrategyChartContainer,
+            'query_stats',
+            'No Stint Data Available',
+            'Tyre stint data is not available for the selected drivers.'
+        );
+        return;
+    }
+
+    const { minLap, maxLap } = domain;
+    const width = DOM.compareTyreStrategyChartContainer.clientWidth || 900;
+    const rowHeight = 44;
+    const chartHeight = Math.max(activeSeries.length * rowHeight, rowHeight);
+    const height = chartHeight + 58;
+    const padding = { top: 18, right: 34, bottom: 34, left: 96 };
+    const chartWidth = width - padding.left - padding.right;
+
+    const getX = (lapNum) => {
+        if (maxLap === minLap) return padding.left + chartWidth / 2;
+        return padding.left + ((lapNum - minLap) / (maxLap - minLap)) * chartWidth;
+    };
+
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.style.overflow = "visible";
+
+    activeSeries.forEach((item, index) => {
+        const y = padding.top + index * rowHeight + 8;
+        const label = document.createElementNS(svgNamespace, "text");
+        label.setAttribute("x", padding.left - 12);
+        label.setAttribute("y", y + 20);
+        label.setAttribute("text-anchor", "end");
+        label.setAttribute("class", "compare-tyre-row-label");
+        label.textContent = getCompareDriverLabel(item.driver);
+        svg.appendChild(label);
+
+        const rowLine = document.createElementNS(svgNamespace, "line");
+        rowLine.setAttribute("x1", padding.left);
+        rowLine.setAttribute("y1", y + 15);
+        rowLine.setAttribute("x2", padding.left + chartWidth);
+        rowLine.setAttribute("y2", y + 15);
+        rowLine.setAttribute("class", "chart-grid-line");
+        svg.appendChild(rowLine);
+
+        item.stints.forEach(stint => {
+            const startLap = Math.max(Number(stint.lap_start), minLap);
+            const endLap = Math.min(Number(stint.lap_end), maxLap);
+            if (startLap > endLap) return;
+
+            const x = getX(startLap);
+            const endX = getX(endLap);
+            const widthPx = Math.max(endX - x, 4);
+            const compound = String(stint.compound || 'UNKNOWN').toUpperCase();
+            const stateClasses = getCompareItemStateClasses(item.driverNumber);
+            const rect = document.createElementNS(svgNamespace, "rect");
+            rect.setAttribute("x", x);
+            rect.setAttribute("y", y);
+            rect.setAttribute("width", widthPx);
+            rect.setAttribute("height", 30);
+            rect.setAttribute("rx", 5);
+            rect.setAttribute("class", `compare-tyre-segment ${getTyreCompoundClass(compound)} ${stateClasses}`.trim());
+            rect.dataset.compareDriverNumber = String(item.driverNumber);
+            rect.style.fill = getTyreCompoundColor(compound);
+            svg.appendChild(rect);
+
+            if (widthPx > 38) {
+                const text = document.createElementNS(svgNamespace, "text");
+                text.setAttribute("x", x + widthPx / 2);
+                text.setAttribute("y", y + 19);
+                text.setAttribute("text-anchor", "middle");
+                text.setAttribute("class", "compare-tyre-segment-label");
+                text.textContent = `${compound.charAt(0)} L${Number(stint.lap_start)}-${Number(stint.lap_end)}`;
+                svg.appendChild(text);
+            }
+        });
+    });
+
+    const xGridLines = Math.min(10, maxLap - minLap + 1);
+    for (let i = 0; i < xGridLines; i++) {
+        const lapNum = Math.round(minLap + (i / (xGridLines - 1 || 1)) * (maxLap - minLap));
+        const x = getX(lapNum);
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", padding.top);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", padding.top + chartHeight);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", x);
+        text.setAttribute("y", padding.top + chartHeight + 20);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = `L${lapNum}`;
+        svg.appendChild(text);
+    }
+
+    const ctx = {
+        kind: 'tyreStrategy',
+        title: 'Tyre Strategy',
+        svgNamespace,
+        svg,
+        width,
+        height,
+        container: DOM.compareTyreStrategyChartContainer,
+        getX,
+        series,
+        minLap,
+        maxLap,
+        padding,
+        chartWidth,
+        chartHeight,
+        renderTooltip: renderCompareStrategyTooltip
+    };
+
+    attachCompareCrosshair(svg, ctx);
+    attachCompareZoom(svg, ctx);
+
+    DOM.compareTyreStrategyChartContainer.appendChild(svg);
     updateCompareHighlightClasses();
     drawCompareCrosshairs();
 }

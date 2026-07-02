@@ -1739,6 +1739,47 @@ body {
     justify-content: flex-end;
 }
 
+.compare-chart-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 16px 0;
+}
+
+.compare-chart-chip {
+    appearance: none;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 800;
+    min-height: 30px;
+    padding: 6px 11px;
+    transition: var(--transition-fast);
+}
+
+.compare-chart-chip:hover {
+    background: rgba(255, 255, 255, 0.075);
+    border-color: var(--border-color-hover);
+    color: var(--text-primary);
+}
+
+.compare-chart-chip.active {
+    background: rgba(255, 24, 1, 0.13);
+    border-color: rgba(255, 24, 1, 0.36);
+    color: var(--text-primary);
+}
+
+.compare-chart-chip:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .compare-reset-zoom {
     align-items: center;
     background: rgba(255, 255, 255, 0.04);
@@ -1841,8 +1882,57 @@ body {
     overflow: visible;
 }
 
+.compare-chart-section + .compare-chart-section {
+    border-top: 1px solid var(--border-color);
+    margin-top: 24px;
+    padding-top: 24px;
+}
+
+.compare-section-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.compare-section-header h3 {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.compare-ref-select {
+    align-items: center;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 800;
+    gap: 8px;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+}
+
+.compare-ref-select select {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 800;
+    min-height: 32px;
+    outline: none;
+    padding: 6px 28px 6px 10px;
+}
+
 #compareChartContainer,
-#compareGapChartContainer {
+#compareGapChartContainer,
+#comparePositionChartContainer,
+#compareHeadToHeadChartContainer,
+#compareTyreStrategyChartContainer {
     width: 100%;
     height: 460px;
     position: relative;
@@ -1885,6 +1975,10 @@ body {
     stroke-linecap: round;
     stroke-linejoin: round;
     filter: drop-shadow(0 0 5px var(--team-color-glow, rgba(255, 255, 255, 0.25)));
+}
+
+.compare-position-line {
+    stroke-linejoin: miter;
 }
 
 .compare-chart-line.highlighted {
@@ -1948,6 +2042,12 @@ body {
     stroke-width: 1;
 }
 
+.compare-zero-line {
+    stroke: rgba(255, 255, 255, 0.58);
+    stroke-dasharray: 5 5;
+    stroke-width: 1.4;
+}
+
 .compare-unified-tooltip {
     max-width: 300px;
     width: 260px;
@@ -2005,6 +2105,70 @@ body {
     margin-left: 21px;
     margin-top: 4px;
     text-transform: uppercase;
+}
+
+.compare-position-delta {
+    font-size: 10px;
+    font-weight: 900;
+    margin-left: 21px;
+    margin-top: 4px;
+}
+
+.compare-position-delta-gain {
+    color: #34c759;
+}
+
+.compare-position-delta-loss {
+    color: #ff453a;
+}
+
+.compare-position-delta-even {
+    color: var(--text-muted);
+}
+
+.compare-tyre-chart-shell {
+    min-height: 220px;
+}
+
+.compare-tyre-row-label {
+    fill: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+}
+
+.compare-tyre-segment {
+    cursor: pointer;
+    filter: saturate(1.05);
+    opacity: 0.9;
+    stroke: rgba(0, 0, 0, 0.35);
+    stroke-width: 1;
+    transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.compare-tyre-segment.highlighted {
+    filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.25));
+    opacity: 1;
+}
+
+.compare-tyre-segment.dimmed {
+    opacity: 0.22;
+}
+
+.compare-tyre-segment.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.compare-tyre-segment-label {
+    fill: rgba(0, 0, 0, 0.78);
+    font-size: 10px;
+    font-weight: 900;
+    pointer-events: none;
+}
+
+.compare-strategy-tooltip {
+    width: 285px;
 }
 
 /* Circuit Details Tab Layout */

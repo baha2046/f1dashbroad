@@ -337,24 +337,74 @@
                                 </div>
                             </div>
 
+                            <div class="compare-chart-toggles" id="compareChartToggles" aria-label="Compare charts">
+                                <button type="button" class="compare-chart-chip active" data-chart-id="lapTimes" aria-pressed="true">Lap Times</button>
+                                <button type="button" class="compare-chart-chip active" data-chart-id="gap" data-race-only="true" aria-pressed="true">Gap to Leader</button>
+                                <button type="button" class="compare-chart-chip" data-chart-id="position" data-race-only="true" aria-pressed="false">Position</button>
+                                <button type="button" class="compare-chart-chip" data-chart-id="headToHead" data-race-only="true" aria-pressed="false">Head-to-Head</button>
+                                <button type="button" class="compare-chart-chip" data-chart-id="tyreStrategy" aria-pressed="false">Tyre Strategy</button>
+                            </div>
+
                             <div class="compare-legend" id="compareLegend">
                                 <!-- Loaded dynamically -->
                             </div>
 
-                            <div class="compare-chart-shell">
-                                <div id="compareChartContainer">
-                                    <!-- SVG comparison chart generated dynamically -->
+                            <div id="compareLapTimesChartSection" class="compare-chart-section">
+                                <div class="compare-chart-shell">
+                                    <div id="compareChartContainer">
+                                        <!-- SVG comparison chart generated dynamically -->
+                                    </div>
                                 </div>
                             </div>
 
                             <!-- Gap to Leader Section -->
-                            <div id="compareGapChartSection" style="display: none; margin-top: 32px;">
-                                <div class="compare-header" style="border-top: 1px solid var(--border-color); padding-top: 24px; margin-top: 24px;">
+                            <div id="compareGapChartSection" class="compare-chart-section" style="display: none;">
+                                <div class="compare-section-header">
                                     <h3>Gap to Leader Compare</h3>
                                 </div>
-                                <div class="compare-chart-shell" style="margin-top: 16px;">
+                                <div class="compare-chart-shell">
                                     <div id="compareGapChartContainer">
                                         <!-- SVG gap comparison chart generated dynamically -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Position Section -->
+                            <div id="comparePositionChartSection" class="compare-chart-section" style="display: none;">
+                                <div class="compare-section-header">
+                                    <h3>Position Compare</h3>
+                                </div>
+                                <div class="compare-chart-shell">
+                                    <div id="comparePositionChartContainer">
+                                        <!-- SVG position comparison chart generated dynamically -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Head-to-Head Section -->
+                            <div id="compareHeadToHeadChartSection" class="compare-chart-section" style="display: none;">
+                                <div class="compare-section-header">
+                                    <h3>Head-to-Head Delta</h3>
+                                    <label class="compare-ref-select">
+                                        <span>Reference</span>
+                                        <select id="compareHeadToHeadRef" aria-label="Head-to-head reference driver"></select>
+                                    </label>
+                                </div>
+                                <div class="compare-chart-shell">
+                                    <div id="compareHeadToHeadChartContainer">
+                                        <!-- SVG head-to-head comparison chart generated dynamically -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Tyre Strategy Section -->
+                            <div id="compareTyreStrategyChartSection" class="compare-chart-section" style="display: none;">
+                                <div class="compare-section-header">
+                                    <h3>Tyre Strategy</h3>
+                                </div>
+                                <div class="compare-chart-shell compare-tyre-chart-shell">
+                                    <div id="compareTyreStrategyChartContainer">
+                                        <!-- SVG tyre strategy chart generated dynamically -->
                                     </div>
                                 </div>
                             </div>

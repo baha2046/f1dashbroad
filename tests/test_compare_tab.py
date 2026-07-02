@@ -16,15 +16,23 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         self.assertIn('id="compareLegend"', self.index_html)
         self.assertIn('id="compareHideOutliers"', self.index_html)
         self.assertIn('id="compareResetZoom"', self.index_html)
+        self.assertIn('id="compareChartToggles"', self.index_html)
+        self.assertIn('data-chart-id="lapTimes"', self.index_html)
+        self.assertIn('data-chart-id="gap"', self.index_html)
 
     def test_dashboard_js_wires_compare_state_and_rendering(self):
         self.assertIn("selectedCompareDrivers: []", self.dashboard_js)
         self.assertIn("compareDriverList: document.getElementById('compareDriverList')", self.dashboard_js)
         self.assertIn("compareChartContainer: document.getElementById('compareChartContainer')", self.dashboard_js)
+        self.assertIn("compareChartToggles: document.getElementById('compareChartToggles')", self.dashboard_js)
         self.assertIn("function renderCompareDriverSelector()", self.dashboard_js)
         self.assertIn("async function toggleCompareDriver(driverNumber)", self.dashboard_js)
         self.assertIn("function renderCompareLapChart()", self.dashboard_js)
         self.assertIn("compareView: createCompareViewState()", self.dashboard_js)
+        self.assertIn("visibleCharts: new Set(['lapTimes', 'gap'])", self.dashboard_js)
+        self.assertIn("function isCompareChartVisible(chartId)", self.dashboard_js)
+        self.assertIn("function setupCompareChartToggles()", self.dashboard_js)
+        self.assertIn("function setCompareChartSectionVisibility(", self.dashboard_js)
         self.assertIn("compareResetZoom: document.getElementById('compareResetZoom')", self.dashboard_js)
         self.assertIn("function attachCompareCrosshair(svg, ctx)", self.dashboard_js)
         self.assertIn("function renderCompareLegendInteractive(selectedDrivers)", self.dashboard_js)
@@ -45,6 +53,9 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         self.assertIn(".compare-legend-item.hidden", self.styles_css)
         self.assertIn(".compare-zoom-selection", self.styles_css)
         self.assertIn(".compare-reset-zoom", self.styles_css)
+        self.assertIn(".compare-chart-toggles", self.styles_css)
+        self.assertIn(".compare-chart-chip", self.styles_css)
+        self.assertIn(".compare-chart-chip.active", self.styles_css)
 
 
 if __name__ == "__main__":

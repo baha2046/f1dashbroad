@@ -270,6 +270,18 @@ async def api_pit():
     data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
+@app.route("/api/position")
+async def api_position():
+    session_key = request.args.get("session_key")
+    if not session_key:
+        return jsonify({"error": "session_key is required"}), 400
+
+    url = f"https://api.openf1.org/v1/position?session_key={session_key}"
+    cache_name = f"position_{session_key}.json"
+    api_key = request.headers.get("X-OpenF1-Key")
+    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
+    return jsonify(data)
+
 @app.route("/api/results")
 async def api_results():
     session_key = request.args.get("session_key")
@@ -296,4 +308,3 @@ async def api_race_control():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5300, debug=True)
-
