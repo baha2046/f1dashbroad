@@ -248,6 +248,7 @@ const DOM = {
     raceControlFeed: document.getElementById('raceControlFeed'),
     raceControlEmptyState: document.getElementById('raceControlEmptyState'),
     raceControlSummary: document.getElementById('raceControlSummary'),
+    showBlueFlags: document.getElementById('showBlueFlags'),
     
     // Tabs
     tabButtons: document.querySelectorAll('.tab-btn'),
@@ -415,6 +416,13 @@ function setupEventListeners() {
     DOM.driverSearch.addEventListener('input', () => {
         renderDriversGrid();
     });
+
+    // Show Blue Flags Toggle
+    if (DOM.showBlueFlags) {
+        DOM.showBlueFlags.addEventListener('change', () => {
+            renderRaceControlFeed();
+        });
+    }
 
     // Chart Outlier Toggle
     if (DOM.chartHideOutliers) {
@@ -1654,10 +1662,25 @@ function renderRaceControlFeed() {
         return;
     }
 
+    const showBlueFlags = DOM.showBlueFlags ? DOM.showBlueFlags.checked : true;
+    let filteredMessages = [...state.raceControl];
+    if (!showBlueFlags) {
+        filteredMessages = filteredMessages.filter(item => getRaceControlType(item) !== 'BLUE');
+    }
+
+    if (filteredMessages.length === 0) {
+        DOM.raceControlFeed.style.display = 'none';
+        DOM.raceControlEmptyState.style.display = 'flex';
+        if (DOM.raceControlSummary) {
+            DOM.raceControlSummary.textContent = 'No session messages recorded (excluding blue flags)';
+        }
+        return;
+    }
+
     DOM.raceControlEmptyState.style.display = 'none';
     DOM.raceControlFeed.style.display = 'flex';
 
-    const sortedMessages = [...state.raceControl].sort((a, b) => {
+    const sortedMessages = filteredMessages.sort((a, b) => {
         return (b.date || '').localeCompare(a.date || '');
     });
 

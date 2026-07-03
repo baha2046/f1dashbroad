@@ -55,10 +55,12 @@ class RaceControlFeedStaticWiringTests(unittest.TestCase):
         self.assertIn('data-tab="race-control-view"', self.index_html)
         self.assertIn('id="raceControlFeed"', self.index_html)
         self.assertIn('id="raceControlEmptyState"', self.index_html)
+        self.assertIn('id="showBlueFlags"', self.index_html)
 
     def test_dashboard_renders_loaded_race_control_messages(self):
         self.assertIn("raceControlFeed: document.getElementById('raceControlFeed')", self.dashboard_js)
         self.assertIn("raceControlEmptyState: document.getElementById('raceControlEmptyState')", self.dashboard_js)
+        self.assertIn("showBlueFlags: document.getElementById('showBlueFlags')", self.dashboard_js)
         self.assertIn("function renderRaceControlFeed()", self.dashboard_js)
         self.assertIn("renderRaceControlFeed();", self.dashboard_js)
         self.assertIn("race-control-item", self.dashboard_js)
@@ -68,6 +70,7 @@ class RaceControlFeedStaticWiringTests(unittest.TestCase):
         self.assertIn(".race-control-feed", self.styles_css)
         self.assertIn(".race-control-item", self.styles_css)
         self.assertIn(".race-control-meta-pill", self.styles_css)
+        self.assertIn(".race-control-toggle", self.styles_css)
 
 
 if __name__ == "__main__":

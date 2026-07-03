@@ -2732,6 +2732,13 @@ body {
     gap: 16px;
 }
 
+.race-control-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
 .race-control-header h3 {
     font-size: 16px;
     font-weight: 800;
