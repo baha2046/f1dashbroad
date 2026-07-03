@@ -26,7 +26,7 @@ function createCompareViewState() {
         visibleCharts: new Set(['lapTimes', 'gap']),
         headToHeadRef: null,
         lapWindow: { min: null, max: null },
-        hiddenDrivers: new Set(),
+        mutedDrivers: new Set(),
         highlightedDriver: null,
         hoverLap: null,
         zoomDrag: null
@@ -2118,7 +2118,7 @@ async function toggleCompareDriver(driverNumber) {
     const existingIndex = state.selectedCompareDrivers.indexOf(normalizedDriverNumber);
     if (existingIndex >= 0) {
         state.selectedCompareDrivers.splice(existingIndex, 1);
-        state.compareView.hiddenDrivers.delete(normalizedDriverNumber);
+        state.compareView.mutedDrivers.delete(normalizedDriverNumber);
         if (state.compareView.highlightedDriver === normalizedDriverNumber) {
             state.compareView.highlightedDriver = null;
         }
@@ -2165,9 +2165,9 @@ function getCompareDriverLabel(driver) {
 
 function pruneCompareViewState(selectedDrivers) {
     const selectedNumbers = new Set(selectedDrivers.map(driver => Number(driver.driver_number)));
-    state.compareView.hiddenDrivers.forEach(driverNumber => {
+    state.compareView.mutedDrivers.forEach(driverNumber => {
         if (!selectedNumbers.has(Number(driverNumber))) {
-            state.compareView.hiddenDrivers.delete(driverNumber);
+            state.compareView.mutedDrivers.delete(driverNumber);
         }
     });
 
@@ -2186,17 +2186,17 @@ function pruneCompareViewState(selectedDrivers) {
     }
 }
 
-function isCompareDriverHidden(driverNumber) {
-    return state.compareView.hiddenDrivers.has(Number(driverNumber));
+function isCompareDriverMuted(driverNumber) {
+    return state.compareView.mutedDrivers.has(Number(driverNumber));
 }
 
 function getCompareItemStateClasses(driverNumber) {
-    const hidden = isCompareDriverHidden(driverNumber);
+    const muted = isCompareDriverMuted(driverNumber);
     const highlighted = state.compareView.highlightedDriver;
     return [
-        hidden ? 'hidden' : '',
-        highlighted !== null && Number(driverNumber) !== Number(highlighted) && !hidden ? 'dimmed' : '',
-        highlighted !== null && Number(driverNumber) === Number(highlighted) && !hidden ? 'highlighted' : ''
+        muted ? 'dimmed' : '',
+        highlighted !== null && Number(driverNumber) !== Number(highlighted) ? 'dimmed' : '',
+        highlighted !== null && Number(driverNumber) === Number(highlighted) ? 'highlighted' : ''
     ].filter(Boolean).join(' ');
 }
 
@@ -2204,10 +2204,10 @@ function updateCompareHighlightClasses() {
     const highlighted = state.compareView.highlightedDriver;
     document.querySelectorAll('[data-compare-driver-number]').forEach(element => {
         const driverNumber = Number(element.dataset.compareDriverNumber);
-        const hidden = isCompareDriverHidden(driverNumber);
-        element.classList.toggle('hidden', hidden);
-        element.classList.toggle('dimmed', highlighted !== null && driverNumber !== Number(highlighted) && !hidden);
-        element.classList.toggle('highlighted', highlighted !== null && driverNumber === Number(highlighted) && !hidden);
+        const muted = isCompareDriverMuted(driverNumber);
+        element.classList.remove('hidden');
+        element.classList.toggle('dimmed', muted || (highlighted !== null && driverNumber !== Number(highlighted)));
+        element.classList.toggle('highlighted', highlighted !== null && driverNumber === Number(highlighted));
     });
 }
 
@@ -2230,20 +2230,20 @@ function renderCompareLegendInteractive(selectedDrivers) {
         button.className = `compare-legend-item ${getCompareItemStateClasses(driverNumber)}`.trim();
         button.dataset.compareDriverNumber = String(driverNumber);
         button.style.setProperty('--team-color', `#${teamHex}`);
-        button.setAttribute('aria-pressed', String(!isCompareDriverHidden(driverNumber)));
-        button.title = isCompareDriverHidden(driverNumber)
-            ? `Show ${label}`
-            : `Hide ${label}`;
+        button.setAttribute('aria-pressed', String(!isCompareDriverMuted(driverNumber)));
+        button.title = isCompareDriverMuted(driverNumber)
+            ? `Restore ${label}`
+            : `Dim ${label}`;
         button.innerHTML = `
             <span class="compare-legend-swatch"></span>
             <span>${escapeHtml(label)}</span>
         `;
 
         button.addEventListener('click', () => {
-            if (isCompareDriverHidden(driverNumber)) {
-                state.compareView.hiddenDrivers.delete(driverNumber);
+            if (isCompareDriverMuted(driverNumber)) {
+                state.compareView.mutedDrivers.delete(driverNumber);
             } else {
-                state.compareView.hiddenDrivers.add(driverNumber);
+                state.compareView.mutedDrivers.add(driverNumber);
             }
             state.compareView.hoverLap = null;
             renderCompareLapChart();
@@ -2355,7 +2355,6 @@ function renderCompareUnifiedTooltip(ctx, event) {
     }
 
     const rows = ctx.series
-        .filter(item => !isCompareDriverHidden(item.driverNumber))
         .map(item => {
             const value = ctx.valueFor(hoverLap, item.driverNumber);
             return {
@@ -2727,12 +2726,7 @@ function renderCompareLapChart() {
         return;
     }
 
-    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
-    if (activeSeries.length === 0) {
-        renderCompareEmptyState('visibility_off', 'All Lines Hidden', 'Use the legend to show one or more drivers again.');
-        renderVisibleSecondaryCompareCharts(selectedDrivers);
-        return;
-    }
+    const activeSeries = series;
 
     const qualifyingAxis = buildQualifyingPhaseAxis(activeSeries.flatMap(item => item.validLaps), state.raceControl, state.selectedSession);
     let minLap;
@@ -3065,16 +3059,7 @@ function renderCompareGapChart(selectedDrivers = null) {
         return;
     }
 
-    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
-    if (activeSeries.length === 0) {
-        renderCompareContainerEmptyState(
-            DOM.compareGapChartContainer,
-            'visibility_off',
-            'All Lines Hidden',
-            'Use the legend to show one or more drivers again.'
-        );
-        return;
-    }
+    const activeSeries = series;
 
     const domain = getCompareChartDomain(activeSeries.flatMap(item => item.gaps.map(g => Number(g.lap_number))));
     if (!domain) {
@@ -3304,16 +3289,7 @@ function renderComparePositionChart(selectedDrivers = null) {
         return;
     }
 
-    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
-    if (activeSeries.length === 0) {
-        renderCompareContainerEmptyState(
-            DOM.comparePositionChartContainer,
-            'visibility_off',
-            'All Lines Hidden',
-            'Use the legend to show one or more drivers again.'
-        );
-        return;
-    }
+    const activeSeries = series;
 
     const domain = getCompareChartDomain(activeSeries.flatMap(item => item.positions.map(point => point.lap_number)));
     if (!domain) {
@@ -3569,16 +3545,7 @@ function renderCompareHeadToHeadChart(selectedDrivers = null) {
         return;
     }
 
-    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
-    if (activeSeries.length === 0) {
-        renderCompareContainerEmptyState(
-            DOM.compareHeadToHeadChartContainer,
-            'visibility_off',
-            'All Lines Hidden',
-            'Use the legend to show one or more drivers again.'
-        );
-        return;
-    }
+    const activeSeries = series;
 
     const domain = getCompareChartDomain(activeSeries.flatMap(item => item.deltas.map(delta => delta.lap_number)));
     if (!domain) {
@@ -3777,7 +3744,6 @@ function renderCompareStrategyTooltip(ctx, event) {
     }
 
     const rows = ctx.series
-        .filter(item => !isCompareDriverHidden(item.driverNumber))
         .map(item => {
             const stint = getStintAtLap(item.driverNumber, hoverLap);
             return { item, stint };
@@ -3883,16 +3849,7 @@ function renderCompareTyreStrategyChart(selectedDrivers = null) {
         return;
     }
 
-    const activeSeries = series.filter(item => !isCompareDriverHidden(item.driverNumber));
-    if (activeSeries.length === 0) {
-        renderCompareContainerEmptyState(
-            DOM.compareTyreStrategyChartContainer,
-            'visibility_off',
-            'All Rows Hidden',
-            'Use the legend to show one or more drivers again.'
-        );
-        return;
-    }
+    const activeSeries = series;
 
     const domain = getCompareChartDomain(activeSeries.flatMap(item => item.stints.flatMap(stint => [
         Number(stint.lap_start),

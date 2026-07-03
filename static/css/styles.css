@@ -1901,24 +1901,12 @@ body {
     opacity: 0.48;
 }
 
-.compare-legend-item.hidden {
-    background: rgba(255, 255, 255, 0.015);
-    color: var(--text-muted);
-    opacity: 0.62;
-}
-
 .compare-legend-swatch {
     width: 18px;
     height: 3px;
     border-radius: 999px;
     background: var(--team-color, var(--accent-red));
     box-shadow: 0 0 10px var(--team-color, var(--accent-red));
-}
-
-.compare-legend-item.hidden .compare-legend-swatch {
-    background: transparent;
-    border-top: 2px dashed var(--team-color, var(--text-muted));
-    box-shadow: none;
 }
 
 .compare-chart-shell {
@@ -2058,13 +2046,6 @@ body {
     opacity: 0.16;
 }
 
-.compare-chart-line.hidden,
-.compare-chart-dot.hidden,
-.compare-chart-outlier-dot.hidden {
-    opacity: 0;
-    pointer-events: none;
-}
-
 .compare-chart-dot.chart-pit-in-dot,
 .compare-chart-dot.chart-pit-out-dot,
 .compare-chart-outlier-dot.chart-pit-in-dot,
@@ -2201,11 +2182,6 @@ body {
 
 .compare-tyre-segment.dimmed {
     opacity: 0.22;
-}
-
-.compare-tyre-segment.hidden {
-    opacity: 0;
-    pointer-events: none;
 }
 
 .compare-tyre-segment-label {

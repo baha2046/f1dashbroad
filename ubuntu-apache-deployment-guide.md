@@ -48,7 +48,7 @@ sudo apt install apache2 python3-pip python3-venv python3-dev git -y
 
 1. Clone or copy your application files to `/var/www/f1-app`:
    ```bash
-   sudo git clone https://github.com/your-username/your-f1-repo.git /var/www/f1-app
+   sudo git clone https://github.com/baha2046/f1dashbroad.git /var/www/f1-app
    ```
    *(Alternatively, copy files over SFTP/SCP to `/var/www/f1-app`.)*
 

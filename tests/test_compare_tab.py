@@ -44,7 +44,7 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         self.assertIn("function attachCompareCrosshair(svg, ctx)", self.dashboard_js)
         self.assertIn("function renderCompareLegendInteractive(selectedDrivers)", self.dashboard_js)
         self.assertIn("function attachCompareZoom(svg, ctx)", self.dashboard_js)
-        self.assertIn("hiddenDrivers", self.dashboard_js)
+        self.assertIn("mutedDrivers", self.dashboard_js)
         self.assertIn("lapWindow", self.dashboard_js)
         self.assertIn("compareResetZoom", self.dashboard_js)
 
@@ -57,12 +57,20 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         self.assertIn(".compare-crosshair-line", self.styles_css)
         self.assertIn(".compare-unified-tooltip", self.styles_css)
         self.assertIn(".compare-legend-item.dimmed", self.styles_css)
-        self.assertIn(".compare-legend-item.hidden", self.styles_css)
         self.assertIn(".compare-zoom-selection", self.styles_css)
         self.assertIn(".compare-reset-zoom", self.styles_css)
         self.assertIn(".compare-chart-toggles", self.styles_css)
         self.assertIn(".compare-chart-chip", self.styles_css)
         self.assertIn(".compare-chart-chip.active", self.styles_css)
+
+    def test_compare_legend_click_dims_driver_without_filtering_series(self):
+        self.assertIn("mutedDrivers: new Set()", self.dashboard_js)
+        self.assertIn("function isCompareDriverMuted(driverNumber)", self.dashboard_js)
+        self.assertIn("state.compareView.mutedDrivers.add(driverNumber)", self.dashboard_js)
+        self.assertIn("state.compareView.mutedDrivers.delete(driverNumber)", self.dashboard_js)
+        self.assertIn("muted ? 'dimmed' : ''", self.dashboard_js)
+        self.assertNotIn("series.filter(item => !isCompareDriverHidden(item.driverNumber))", self.dashboard_js)
+        self.assertNotIn(".compare-chart-line.hidden", self.styles_css)
 
     def test_compare_driver_selector_is_fixed_bottom_bar(self):
         layout_rule = self._css_rule(".compare-layout")
