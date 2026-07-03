@@ -268,6 +268,79 @@ async def get_cached_circuit_info(url: str, cache_name: str):
                 pass
         return None
 
+async def get_cached_jolpica_api(url: str, cache_name: str, year=2026):
+    cache_path = os.path.join(CACHE_DIR, cache_name)
+    ttl = None if int(year) < datetime.now().year else 3600
+
+    if os.path.exists(cache_path):
+        mtime = os.path.getmtime(cache_path)
+        age = datetime.now().timestamp() - mtime
+        if ttl is None or age < ttl:
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+
+    try:
+        data = await fetch_url(url)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        return data
+    except Exception as e:
+        print(f"Error fetching Jolpica data from {url}: {e}")
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+def extract_jolpica_races(data):
+    return (
+        data.get("MRData", {})
+        .get("RaceTable", {})
+        .get("Races", [])
+        if isinstance(data, dict)
+        else []
+    )
+
+def extract_jolpica_standings(data, standings_key):
+    if not isinstance(data, dict):
+        return []
+    standings_lists = (
+        data.get("MRData", {})
+        .get("StandingsTable", {})
+        .get("StandingsLists", [])
+    )
+    if not standings_lists:
+        return []
+    return standings_lists[0].get(standings_key, [])
+
+def race_matches_date(race, target_date):
+    if race.get("date") == target_date:
+        return True
+
+    session_keys = (
+        "FirstPractice",
+        "SecondPractice",
+        "ThirdPractice",
+        "Qualifying",
+        "Sprint",
+        "SprintQualifying",
+    )
+    return any(
+        isinstance(race.get(key), dict) and race[key].get("date") == target_date
+        for key in session_keys
+    )
+
+def find_jolpica_race_by_date(races, target_date):
+    for race in races:
+        if race_matches_date(race, target_date):
+            return race
+    return None
+
 @app.errorhandler(OpenF1AuthError)
 async def handle_openf1_auth_error(error):
     return jsonify({
@@ -449,6 +522,65 @@ async def api_results():
     api_key = request.headers.get("X-OpenF1-Key")
     data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
+
+@app.route("/api/race_standings")
+async def api_race_standings():
+    year = request.args.get("year") or request.args.get("season") or "2026"
+    selected_date = request.args.get("date")
+    round_number = request.args.get("round")
+    race = None
+
+    if not round_number:
+        if not selected_date:
+            return jsonify({"error": "date or round is required"}), 400
+
+        selected_date = selected_date[:10]
+        races_url = f"https://api.jolpi.ca/ergast/f1/{year}/races/?format=json"
+        races_data = await get_cached_jolpica_api(
+            races_url,
+            f"jolpica_races_{year}.json",
+            year=year,
+        )
+        race = find_jolpica_race_by_date(extract_jolpica_races(races_data), selected_date)
+        if not race:
+            return jsonify({"error": "round not found for selected date"}), 404
+        round_number = race.get("round")
+
+    driver_url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/driverstandings/?format=json"
+    constructor_url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/constructorstandings/?format=json"
+    driver_data, constructor_data = await asyncio.gather(
+        get_cached_jolpica_api(
+            driver_url,
+            f"jolpica_driver_standings_{year}_{round_number}.json",
+            year=year,
+        ),
+        get_cached_jolpica_api(
+            constructor_url,
+            f"jolpica_constructor_standings_{year}_{round_number}.json",
+            year=year,
+        ),
+    )
+
+    if not race:
+        races_url = f"https://api.jolpi.ca/ergast/f1/{year}/races/?format=json"
+        races_data = await get_cached_jolpica_api(
+            races_url,
+            f"jolpica_races_{year}.json",
+            year=year,
+        )
+        race = next(
+            (item for item in extract_jolpica_races(races_data) if item.get("round") == str(round_number)),
+            None,
+        )
+
+    return jsonify({
+        "season": str(year),
+        "round": str(round_number),
+        "race_name": race.get("raceName") if race else None,
+        "date": race.get("date") if race else selected_date,
+        "driver_standings": extract_jolpica_standings(driver_data, "DriverStandings"),
+        "constructor_standings": extract_jolpica_standings(constructor_data, "ConstructorStandings"),
+    })
 
 @app.route("/api/race_control")
 async def api_race_control():

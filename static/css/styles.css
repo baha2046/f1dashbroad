@@ -2694,6 +2694,130 @@ body {
     line-height: 1.5;
 }
 
+.race-standings-wrapper {
+    display: block;
+}
+
+.standings-section-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 4px 0 12px;
+}
+
+.standings-section-header h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.standings-section-header p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 4px 0 0;
+}
+
+.standings-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.standings-panel {
+    min-width: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(18, 18, 26, 0.4);
+    overflow: hidden;
+}
+
+.standings-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.standings-panel-header h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.standings-table-wrapper {
+    overflow-x: auto;
+    max-height: 520px;
+}
+
+.standings-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+}
+
+.standings-table th,
+.standings-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.standings-table th {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    position: sticky;
+    text-transform: uppercase;
+    top: 0;
+    z-index: 1;
+}
+
+.standings-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.standings-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.standings-name-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.standings-code {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    padding: 2px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.standings-points {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+@media (max-width: 1320px) {
+    .standings-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Race control incident feed */
 .race-control-container {
     display: flex;

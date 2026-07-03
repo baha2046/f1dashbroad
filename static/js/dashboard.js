@@ -8,6 +8,7 @@ const state = {
     weather: [],
     stints: [],
     results: [],
+    raceStandings: null,
     raceControl: [],
     pitStops: [],
     position: [],
@@ -243,6 +244,10 @@ const DOM = {
     resultsEmptyState: document.getElementById('resultsEmptyState'),
     resultsEmptyTitle: document.getElementById('resultsEmptyTitle'),
     resultsEmptyText: document.getElementById('resultsEmptyText'),
+    raceStandingsWrapper: document.getElementById('raceStandingsWrapper'),
+    raceStandingsSummary: document.getElementById('raceStandingsSummary'),
+    driverStandingsTableBody: document.getElementById('driverStandingsTableBody'),
+    constructorStandingsTableBody: document.getElementById('constructorStandingsTableBody'),
 
     // Race Control
     raceControlFeed: document.getElementById('raceControlFeed'),
@@ -796,6 +801,7 @@ async function selectSession(session) {
     state.weather = [];
     state.stints = [];
     state.results = [];
+    state.raceStandings = null;
     state.raceControl = [];
     state.pitStops = [];
     state.position = [];
@@ -827,7 +833,10 @@ async function selectSession(session) {
         const positionRequest = isPitAnnotationSession(session)
             ? customFetch(`/api/position?session_key=${session.session_key}`)
             : Promise.resolve(null);
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes, positionRes] = await Promise.all([
+        const raceStandingsRequest = isRaceStandingsSession(session)
+            ? customFetch(`/api/race_standings?year=${encodeURIComponent(session.year || state.selectedYear)}&date=${encodeURIComponent(getSessionDateToken(session))}`)
+            : Promise.resolve(null);
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}`),
             customFetch(`/api/weather?session_key=${session.session_key}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
@@ -836,7 +845,8 @@ async function selectSession(session) {
             customFetch(`/api/race_control?session_key=${session.session_key}`),
             pitStopsRequest,
             lapsRequest,
-            positionRequest
+            positionRequest,
+            raceStandingsRequest
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -902,6 +912,10 @@ async function selectSession(session) {
             state.positionByLap = buildPositionByLapMap();
         }
 
+        if (raceStandingsRes && raceStandingsRes.ok) {
+            state.raceStandings = await raceStandingsRes.json();
+        }
+
         // Render dashboard components
         renderSessionHeader();
         renderWeather();
@@ -911,6 +925,7 @@ async function selectSession(session) {
         renderCompareLapChart();
         renderCircuitTab();
         renderResultsTab();
+        renderRaceStandingsTables();
         renderRaceControlFeed();
         
         // Hide empty state and show dashboard content
@@ -990,6 +1005,21 @@ function isPitAnnotationSession(session) {
     return [session.session_type, session.session_name].some(value => (
         allowedTypes.has(String(value || '').trim().toLowerCase())
     ));
+}
+
+function isRaceStandingsSession(session) {
+    if (!session) return false;
+    return String(session.session_name || '').trim().toLowerCase() === 'race';
+}
+
+function getSessionDateToken(session) {
+    const rawDate = String(session && session.date_start ? session.date_start : '');
+    if (!rawDate) return '';
+    const parsedDate = new Date(rawDate);
+    if (!Number.isNaN(parsedDate.getTime())) {
+        return parsedDate.toISOString().slice(0, 10);
+    }
+    return rawDate.slice(0, 10);
 }
 
 function isQualifyingSession(session) {
@@ -1629,6 +1659,73 @@ function renderResultsTab() {
             `;
             DOM.resultsTableBody.appendChild(tr);
         });
+    }
+}
+
+function formatStandingNumber(value) {
+    if (value === null || value === undefined || value === '') return '-';
+    return value;
+}
+
+function renderRaceStandingsTables() {
+    const standings = state.raceStandings;
+    const driverStandings = standings && Array.isArray(standings.driver_standings)
+        ? standings.driver_standings
+        : [];
+    const constructorStandings = standings && Array.isArray(standings.constructor_standings)
+        ? standings.constructor_standings
+        : [];
+
+    if (!standings || (!driverStandings.length && !constructorStandings.length)) {
+        if (DOM.raceStandingsWrapper) DOM.raceStandingsWrapper.style.display = 'none';
+        if (DOM.driverStandingsTableBody) DOM.driverStandingsTableBody.innerHTML = '';
+        if (DOM.constructorStandingsTableBody) DOM.constructorStandingsTableBody.innerHTML = '';
+        return;
+    }
+
+    if (DOM.raceStandingsWrapper) DOM.raceStandingsWrapper.style.display = 'block';
+    if (DOM.raceStandingsSummary) {
+        const roundLabel = standings.round ? `Round ${standings.round}` : 'Selected round';
+        const raceLabel = standings.race_name ? ` - ${standings.race_name}` : '';
+        DOM.raceStandingsSummary.textContent = `${standings.season || state.selectedYear} ${roundLabel}${raceLabel}`;
+    }
+
+    if (DOM.driverStandingsTableBody) {
+        DOM.driverStandingsTableBody.innerHTML = driverStandings.map((item) => {
+            const driver = item.Driver || {};
+            const constructors = Array.isArray(item.Constructors) ? item.Constructors : [];
+            const constructorName = constructors[0] ? constructors[0].name : '-';
+            const driverName = [driver.givenName, driver.familyName].filter(Boolean).join(' ') || driver.code || '-';
+            return `
+                <tr>
+                    <td class="results-position-cell">${escapeHtml(item.positionText || item.position || '-')}</td>
+                    <td>
+                        <div class="standings-name-cell">
+                            <span class="standings-code">${escapeHtml(driver.code || '--')}</span>
+                            <span>${escapeHtml(driverName)}</span>
+                        </div>
+                    </td>
+                    <td>${escapeHtml(constructorName)}</td>
+                    <td>${escapeHtml(formatStandingNumber(item.wins))}</td>
+                    <td class="standings-points">${escapeHtml(formatStandingNumber(item.points))}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    if (DOM.constructorStandingsTableBody) {
+        DOM.constructorStandingsTableBody.innerHTML = constructorStandings.map((item) => {
+            const constructor = item.Constructor || {};
+            return `
+                <tr>
+                    <td class="results-position-cell">${escapeHtml(item.positionText || item.position || '-')}</td>
+                    <td>${escapeHtml(constructor.name || '-')}</td>
+                    <td>${escapeHtml(constructor.nationality || '-')}</td>
+                    <td>${escapeHtml(formatStandingNumber(item.wins))}</td>
+                    <td class="standings-points">${escapeHtml(formatStandingNumber(item.points))}</td>
+                </tr>
+            `;
+        }).join('');
     }
 }
 

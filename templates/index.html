@@ -445,6 +445,58 @@
                             <h4 id="resultsEmptyTitle">No Results Available</h4>
                             <p id="resultsEmptyText">Results are not available for this session. It may be upcoming or in progress.</p>
                         </div>
+                        <div class="race-standings-wrapper" id="raceStandingsWrapper" style="display: none;">
+                            <div class="standings-section-header">
+                                <div>
+                                    <h3>Championship Standings</h3>
+                                    <p id="raceStandingsSummary">Selected round standings</p>
+                                </div>
+                            </div>
+                            <div class="standings-grid">
+                                <div class="standings-panel glass">
+                                    <div class="standings-panel-header">
+                                        <h4>Driver Standing</h4>
+                                    </div>
+                                    <div class="standings-table-wrapper">
+                                        <table class="standings-table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="results-position-cell">Pos</th>
+                                                    <th>Driver</th>
+                                                    <th>Constructor</th>
+                                                    <th>Wins</th>
+                                                    <th>Points</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="driverStandingsTableBody">
+                                                <!-- Loaded dynamically -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="standings-panel glass">
+                                    <div class="standings-panel-header">
+                                        <h4>Constructor Standing</h4>
+                                    </div>
+                                    <div class="standings-table-wrapper">
+                                        <table class="standings-table">
+                                            <thead>
+                                                <tr>
+                                                    <th class="results-position-cell">Pos</th>
+                                                    <th>Constructor</th>
+                                                    <th>Nationality</th>
+                                                    <th>Wins</th>
+                                                    <th>Points</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="constructorStandingsTableBody">
+                                                <!-- Loaded dynamically -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 

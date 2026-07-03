@@ -259,6 +259,7 @@ When deploying code updates:
 1. Navigate to `/var/www/f1-app` and fetch latest changes (or upload new files).
 2. Activate `.venv` and install new requirements if modified:
    ```bash
+   git pull origin main
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
