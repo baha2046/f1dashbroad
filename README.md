@@ -1,65 +1,171 @@
-# F1 Data Dashboard Application
+# Formula 1 Data Dashboard 🏎️🏁
 
-A high-performance, responsive Formula 1 data dashboard application utilizing the **OpenF1 API** (`https://openf1.org`).
-The app is built with **Python Quart** (an asynchronous web microframework) on the backend and **Vanilla CSS + Javascript** on the frontend. It features a modern, dark glassmorphic design and local caching for API responses.
+A high-performance, asynchronous, and interactive Formula 1 telemetry and statistics dashboard. Powered by the **OpenF1 API** (`https://openf1.org`) and enhanced with additional driver biographical data from `https://f1api.dev/`.
 
-## Key Features
+Built on a robust, lightweight Python asynchronous backend (**Quart** + **HTTPX**) and a responsive, high-fidelity frontend (**Vanilla JS** + **Vanilla CSS** + **SVG charting**).
 
-1. **Year Selection & Filter:** Toggle between 2026, 2025, 2024, and 2023 session lists.
-2. **Session Browser:** Search and filter sessions (Races, Qualifying, and Practice) with visual indicators for each session type.
-3. **Weather Widget:** View air/track temperatures, humidity, wind speeds, and rainfall warnings aggregated from the OpenF1 weather telemetry endpoint.
-4. **Dynamic Drivers Grid:** Browse all drivers for a selected session, displaying headshots, acronyms, and dynamic styling borders/glows reflecting official F1 team colors.
-5. **Interactive Laps & Stints Tab:**
-   - **Tire Stints Timeline:** Visualizes tire compound stint durations (proportional widths) with correct F1 compound color schemes (Soft/Medium/Hard/Inters/Wets).
-   - **All Lap Times Table:** Displays sector breakdowns and highlights the driver's fastest lap duration in the session.
-6. **Smart File-based Cache:** Local JSON storage prevents API rate limits and speeds up repeated loads.
+* **Live Deployment:** [https://f1.nagoya-jp.me/](https://f1.nagoya-jp.me/)
+* **License:** [MIT License](LICENSE)
 
 ---
 
-## Technical Stack
+## 🏗️ Architecture Overview
 
-* **Backend:** Python 3.14+, Quart (Async Flask alternative), HTTPX (Async HTTP Client).
-* **Frontend:** Modern HTML5, Vanilla CSS (Glassmorphism design tokens), Native JS (Async/Await API fetching).
-* **Caching:** Flat-file JSON store under `data_cache/` with smart TTL rules:
-  - Historical data (ended > 24 hours ago) cached permanently.
-  - Active/future sessions cached with a short 5-minute TTL.
-  - Current session list cached for 1 hour.
+```mermaid
+graph TD
+    Client[Web Browser / User] <-->|HTTPS / REST API| Backend[Python Quart App]
+    Backend <-->|Local Read/Write| Cache[Smart File Cache: data_cache/]
+    Backend <-->|Async HTTPX Fetch| OpenF1[OpenF1 API api.openf1.org]
+    Backend <-->|Async HTTPX Fetch| F1ApiDev[F1API Dev f1api.dev]
+    
+    subgraph Frontend [Interactive Client-Side App]
+        JS[dashboard.js: Controller & State] <-->|DOM Binding| HTML[index.html: Dark Glassmorphic View]
+        JS -->|Dynamic Generation| SVG[Interactive SVG Telemetry Charts]
+    end
+    
+    Client <-->|Interacts With| Frontend
+```
 
 ---
 
-## Getting Started
+## ✨ Features & Capabilities
+
+Our F1 Dashboard offers standard-setting telemetry analysis and event coverage tools:
+
+### 1. Interactive Comparison Charts (Compare Tab)
+* **Lap Times Progression:** Graphically plots the lap times of all selected drivers simultaneously, allowing side-by-side pace assessment.
+* **Gap to Leader (Race Only):** Displays the lap-by-lap interval delta between each selected driver and the session leader, illustrating race dynamics and catch-up speed.
+* **Grid Position (Race Only):** Tracks driver position shifts from the starting grid to the chequered flag.
+* **Head-to-Head Delta:** Compares head-to-head performance by plotting the sector-by-sector/lap-by-lap delta against any selected reference driver.
+* **Tyre Strategy Timeline:** Graphically renders tyre compound stints for multiple selected drivers on a unified timeline, highlighting strategic overlaps and pit windows.
+* **Outlier & Pit Filtering:** Toggle to automatically exclude pit stops and slow-down laps (safety cars, yellow flags, in-laps) to expose pure race pace.
+* **Interactive Zoom & Pan:** Scroll to zoom and click-drag to pan through dense lap datasets, with an instant **Reset Zoom** button.
+
+### 2. Deep Dive Driver Telemetry (Laps & Stints Tab)
+* **Tire Stints Timeline:** Proportional, color-coded horizontal bars visualizing stints on Soft (Red), Medium (Yellow), Hard (White), Intermediate (Green), and Wet (Blue) compounds.
+* **Individual Lap Progression Chart:** Renders an SVG line chart of the driver's lap time trajectory with outlier filtering.
+* **All Lap Times Table:** Breaks down every single lap into Sector 1, Sector 2, Sector 3, pit stops, and highlights the fastest lap in the session.
+* **Profile Header:** Displays driver headshots, official team colors, nationality flags, team names, age at the date of the race, and direct Wikipedia links.
+
+### 3. Session & Event Browser (Sidebar)
+* **Year Selector:** Navigate historical data from **2023, 2024, 2025**, and live **2026** seasons.
+* **Smart Filter & Search:** Instantly search by Grand Prix/circuit name. Filter by session type pills: **Race**, **Qualifying**, and **Practice**.
+* **Include Cancelled:** Toggle to show/hide cancelled sessions.
+* **Smart Focus:** Automatically scrolls to and highlights the currently active session during a race weekend.
+
+### 4. Real-time Incident & Race Feed (Race Control Tab)
+* Live chronological feeds of race control decisions, warnings, safety cars, investigations, and penalties.
+* Toggle to filter out blue flags to focus on critical incidents.
+
+### 5. Official Session Results (Results Tab)
+* Displays the final driver standings, grid positions, total laps completed, time/gaps, race status (Finished, DNF, DNS), and championship points awarded.
+
+### 6. Weather Telemetry Widget
+* Aggregates live track and air temperature, humidity levels, wind speed, and outputs rainfall warnings.
+
+### 7. Circuit Details & Layout Maps
+* Details the official event name, local timezone offsets, start/end dates, and renders dynamic SVG/image representations of the track layouts.
+
+### 8. Enterprise-grade API Cache Engine
+* Protects OpenF1 API usage and speeds up load times with flat-file JSON caching:
+  * **Historical Data (Ended > 24 hours ago):** Cached permanently.
+  * **Active / Upcoming Sessions:** 5-minute Time-To-Live (TTL).
+  * **Session Listings:** 1-hour TTL.
+  * **Stale Fallback:** Serves expired cache files gracefully if the external API experiences downtime.
+
+### 9. Bypassing Live Restrictions
+* Bypasses live session restrictions during race weekends by letting users input their own OpenF1 API key directly in the UI settings panel. Keys are stored in the browser's `localStorage` and sent via requests.
+
+---
+
+## 🛠️ Tech Stack & Dependencies
+
+* **Backend Framework:** [Quart](https://github.com/pgjones/quart) (Asynchronous Flask alternative)
+* **HTTP Client:** [HTTPX](https://github.com/encode/httpx) (Asynchronous HTTP requests)
+* **Frontend Design:** Vanilla CSS with custom design tokens for a premium Dark Glassmorphic look.
+* **Frontend Controller:** Vanilla JavaScript (ES6+, async/await architecture, raw SVG rendering).
+* **Testing:** Python `unittest` executing node tests internally.
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-
-* Python 3.14+ (or Python 3.9+)
-* Virtual environment (`.venv`) initialized.
+* Python 3.9+ (Python 3.14+ recommended)
+* Node.js (for running the frontend test suite)
 
 ### Installation
-
-1. Install required packages in your virtual environment:
+1. Clone this repository:
    ```bash
-   .venv/bin/pip install -r requirements.txt
+   git clone https://github.com/baha2046/f1dashbroad.git
+   cd f1dashbroad
    ```
 
-2. Run the application:
+2. Initialize and activate a Python virtual environment:
    ```bash
-   .venv/bin/python app.py
+   python3 -m venv .venv
+   source .venv/bin/activate
    ```
-   The application will boot on **port 5300** as requested (`http://localhost:5300`).
 
-### Folder Structure
+3. Install required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Run the web server:
+   ```bash
+   python app.py
+   ```
+   The application will run locally at [http://localhost:5300/](http://localhost:5300/).
+
+---
+
+## 🧪 Testing
+
+The dashboard contains a comprehensive test suite in [tests/](tests/) using Python's built-in `unittest` library. Some tests execute JavaScript helper fragments via a Node.js subprocess to verify core client-side functions in `dashboard.js`.
+
+To run all tests:
+```bash
+.venv/bin/python3 -m unittest discover -s tests
+```
+
+---
+
+## 📂 Project Directory Structure
 
 ```
 ├── .gitignore
-├── README.md
-├── app.py
-├── requirements.txt
-├── data_cache/           # Created automatically to store cached API responses
+├── AGENTS.md                 # Agent-specific instructions and rules
+├── LICENSE                   # MIT License
+├── README.md                 # This document
+├── app.py                    # Quart backend (API endpoints, routing, cache engine)
+├── requirements.txt          # Python dependencies
+├── ubuntu-apache-deployment-guide.md # Production deployment guide
+├── data_cache/               # Local JSON cache folder (automatically created)
+├── doc/                      # Implementation & design specification history
 ├── templates/
-│   └── index.html        # Main dashboard HTML template
-└── static/
-    ├── css/
-    │   └── styles.css    # Premium CSS design tokens & layouts
-    └── js/
-        └── dashboard.js  # Frontend states, event listeners, & render logic
+│   └── index.html            # Main dashboard HTML template
+├── static/
+│   ├── css/
+│   │   └── styles.css        # Glassmorphic styles, grid layouts, and F1 team themes
+│   └── js/
+│       └── dashboard.js      # Main state machine, API fetcher, SVG chart engines
+└── tests/                    # Backend and JS-interop unit tests
 ```
+
+---
+
+## 📑 Implementation & Design Specifications
+All feature-specific design notes and execution plans are preserved in the [doc/](doc/) directory:
+* **Session Autofocus:** [doc/2026-06-30-session-autofocus-note.md](doc/2026-06-30-session-autofocus-note.md)
+* **Lap Comparison:** [doc/2026-06-29-compare-lap-progression-design.md](doc/2026-06-29-compare-lap-progression-design.md) & [plan](doc/2026-06-29-compare-lap-progression-plan.md)
+* **Pit Annotations:** [doc/2026-06-29-pit-lap-annotations-design.md](doc/2026-06-29-pit-lap-annotations-design.md) & [plan](doc/2026-06-29-pit-lap-annotations-plan.md)
+* **UX Review of Charts:** [doc/2026-07-01-compare-charts-ux-design.md](doc/2026-07-01-compare-charts-ux-design.md)
+* **Gap to Leader Telemetry:** [doc/2026-07-01-compare-gap-to-leader-plan.md](doc/2026-07-01-compare-gap-to-leader-plan.md)
+* **New Comparison Metrics:** [doc/2026-07-01-compare-new-metrics-design.md](doc/2026-07-01-compare-new-metrics-design.md)
+* **Driver Card Improvements:** [doc/2026-07-03-enhance-drivers-tab-design.md](doc/2026-07-03-enhance-drivers-tab-design.md) & [plan](doc/2026-07-03-enhance-drivers-tab-plan.md)
+
+---
+
+## 📝 License
+This project is licensed under the terms of the MIT License. See [LICENSE](LICENSE) for full details.
