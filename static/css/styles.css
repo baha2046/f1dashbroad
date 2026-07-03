@@ -2729,9 +2729,13 @@ body {
 .standings-panel {
     min-width: 0;
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: rgba(18, 18, 26, 0.4);
+    border-radius: 12px;
+    background: rgba(18, 18, 26, 0.45);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     overflow: hidden;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .standings-panel-header {
@@ -2810,6 +2814,13 @@ body {
 .standings-points {
     color: var(--text-primary);
     font-weight: 700;
+}
+
+.constructor-color-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
 }
 
 @media (max-width: 1320px) {

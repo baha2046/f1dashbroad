@@ -1667,6 +1667,67 @@ function formatStandingNumber(value) {
     return value;
 }
 
+const NATIONALITY_TO_FLAG = {
+    'argentina': '🇦🇷', 'argentinian': '🇦🇷', 'argentine': '🇦🇷',
+    'australia': '🇦🇺', 'australian': '🇦🇺',
+    'austria': '🇦🇹', 'austrian': '🇦🇹',
+    'azerbaijan': '🇦🇿', 'azerbaijani': '🇦🇿',
+    'belgium': '🇧🇪', 'belgian': '🇧🇪',
+    'brazil': '🇧🇷', 'brazilian': '🇧🇷',
+    'bahrain': '🇧🇭', 'bahraini': '🇧🇭',
+    'canada': '🇨🇦', 'canadian': '🇨🇦',
+    'china': '🇨🇳', 'chinese': '🇨🇳',
+    'denmark': '🇩🇰', 'danish': '🇩🇰',
+    'finland': '🇫🇮', 'finnish': '🇫🇮',
+    'france': '🇫🇷', 'french': '🇫🇷',
+    'germany': '🇩🇪', 'german': '🇩🇪',
+    'great britain': '🇬🇧', 'british': '🇬🇧',
+    'italy': '🇮🇹', 'italian': '🇮🇹',
+    'japan': '🇯🇵', 'japanese': '🇯🇵',
+    'mexico': '🇲🇽', 'mexican': '🇲🇽',
+    'monaco': '🇲🇨', 'monegasque': '🇲🇨',
+    'netherlands': '🇳🇱', 'dutch': '🇳🇱',
+    'new zealand': '🇳🇿', 'new zealander': '🇳🇿',
+    'spain': '🇪🇸', 'spanish': '🇪🇸',
+    'thailand': '🇹🇭', 'thai': '🇹🇭',
+    'united states': '🇺🇸', 'american': '🇺🇸',
+    'switzerland': '🇨🇭', 'swiss': '🇨🇭',
+    'sweden': '🇸🇪', 'swedish': '🇸🇪',
+    'poland': '🇵🇱', 'polish': '🇵🇱',
+    'russia': '🇷🇺', 'russian': '🇷🇺',
+    'india': '🇮🇳', 'indian': '🇮🇳',
+    'venezuela': '🇻🇪', 'venezuelan': '🇻🇪',
+    'indonesia': '🇮🇩', 'indonesian': '🇮🇩',
+    'colombia': '🇨🇴', 'colombian': '🇨🇴'
+};
+
+function getNationalityFlag(nationality) {
+    if (!nationality) return '🏳️';
+    const norm = nationality.trim().toLowerCase();
+    return NATIONALITY_TO_FLAG[norm] || '🏳️';
+}
+
+function findDriver(standingItem) {
+    const driver = standingItem.Driver || {};
+    const permNum = parseInt(driver.permanentNumber);
+    const code = (driver.code || '').toUpperCase();
+    const familyName = (driver.familyName || '').toLowerCase();
+    
+    if (permNum && state.drivers) {
+        const found = state.drivers.find(d => d.driver_number === permNum);
+        if (found) return found;
+    }
+    if (code && state.drivers) {
+        const found = state.drivers.find(d => (d.name_acronym || '').toUpperCase() === code);
+        if (found) return found;
+    }
+    if (familyName && state.drivers) {
+        const found = state.drivers.find(d => (d.last_name || '').toLowerCase() === familyName);
+        if (found) return found;
+    }
+    return null;
+}
+
 function renderRaceStandingsTables() {
     const standings = state.raceStandings;
     const driverStandings = standings && Array.isArray(standings.driver_standings)
@@ -1695,18 +1756,60 @@ function renderRaceStandingsTables() {
             const driver = item.Driver || {};
             const constructors = Array.isArray(item.Constructors) ? item.Constructors : [];
             const constructorName = constructors[0] ? constructors[0].name : '-';
+            const constructorId = constructors[0] ? constructors[0].constructorId : '';
+            
+            const localDriver = findDriver(item);
+            
+            let teamHex = '';
+            if (localDriver && localDriver.team_colour) {
+                teamHex = localDriver.team_colour;
+            } else {
+                const teamNameLower = (constructorName || '').toLowerCase();
+                const teamIdLower = (constructorId || '').toLowerCase();
+                teamHex = TEAM_COLORS[teamNameLower] || TEAM_COLORS[teamIdLower] || '787878';
+            }
+            teamHex = teamHex.replace('#', '');
+            
             const driverName = [driver.givenName, driver.familyName].filter(Boolean).join(' ') || driver.code || '-';
+            
+            let avatarUrl = 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/';
+            if (localDriver && localDriver.headshot_url) {
+                avatarUrl = localDriver.headshot_url.replace('.transform/1col/image.png', '');
+            }
+            
+            const position = parseInt(item.position);
+            let posClass = 'pos-non-podium';
+            if (position === 1) posClass = 'pos-podium-1';
+            else if (position === 2) posClass = 'pos-podium-2';
+            else if (position === 3) posClass = 'pos-podium-3';
+            
+            const wins = parseInt(item.wins) || 0;
+            const winsDisplay = wins > 0 
+                ? `${wins} <span class="material-icons-round" style="font-size: 14px; color: #FFD700; vertical-align: middle; margin-left: 2px;">emoji_events</span>`
+                : `<span style="color: var(--text-muted);">${wins}</span>`;
+
             return `
                 <tr>
-                    <td class="results-position-cell">${escapeHtml(item.positionText || item.position || '-')}</td>
+                    <td class="results-position-cell ${posClass}">${escapeHtml(item.positionText || item.position || '-')}</td>
                     <td>
-                        <div class="standings-name-cell">
-                            <span class="standings-code">${escapeHtml(driver.code || '--')}</span>
-                            <span>${escapeHtml(driverName)}</span>
+                        <div class="results-driver-cell">
+                            <div class="results-team-color-indicator" style="background: #${teamHex};"></div>
+                            <img src="${avatarUrl}" class="results-driver-avatar" alt="${driverName}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/'">
+                            <div class="results-driver-info">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <span class="results-driver-name">${driverName}</span>
+                                    <span class="standings-code" style="padding: 1px 4px; min-width: auto; font-size: 9px; line-height: 1.2;">${escapeHtml(driver.code || '--')}</span>
+                                </div>
+                            </div>
                         </div>
                     </td>
-                    <td>${escapeHtml(constructorName)}</td>
-                    <td>${escapeHtml(formatStandingNumber(item.wins))}</td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="constructor-color-dot" style="background: #${teamHex};"></span>
+                            <span>${escapeHtml(constructorName)}</span>
+                        </div>
+                    </td>
+                    <td>${winsDisplay}</td>
                     <td class="standings-points">${escapeHtml(formatStandingNumber(item.points))}</td>
                 </tr>
             `;
@@ -1716,12 +1819,52 @@ function renderRaceStandingsTables() {
     if (DOM.constructorStandingsTableBody) {
         DOM.constructorStandingsTableBody.innerHTML = constructorStandings.map((item) => {
             const constructor = item.Constructor || {};
+            const constructorName = constructor.name || '-';
+            const constructorId = constructor.constructorId || '';
+            const nationality = constructor.nationality || '';
+            
+            const teamNameLower = (constructorName || '').toLowerCase();
+            const teamIdLower = (constructorId || '').toLowerCase();
+            let teamHex = TEAM_COLORS[teamNameLower] || TEAM_COLORS[teamIdLower];
+            
+            if (!teamHex && state.drivers) {
+                const matchingDriver = state.drivers.find(d => (d.team_name || '').toLowerCase() === teamNameLower);
+                if (matchingDriver && matchingDriver.team_colour) {
+                    teamHex = matchingDriver.team_colour;
+                }
+            }
+            if (!teamHex) teamHex = '787878';
+            teamHex = teamHex.replace('#', '');
+            
+            const flag = getNationalityFlag(nationality);
+            
+            const position = parseInt(item.position);
+            let posClass = 'pos-non-podium';
+            if (position === 1) posClass = 'pos-podium-1';
+            else if (position === 2) posClass = 'pos-podium-2';
+            else if (position === 3) posClass = 'pos-podium-3';
+            
+            const wins = parseInt(item.wins) || 0;
+            const winsDisplay = wins > 0 
+                ? `${wins} <span class="material-icons-round" style="font-size: 14px; color: #FFD700; vertical-align: middle; margin-left: 2px;">emoji_events</span>`
+                : `<span style="color: var(--text-muted);">${wins}</span>`;
+
             return `
                 <tr>
-                    <td class="results-position-cell">${escapeHtml(item.positionText || item.position || '-')}</td>
-                    <td>${escapeHtml(constructor.name || '-')}</td>
-                    <td>${escapeHtml(constructor.nationality || '-')}</td>
-                    <td>${escapeHtml(formatStandingNumber(item.wins))}</td>
+                    <td class="results-position-cell ${posClass}">${escapeHtml(item.positionText || item.position || '-')}</td>
+                    <td>
+                        <div class="results-driver-cell">
+                            <div class="results-team-color-indicator" style="background: #${teamHex};"></div>
+                            <div class="results-driver-info">
+                                <span class="results-driver-name" style="font-weight: 600; font-size: 13px;">${escapeHtml(constructorName)}</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <span style="margin-right: 6px; font-size: 14px;">${flag}</span>
+                        <span>${escapeHtml(nationality)}</span>
+                    </td>
+                    <td>${winsDisplay}</td>
                     <td class="standings-points">${escapeHtml(formatStandingNumber(item.points))}</td>
                 </tr>
             `;
