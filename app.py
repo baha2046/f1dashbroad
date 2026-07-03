@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 import httpx
 from datetime import datetime, timezone
 
@@ -10,6 +11,9 @@ app = Quart(__name__)
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
+OPENF1_429_MAX_RETRIES = 3
+OPENF1_429_BASE_DELAY_SECONDS = 1.0
+OPENF1_429_MAX_DELAY_SECONDS = 10.0
 
 NATIONALITY_TO_FLAG = {
     'argentina': '🇦🇷',
@@ -151,6 +155,15 @@ class OpenF1AuthError(Exception):
         self.message = message
         self.status_code = status_code
 
+def get_openf1_retry_delay(response, retry_index):
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return min(float(retry_after), OPENF1_429_MAX_DELAY_SECONDS)
+        except ValueError:
+            pass
+    return min(OPENF1_429_BASE_DELAY_SECONDS * (2 ** retry_index), OPENF1_429_MAX_DELAY_SECONDS)
+
 async def fetch_url(url: str, api_key: str = None):
     headers = {}
     if not api_key:
@@ -163,7 +176,14 @@ async def fetch_url(url: str, api_key: str = None):
         headers["apikey"] = api_key
         
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, timeout=15.0)
+        response = None
+        for retry_index in range(OPENF1_429_MAX_RETRIES + 1):
+            response = await client.get(url, headers=headers, timeout=15.0)
+            if response.status_code != 429 or retry_index == OPENF1_429_MAX_RETRIES:
+                break
+            delay = get_openf1_retry_delay(response, retry_index)
+            await asyncio.sleep(delay)
+
         if response.status_code in (401, 403):
             try:
                 error_data = response.json()
