@@ -4,11 +4,13 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from js_sources import read_dashboard_js
+
 
 class SessionAutoFocusTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(__file__).resolve().parents[1]
-        self.dashboard_js = (self.root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
 
     def _extract_function(self, function_name):
         marker = f"function {function_name}"

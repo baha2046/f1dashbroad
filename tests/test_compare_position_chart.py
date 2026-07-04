@@ -2,6 +2,8 @@ import json
 import shutil
 import unittest
 from pathlib import Path
+
+from js_sources import read_dashboard_js
 from unittest.mock import patch
 
 import app as dashboard_app
@@ -52,13 +54,13 @@ class ComparePositionChartStaticWiringTests(unittest.TestCase):
         self.root = Path(__file__).resolve().parents[1]
         self.app_py = (self.root / "app.py").read_text(encoding="utf-8")
         self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
-        self.dashboard_js = (self.root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
         self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
 
     def test_backend_has_cached_position_proxy(self):
-        self.assertIn('@app.route("/api/position")', self.app_py)
-        self.assertIn("https://api.openf1.org/v1/position?session_key=", self.app_py)
-        self.assertIn('cache_name = f"position_{session_key}.json"', self.app_py)
+        rules = {rule.rule for rule in dashboard_app.app.url_map.iter_rules()}
+        self.assertIn("/api/position", rules)
+        self.assertEqual(dashboard_app.OPENF1_SESSION_ENDPOINTS["position"], "position")
 
     def test_dashboard_contains_position_chip_and_chart_container(self):
         self.assertIn('data-chart-id="position"', self.index_html)

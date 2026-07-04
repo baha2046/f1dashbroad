@@ -141,9 +141,9 @@ class CurrentSeasonTests(unittest.TestCase):
 
 class UpstreamErrorBannerWiringTests(unittest.TestCase):
     def test_custom_fetch_surfaces_upstream_errors(self):
-        dashboard_js = (
-            Path(__file__).resolve().parents[1] / "static" / "js" / "dashboard.js"
-        ).read_text(encoding="utf-8")
+        from js_sources import read_dashboard_js
+
+        dashboard_js = read_dashboard_js(Path(__file__).resolve().parents[1])
         self.assertIn("response.status === 502 || response.status === 503", dashboard_js)
         self.assertIn("errData.error === 'upstream_error'", dashboard_js)
 

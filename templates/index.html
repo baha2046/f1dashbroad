@@ -589,6 +589,15 @@
     </div>
 
     <!-- Script -->
-    <script src="/static/js/dashboard.js??v={{ version }}"></script>
+    <!-- Loaded in order; files share the global scope (split of the former dashboard.js) -->
+    <script src="/static/js/01-state-helpers.js?v={{ version }}"></script>
+    <script src="/static/js/02-dom.js?v={{ version }}"></script>
+    <script src="/static/js/03-api-settings.js?v={{ version }}"></script>
+    <script src="/static/js/04-sessions-sidebar.js?v={{ version }}"></script>
+    <script src="/static/js/05-session-load.js?v={{ version }}"></script>
+    <script src="/static/js/06-overview-tabs.js?v={{ version }}"></script>
+    <script src="/static/js/07-driver-grids.js?v={{ version }}"></script>
+    <script src="/static/js/08-compare-charts.js?v={{ version }}"></script>
+    <script src="/static/js/09-laps-tab.js?v={{ version }}"></script>
 </body>
 </html>

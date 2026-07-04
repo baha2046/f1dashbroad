@@ -1,12 +1,14 @@
 import unittest
 from pathlib import Path
 
+from js_sources import read_dashboard_js
+
 
 class CompareTyreStrategyStaticWiringTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(__file__).resolve().parents[1]
         self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
-        self.dashboard_js = (self.root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
         self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
 
     def test_dashboard_contains_tyre_strategy_chip_and_container(self):

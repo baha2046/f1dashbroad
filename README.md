@@ -148,8 +148,16 @@ To run all tests:
 ├── static/
 │   ├── css/
 │   │   └── styles.css        # Glassmorphic styles, grid layouts, and F1 team themes
-│   └── js/
-│       └── dashboard.js      # Main state machine, API fetcher, SVG chart engines
+│   └── js/                   # Ordered scripts sharing the global scope (split of the former dashboard.js)
+│       ├── 01-state-helpers.js   # App state, constants, formatting helpers
+│       ├── 02-dom.js             # DOM element references
+│       ├── 03-api-settings.js    # customFetch, banners, API key panel, event wiring
+│       ├── 04-sessions-sidebar.js # Session list, search/filter, autofocus
+│       ├── 05-session-load.js    # Session selection, data loading, qualifying/pit helpers
+│       ├── 06-overview-tabs.js   # Header, weather, circuit, results, standings, race control
+│       ├── 07-driver-grids.js    # Drivers grid, laps sidebar, compare selector
+│       ├── 08-compare-charts.js  # Compare tab SVG chart engine
+│       └── 09-laps-tab.js        # Laps & stints tab, lap chart
 └── tests/                    # Backend and JS-interop unit tests
 ```
 

@@ -1,5 +1,6 @@
 import os
 import re
+import gzip
 import json
 import asyncio
 import tempfile
@@ -19,47 +20,8 @@ OPENF1_429_MAX_DELAY_SECONDS = 10.0
 
 DATE_PARAM_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-NATIONALITY_TO_FLAG = {
-    'argentina': '🇦🇷',
-    'australia': '🇦🇺',
-    'austria': '🇦🇹',
-    'azerbaijan': '🇦🇿',
-    'belgium': '🇧🇪',
-    'brazil': '🇧🇷',
-    'bahrain': '🇧🇭',
-    'canada': '🇨🇦',
-    'china': '🇨🇳',
-    'denmark': '🇩🇰',
-    'finland': '🇫🇮',
-    'france': '🇫🇷',
-    'germany': '🇩🇪',
-    'great britain': '🇬🇧',
-    'british': '🇬🇧',
-    'italy': '🇮🇹',
-    'japan': '🇯🇵',
-    'mexico': '🇲🇽',
-    'monaco': '🇲🇨',
-    'netherlands': '🇳🇱',
-    'dutch': '🇳🇱',
-    'new zealand': '🇳🇿',
-    'spain': '🇪🇸',
-    'thailand': '🇹🇭',
-    'united states': '🇺🇸',
-    'american': '🇺🇸',
-    'switzerland': '🇨🇭',
-    'swiss': '🇨🇭',
-    'sweden': '🇸🇪',
-    'swedish': '🇸🇪',
-    'poland': '🇵🇱',
-    'polish': '🇵🇱',
-    'russia': '🇷🇺',
-    'russian': '🇷🇺',
-    'india': '🇮🇳',
-    'indian': '🇮🇳',
-    'venezuela': '🇻🇪',
-    'indonesia': '🇮🇩',
-    'colombia': '🇨🇴',
-}
+CACHE_MAX_BYTES = int(os.environ.get("F1_CACHE_MAX_MB", "512")) * 1024 * 1024
+GZIP_MIN_BYTES = 1024
 
 def current_season_year():
     return datetime.now(timezone.utc).year
@@ -83,6 +45,62 @@ def get_http_client():
     if _http_client is None or _http_client.is_closed:
         _http_client = httpx.AsyncClient(timeout=15.0)
     return _http_client
+
+def _evict_cache_if_over_limit():
+    entries = []
+    total_bytes = 0
+    for name in os.listdir(CACHE_DIR):
+        path = os.path.join(CACHE_DIR, name)
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        if not os.path.isfile(path):
+            continue
+        entries.append((st.st_mtime, st.st_size, path))
+        total_bytes += st.st_size
+
+    print(
+        f"data_cache: {len(entries)} files, {total_bytes / (1024 * 1024):.1f} MB "
+        f"(limit {CACHE_MAX_BYTES / (1024 * 1024):.0f} MB)"
+    )
+    if total_bytes <= CACHE_MAX_BYTES:
+        return
+
+    entries.sort()  # oldest mtime first; evicted files are simply refetched on demand
+    removed = 0
+    for _mtime, size, path in entries:
+        if total_bytes <= CACHE_MAX_BYTES:
+            break
+        try:
+            os.unlink(path)
+        except OSError:
+            continue
+        total_bytes -= size
+        removed += 1
+    print(f"data_cache eviction: removed {removed} files, now {total_bytes / (1024 * 1024):.1f} MB")
+
+@app.before_serving
+async def _startup_cache_maintenance():
+    await asyncio.to_thread(_evict_cache_if_over_limit)
+
+@app.after_request
+async def _api_response_headers(response):
+    if not request.path.startswith("/api/"):
+        return response
+
+    response.headers.setdefault("Cache-Control", "public, max-age=60")
+    response.headers["Vary"] = "Accept-Encoding"
+
+    accepts_gzip = "gzip" in (request.headers.get("Accept-Encoding") or "").lower()
+    if response.status_code == 200 and accepts_gzip and "Content-Encoding" not in response.headers:
+        body = await response.get_data(as_text=False)
+        if len(body) >= GZIP_MIN_BYTES:
+            compressed = await asyncio.to_thread(gzip.compress, body, 6)
+            if len(compressed) < len(body):
+                response.set_data(compressed)
+                response.headers["Content-Encoding"] = "gzip"
+    return response
 
 @app.after_serving
 async def _close_http_client():
@@ -523,25 +541,40 @@ async def api_drivers():
 
             if extra:
                 d["nationality"] = extra.get("nationality")
-                nationality_key = str(extra.get("nationality", "")).lower()
-                d["nationality_flag"] = NATIONALITY_TO_FLAG.get(nationality_key, "🏳️")
                 d["birthday"] = extra.get("birthday")
                 d["wiki_url"] = extra.get("url")
                 d["driver_id"] = extra.get("driverId")
 
     return jsonify(openf1_drivers)
 
-@app.route("/api/weather")
-async def api_weather():
-    session_key = parse_int_param(request.args.get("session_key"))
-    if session_key is None:
-        return invalid_param_response("session_key")
+# Session-scoped OpenF1 proxy endpoints that share identical handling:
+# route name -> OpenF1 endpoint. Cache file names stay "<route>_<session_key>.json".
+OPENF1_SESSION_ENDPOINTS = {
+    "weather": "weather",
+    "stints": "stints",
+    "pit": "pit",
+    "position": "position",
+    "results": "session_result",
+    "race_control": "race_control",
+}
 
-    url = f"https://api.openf1.org/v1/weather?session_key={session_key}"
-    cache_name = f"weather_{session_key}.json"
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
-    return jsonify(data)
+def _make_session_endpoint(route_name, openf1_endpoint):
+    async def handler():
+        session_key = parse_int_param(request.args.get("session_key"))
+        if session_key is None:
+            return invalid_param_response("session_key")
+
+        url = f"https://api.openf1.org/v1/{openf1_endpoint}?session_key={session_key}"
+        cache_name = f"{route_name}_{session_key}.json"
+        api_key = request.headers.get("X-OpenF1-Key")
+        data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
+        return jsonify(data)
+
+    handler.__name__ = f"api_{route_name}"
+    return handler
+
+for _route_name, _endpoint in OPENF1_SESSION_ENDPOINTS.items():
+    app.add_url_rule(f"/api/{_route_name}", view_func=_make_session_endpoint(_route_name, _endpoint))
 
 @app.route("/api/laps")
 async def api_laps():
@@ -560,54 +593,6 @@ async def api_laps():
         url = f"https://api.openf1.org/v1/laps?session_key={session_key}"
         cache_name = f"laps_{session_key}.json"
 
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
-    return jsonify(data)
-
-@app.route("/api/stints")
-async def api_stints():
-    session_key = parse_int_param(request.args.get("session_key"))
-    if session_key is None:
-        return invalid_param_response("session_key")
-
-    url = f"https://api.openf1.org/v1/stints?session_key={session_key}"
-    cache_name = f"stints_{session_key}.json"
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
-    return jsonify(data)
-
-@app.route("/api/pit")
-async def api_pit():
-    session_key = parse_int_param(request.args.get("session_key"))
-    if session_key is None:
-        return invalid_param_response("session_key")
-
-    url = f"https://api.openf1.org/v1/pit?session_key={session_key}"
-    cache_name = f"pit_{session_key}.json"
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
-    return jsonify(data)
-
-@app.route("/api/position")
-async def api_position():
-    session_key = parse_int_param(request.args.get("session_key"))
-    if session_key is None:
-        return invalid_param_response("session_key")
-
-    url = f"https://api.openf1.org/v1/position?session_key={session_key}"
-    cache_name = f"position_{session_key}.json"
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
-    return jsonify(data)
-
-@app.route("/api/results")
-async def api_results():
-    session_key = parse_int_param(request.args.get("session_key"))
-    if session_key is None:
-        return invalid_param_response("session_key")
-
-    url = f"https://api.openf1.org/v1/session_result?session_key={session_key}"
-    cache_name = f"results_{session_key}.json"
     api_key = request.headers.get("X-OpenF1-Key")
     data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
@@ -679,18 +664,6 @@ async def api_race_standings():
         "driver_standings": extract_jolpica_standings(driver_data, "DriverStandings"),
         "constructor_standings": extract_jolpica_standings(constructor_data, "ConstructorStandings"),
     })
-
-@app.route("/api/race_control")
-async def api_race_control():
-    session_key = parse_int_param(request.args.get("session_key"))
-    if session_key is None:
-        return invalid_param_response("session_key")
-
-    url = f"https://api.openf1.org/v1/race_control?session_key={session_key}"
-    cache_name = f"race_control_{session_key}.json"
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
-    return jsonify(data)
 
 if __name__ == "__main__":
     debug_mode = os.environ.get("F1_DASHBOARD_DEBUG", "1") == "1"

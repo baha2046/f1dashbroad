@@ -1,11 +1,13 @@
 import unittest
 from pathlib import Path
 
+from js_sources import read_dashboard_js
+
 
 class QualifyingPhaseChartStaticWiringTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(__file__).resolve().parents[1]
-        self.dashboard_js = (self.root / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
         self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
 
     def test_dashboard_extracts_q1_q2_q3_from_session_status(self):
