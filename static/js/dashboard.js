@@ -1800,13 +1800,8 @@ function renderRaceStandingsTables() {
                                     <span class="results-driver-name">${driverName}</span>
                                     <span class="standings-code" style="padding: 1px 4px; min-width: auto; font-size: 9px; line-height: 1.2;">${escapeHtml(driver.code || '--')}</span>
                                 </div>
+                                <div class="results-driver-team">${escapeHtml(constructorName)}</div>
                             </div>
-                        </div>
-                    </td>
-                    <td>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span class="constructor-color-dot" style="background: #${teamHex};"></span>
-                            <span>${escapeHtml(constructorName)}</span>
                         </div>
                     </td>
                     <td>${winsDisplay}</td>

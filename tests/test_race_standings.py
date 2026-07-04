@@ -112,6 +112,7 @@ class RaceStandingsStaticWiringTests(unittest.TestCase):
         self.assertIn('id="constructorStandingsTableBody"', self.index_html)
         self.assertIn("Driver Standing", self.index_html)
         self.assertIn("Constructor Standing", self.index_html)
+        self.assertIn("<th>Driver</th>\n                                                    <th>Wins</th>", self.index_html)
 
     def test_dashboard_fetches_and_renders_race_standings(self):
         self.assertIn("raceStandings: null", self.dashboard_js)
@@ -120,6 +121,7 @@ class RaceStandingsStaticWiringTests(unittest.TestCase):
         self.assertIn("customFetch(`/api/race_standings?year=${", self.dashboard_js)
         self.assertIn("function renderRaceStandingsTables()", self.dashboard_js)
         self.assertIn("renderRaceStandingsTables();", self.dashboard_js)
+        self.assertIn('<div class="results-driver-team">${escapeHtml(constructorName)}</div>', self.dashboard_js)
 
     def test_race_standings_have_dedicated_compact_styles(self):
         self.assertIn(".standings-grid", self.styles_css)

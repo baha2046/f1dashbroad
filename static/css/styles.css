@@ -2721,7 +2721,7 @@ body {
 
 .standings-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
     gap: 16px;
     align-items: start;
 }
