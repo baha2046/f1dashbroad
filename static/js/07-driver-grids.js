@@ -86,7 +86,7 @@ function renderLapsDriverSidebar() {
     const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
     
     sortedDrivers.forEach(d => {
-        let teamHex = d.team_colour || TEAM_COLORS[(d.team_name || '').toLowerCase()] || '787878';
+        const teamHex = getDriverTeamHex(d);
         const rgb = getRGBColor(teamHex);
         
         const pill = document.createElement('button');
@@ -96,8 +96,11 @@ function renderLapsDriverSidebar() {
         pill.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.25)`);
         
         pill.innerHTML = `
-            <span>${d.name_acronym || d.last_name} &bull; ${d.driver_number}</span>
-            <span class="pill-team-dot"></span>
+            <span class="driver-pill-code">${escapeHtml(d.name_acronym || d.last_name || d.driver_number)}</span>
+            <span class="driver-pill-meta">
+                <span class="pill-team-dot"></span>
+                <span>${escapeHtml(String(d.driver_number))}</span>
+            </span>
         `;
         
         pill.addEventListener('click', () => {

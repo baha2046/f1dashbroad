@@ -978,9 +978,10 @@ body {
 /* Laps & Stints Layout */
 .laps-layout {
     display: grid;
-    grid-template-columns: 240px 1fr;
+    grid-template-columns: 1fr;
     gap: 24px;
     align-items: flex-start;
+    padding-bottom: 156px;
 }
 
 .laps-sidebar {
@@ -992,28 +993,67 @@ body {
     overflow-y: auto;
 }
 
+.laps-driver-bar {
+    background: rgba(10, 10, 15, 0.88);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    bottom: 16px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+    display: grid;
+    gap: 16px;
+    grid-template-columns: auto minmax(0, 1fr);
+    left: calc(var(--sidebar-width) + 32px);
+    max-height: 132px;
+    overflow: hidden;
+    padding: 14px 18px;
+    position: fixed;
+    right: 32px;
+    z-index: 30;
+}
+
 .laps-sidebar h4 {
-    margin-bottom: 12px;
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    font-size: 12px;
+    font-weight: 800;
+    justify-content: center;
+    letter-spacing: 1.5px;
+    margin-bottom: 0;
+    min-width: 128px;
+    text-transform: uppercase;
 }
 
 .driver-pills {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     gap: 8px;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 2px 2px 6px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
 }
 
 .driver-pill {
     display: flex;
+    flex: 0 0 auto;
     justify-content: space-between;
     align-items: center;
+    min-height: 42px;
+    min-width: 96px;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border-color);
-    padding: 10px 16px;
     border-radius: 10px;
     cursor: pointer;
     transition: var(--transition-fast);
     font-family: var(--font-sans);
     color: var(--text-secondary);
+    padding: 10px 14px;
+    scroll-snap-align: start;
 }
 
 .driver-pill:hover {
@@ -1022,11 +1062,27 @@ body {
 }
 
 .driver-pill.active {
-    background: var(--team-color, rgba(255, 255, 255, 0.1));
-    color: #fff;
-    font-weight: 700;
-    border-color: transparent;
-    box-shadow: 0 4px 12px var(--team-color-glow, rgba(255, 255, 255, 0.1));
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    border-color: var(--team-color, rgba(255, 255, 255, 0.25));
+    box-shadow:
+        inset 4px 0 0 var(--team-color, var(--accent-red)),
+        0 4px 14px var(--team-color-glow, rgba(255, 255, 255, 0.08));
+}
+
+.driver-pill-code {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+
+.driver-pill-meta {
+    align-items: center;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 800;
+    gap: 8px;
 }
 
 .pill-team-dot {
@@ -1034,10 +1090,6 @@ body {
     height: 8px;
     border-radius: 50%;
     background: var(--team-color);
-}
-
-.driver-pill.active .pill-team-dot {
-    background: #fff;
 }
 
 /* Laps Content Data display */
@@ -2379,8 +2431,8 @@ body {
         grid-template-columns: 1fr;
     }
 
-    .laps-sidebar {
-        max-height: 220px;
+    .laps-driver-bar {
+        max-height: 132px;
     }
 
     .compare-sidebar {
@@ -2400,6 +2452,15 @@ body {
     }
 
     .compare-driver-pill {
+        flex: 0 0 auto;
+        min-width: 96px;
+    }
+
+    .laps-driver-bar .driver-pills {
+        flex-wrap: nowrap;
+    }
+
+    .laps-driver-bar .driver-pill {
         flex: 0 0 auto;
         min-width: 96px;
     }
@@ -2428,10 +2489,12 @@ body {
         padding: 20px;
     }
 
+    .laps-layout,
     .compare-layout {
         padding-bottom: 164px;
     }
 
+    .laps-driver-bar,
     .compare-sidebar {
         bottom: 12px;
         left: 20px;
@@ -2447,6 +2510,10 @@ body {
 @media (max-width: 600px) {
     .weather-grid {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
     }
     
     .session-header-card {
@@ -2465,6 +2532,7 @@ body {
         flex: 1 0 calc(50% - 8px);
     }
 
+    .laps-driver-bar,
     .compare-sidebar {
         align-items: stretch;
         gap: 10px;
@@ -2473,6 +2541,7 @@ body {
         padding: 12px 14px;
     }
 
+    .laps-sidebar h4,
     .compare-sidebar-header {
         align-items: center;
         flex-direction: row;
@@ -2480,6 +2549,7 @@ body {
         min-width: 0;
     }
 
+    .laps-driver-bar .driver-pill,
     .compare-driver-pill {
         flex: 0 0 auto;
         min-width: 88px;
