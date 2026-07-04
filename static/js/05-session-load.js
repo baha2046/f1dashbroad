@@ -1,5 +1,6 @@
 // Select a session and fetch its detailed data
 async function selectSession(session) {
+    stopLiveMode();
     state.selectedSession = session;
     state.drivers = [];
     state.weather = [];
@@ -10,6 +11,7 @@ async function selectSession(session) {
     state.pitStops = [];
     state.position = [];
     state.positionByLap = {};
+    state.intervals = [];
     state.laps = {};
     state.allSessionLaps = null;
     state.telemetryCache = {};
@@ -145,7 +147,8 @@ async function selectSession(session) {
         renderRaceStandingsTables();
         renderChampionshipProgressionChart();
         renderRaceControlFeed();
-        
+        setupLiveMode();
+
         // Hide empty state and show dashboard content
         DOM.emptyState.style.display = 'none';
         DOM.dashboardContent.style.display = 'flex';

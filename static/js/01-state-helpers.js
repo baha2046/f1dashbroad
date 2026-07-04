@@ -15,6 +15,8 @@ const state = {
     pitStops: [],
     position: [],
     positionByLap: {},
+    intervals: [],
+    live: createLiveState(),
     laps: {}, // map of driverNumber -> laps array
     allSessionLaps: null,
     telemetryCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/car_telemetry payload
@@ -49,6 +51,18 @@ function createReplayState() {
         rafId: null,
         lastFrameTs: null,
         carNodes: {}       // driver_number -> { group, samples } for the built SVG
+    };
+}
+
+function createLiveState() {
+    return {
+        active: false,
+        sessionKey: null,
+        refreshTimerId: null,
+        countdownTimerId: null,
+        nextRefreshAt: null,
+        refreshing: false,
+        lastUpdated: null
     };
 }
 

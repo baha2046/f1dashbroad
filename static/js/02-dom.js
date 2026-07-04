@@ -10,6 +10,8 @@ const DOM = {
     
     // Header
     headerFlag: document.getElementById('headerFlag'),
+    liveIndicator: document.getElementById('liveIndicator'),
+    liveCountdown: document.getElementById('liveCountdown'),
     headerYear: document.getElementById('headerYear'),
     headerLocation: document.getElementById('headerLocation'),
     headerGPName: document.getElementById('headerGPName'),
@@ -25,6 +27,11 @@ const DOM = {
     // Drivers Grid
     driverSearch: document.getElementById('driverSearch'),
     driversGrid: document.getElementById('driversGrid'),
+
+    // Live Timing (live sessions only)
+    liveTimingCard: document.getElementById('liveTimingCard'),
+    liveTimingTableBody: document.getElementById('liveTimingTableBody'),
+    liveTimingUpdated: document.getElementById('liveTimingUpdated'),
     
     // Laps/Stints Section
     lapsDriverList: document.getElementById('lapsDriverList'),

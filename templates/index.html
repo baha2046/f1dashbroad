@@ -135,7 +135,14 @@
                             <h2 id="headerGPName">Las Vegas Grand Prix</h2>
                         </div>
                     </div>
-                    <div class="session-badge" id="headerSessionType">Race</div>
+                    <div class="session-header-right">
+                        <div class="live-indicator" id="liveIndicator">
+                            <span class="live-dot"></span>
+                            <span class="live-indicator-label">LIVE</span>
+                            <span class="live-countdown" id="liveCountdown"></span>
+                        </div>
+                        <div class="session-badge" id="headerSessionType">Race</div>
+                    </div>
                 </header>
 
                 <!-- Weather Stats Card -->
@@ -201,6 +208,28 @@
 
                 <!-- Drivers View -->
                 <section class="tab-view active" id="drivers-view" aria-label="Drivers grid">
+                    <!-- Live Timing (shown only while the session is live) -->
+                    <div class="live-timing-card glass" id="liveTimingCard" style="display: none;">
+                        <div class="live-timing-header">
+                            <h3>Live Timing</h3>
+                            <span class="live-timing-updated" id="liveTimingUpdated"></span>
+                        </div>
+                        <div class="live-timing-table-wrapper">
+                            <table class="live-timing-table" aria-label="Live timing order">
+                                <thead>
+                                    <tr>
+                                        <th class="live-timing-pos">Pos</th>
+                                        <th>Driver</th>
+                                        <th>Interval</th>
+                                        <th>Gap to Leader</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="liveTimingTableBody">
+                                    <!-- Loaded dynamically while live -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                     <div class="drivers-header">
                         <h3>DRIVERS LIST</h3>
                         <div class="drivers-search-wrapper">
@@ -671,5 +700,6 @@
     <script src="/static/js/08-compare-charts.js?v={{ version }}"></script>
     <script src="/static/js/09-laps-tab.js?v={{ version }}"></script>
     <script src="/static/js/10-track-replay.js?v={{ version }}"></script>
+    <script src="/static/js/11-live-mode.js?v={{ version }}"></script>
 </body>
 </html>

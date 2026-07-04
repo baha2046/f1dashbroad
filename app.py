@@ -26,6 +26,9 @@ GZIP_MIN_BYTES = 1024
 TELEMETRY_MAX_POINTS = 700
 REPLAY_MAX_POINTS_PER_DRIVER = 400
 
+LIVE_CACHE_TTL_SECONDS = 30
+LIVE_SESSION_OVERRUN_SECONDS = 1800  # sessions (especially races) overrun date_end
+
 def current_season_year():
     return datetime.now(timezone.utc).year
 
@@ -261,6 +264,20 @@ def is_historical(session):
     except Exception:
         return False
 
+def is_session_live(session, now=None):
+    """A session is live from date_start until date_end plus an overrun buffer."""
+    if not session or session.get("is_cancelled"):
+        return False
+
+    start = parse_iso_utc(session.get("date_start"))
+    end = parse_iso_utc(session.get("date_end"))
+    if start is None or end is None:
+        return False
+
+    if now is None:
+        now = datetime.now(timezone.utc)
+    return start <= now <= end + timedelta(seconds=LIVE_SESSION_OVERRUN_SECONDS)
+
 class OpenF1AuthError(Exception):
     def __init__(self, message, status_code=403):
         super().__init__(message)
@@ -326,8 +343,10 @@ async def get_cached_api(url: str, cache_name: str, session_key=None, year=None,
     else:
         # For session-specific data (drivers, weather, laps, etc.)
         session = await asyncio.to_thread(get_session_info, session_key, year) if session_key else None
-        if not session or not is_historical(session):
-            ttl = 300  # 5 minutes for active/live/future sessions
+        if session is not None and is_session_live(session):
+            ttl = LIVE_CACHE_TTL_SECONDS  # live sessions are polled by the frontend
+        elif not session or not is_historical(session):
+            ttl = 300  # 5 minutes for recent/future sessions
 
     cached = await read_cache(cache_path, ttl)
     if cached is not None:
@@ -563,6 +582,7 @@ OPENF1_SESSION_ENDPOINTS = {
     "stints": "stints",
     "pit": "pit",
     "position": "position",
+    "intervals": "intervals",
     "results": "session_result",
     "race_control": "race_control",
 }
