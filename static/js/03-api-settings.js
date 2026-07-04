@@ -188,6 +188,13 @@ function setupEventListeners() {
         });
     }
 
+    // Telemetry Lap Selector
+    if (DOM.telemetryLapSelect) {
+        DOM.telemetryLapSelect.addEventListener('change', () => {
+            loadSelectedLapTelemetry();
+        });
+    }
+
     // Chart Outlier Toggle
     if (DOM.chartHideOutliers) {
         DOM.chartHideOutliers.addEventListener('change', () => {
@@ -235,6 +242,11 @@ function setupEventListeners() {
             btn.classList.add('active');
             document.getElementById(targetTab).classList.add('active');
             state.currentTab = targetTab;
+
+            // Telemetry fetches are deferred until the Laps tab is actually visible
+            if (targetTab === 'laps-view') {
+                maybeAutoLoadTelemetry();
+            }
         });
     });
 

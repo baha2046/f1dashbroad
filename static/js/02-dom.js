@@ -47,6 +47,11 @@ const DOM = {
     chartHideOutliers: document.getElementById('chartHideOutliers'),
     lapsChartContainer: document.getElementById('lapsChartContainer'),
     lapsTableBody: document.getElementById('lapsTableBody'),
+    telemetrySection: document.getElementById('telemetrySection'),
+    telemetryLapSelect: document.getElementById('telemetryLapSelect'),
+    telemetryStats: document.getElementById('telemetryStats'),
+    telemetrySpeedChart: document.getElementById('telemetrySpeedChart'),
+    telemetryInputsChart: document.getElementById('telemetryInputsChart'),
 
     // Compare Section
     compareDriverList: document.getElementById('compareDriverList'),

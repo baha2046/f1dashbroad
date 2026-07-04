@@ -289,6 +289,31 @@
                                     </div>
                                 </div>
 
+                                <div class="chart-section telemetry-section" id="telemetrySection">
+                                    <div class="chart-header">
+                                        <h5>Lap Telemetry</h5>
+                                        <label class="telemetry-lap-select-wrapper">
+                                            <span>Lap</span>
+                                            <select id="telemetryLapSelect" aria-label="Select lap for telemetry"></select>
+                                        </label>
+                                    </div>
+                                    <div class="telemetry-stats" id="telemetryStats" style="display: none;"></div>
+                                    <div class="chart-container-wrapper glass telemetry-chart-wrapper">
+                                        <div id="telemetrySpeedChart">
+                                            <!-- SVG speed trace generated dynamically -->
+                                        </div>
+                                    </div>
+                                    <div class="chart-container-wrapper glass telemetry-chart-wrapper">
+                                        <div id="telemetryInputsChart">
+                                            <!-- SVG throttle/brake chart generated dynamically -->
+                                        </div>
+                                        <div class="telemetry-legend">
+                                            <span><span class="telemetry-legend-swatch throttle"></span>Throttle</span>
+                                            <span><span class="telemetry-legend-swatch brake"></span>Brake</span>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="laps-list-section">
                                     <h5>All Lap Times</h5>
                                     <div class="laps-table-wrapper">

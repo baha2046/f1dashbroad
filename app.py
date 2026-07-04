@@ -6,7 +6,7 @@ import asyncio
 import tempfile
 import weakref
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from quart import Quart, render_template, jsonify, request
 
@@ -22,6 +22,8 @@ DATE_PARAM_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 CACHE_MAX_BYTES = int(os.environ.get("F1_CACHE_MAX_MB", "512")) * 1024 * 1024
 GZIP_MIN_BYTES = 1024
+
+TELEMETRY_MAX_POINTS = 700
 
 def current_season_year():
     return datetime.now(timezone.utc).year
@@ -603,6 +605,148 @@ async def api_laps():
     data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
 
+def parse_iso_utc(value):
+    """Parse an ISO timestamp into an aware-UTC datetime (naive input treated as UTC)."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+def format_openf1_date(dt):
+    # Naive-UTC format keeps the literal '+' of '+00:00' out of the query string
+    return dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+
+def build_lap_telemetry_window(laps, lap_number):
+    """Return (lap, start, end) datetimes for a lap, or None when no usable window exists.
+
+    car_data has no lap_number upstream, so the window is derived from the lap's
+    date_start + lap_duration; in/out laps without a duration close at the next
+    lap's start instead.
+    """
+    if not isinstance(laps, list):
+        return None
+    ordered = sorted(
+        (lap for lap in laps if isinstance(lap, dict) and lap.get("lap_number") is not None),
+        key=lambda lap: lap["lap_number"],
+    )
+    for index, lap in enumerate(ordered):
+        if lap.get("lap_number") != lap_number:
+            continue
+        start = parse_iso_utc(lap.get("date_start"))
+        if start is None:
+            return None
+        duration = parse_float(lap.get("lap_duration"))
+        if duration is not None and duration > 0:
+            return lap, start, start + timedelta(seconds=duration)
+        for next_lap in ordered[index + 1:]:
+            next_start = parse_iso_utc(next_lap.get("date_start"))
+            if next_start is not None and next_start > start:
+                return lap, start, next_start
+        return None
+    return None
+
+def downsample_telemetry(samples, max_points=TELEMETRY_MAX_POINTS):
+    if len(samples) <= max_points:
+        return samples, False
+    step = len(samples) / max_points
+    picked = [samples[int(i * step)] for i in range(max_points)]
+    picked[-1] = samples[-1]
+    return picked, True
+
+@app.route("/api/car_telemetry")
+async def api_car_telemetry():
+    session_key = parse_int_param(request.args.get("session_key"))
+    if session_key is None:
+        return invalid_param_response("session_key")
+    driver_number = parse_int_param(request.args.get("driver_number"))
+    if driver_number is None:
+        return invalid_param_response("driver_number")
+    lap_number = parse_int_param(request.args.get("lap_number"))
+    if lap_number is None:
+        return invalid_param_response("lap_number")
+
+    cache_name = f"car_telemetry_{session_key}_{driver_number}_{lap_number}.json"
+    cache_path = os.path.join(CACHE_DIR, cache_name)
+    session = await asyncio.to_thread(get_session_info, session_key)
+    ttl = None if is_historical(session) else 300
+
+    cached = await read_cache(cache_path, ttl)
+    if cached is not None:
+        return jsonify(cached)
+
+    api_key = request.headers.get("X-OpenF1-Key")
+
+    async with get_cache_lock(cache_path):
+        cached = await read_cache(cache_path, ttl)
+        if cached is not None:
+            return jsonify(cached)
+
+        laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}&driver_number={driver_number}"
+        laps = await get_cached_api(
+            laps_url,
+            f"laps_{session_key}_{driver_number}.json",
+            session_key=session_key,
+            api_key=api_key,
+        )
+        window = build_lap_telemetry_window(laps, lap_number)
+        if window is None:
+            return jsonify({"error": "No telemetry window available for this lap"}), 404
+        lap, start, end = window
+
+        url = (
+            f"https://api.openf1.org/v1/car_data?session_key={session_key}"
+            f"&driver_number={driver_number}"
+            f"&date>={format_openf1_date(start)}&date<{format_openf1_date(end)}"
+        )
+        try:
+            car_data = await fetch_url(url, api_key=api_key)
+        except OpenF1AuthError:
+            raise
+        except Exception as e:
+            print(f"Error fetching {url}: {e}")
+            stale = await read_stale_cache(cache_path)
+            if stale is not None:
+                return jsonify(stale)
+            raise UpstreamAPIError(f"Upstream API request failed for {cache_name}")
+
+        window_seconds = (end - start).total_seconds()
+        telemetry = []
+        for sample in car_data if isinstance(car_data, list) else []:
+            sample_time = parse_iso_utc(sample.get("date")) if isinstance(sample, dict) else None
+            if sample_time is None:
+                continue
+            t = (sample_time - start).total_seconds()
+            if t < 0 or t > window_seconds:
+                continue
+            telemetry.append({
+                "t": round(t, 3),
+                "speed": sample.get("speed"),
+                "throttle": sample.get("throttle"),
+                "brake": sample.get("brake"),
+                "gear": sample.get("n_gear"),
+                "drs": sample.get("drs"),
+            })
+        telemetry.sort(key=lambda item: item["t"])
+        telemetry, downsampled = downsample_telemetry(telemetry)
+
+        payload = {
+            "session_key": session_key,
+            "driver_number": driver_number,
+            "lap_number": lap_number,
+            "lap_date_start": lap.get("date_start"),
+            "lap_duration": parse_float(lap.get("lap_duration")),
+            "sample_count": len(telemetry),
+            "downsampled": downsampled,
+            "telemetry": telemetry,
+        }
+        await write_cache(cache_path, payload)
+        return jsonify(payload)
+
 @app.route("/api/season_progression")
 async def api_season_progression():
     year = parse_int_param(request.args.get("year") or str(current_season_year()))
@@ -783,4 +927,5 @@ async def api_race_standings():
 
 if __name__ == "__main__":
     debug_mode = os.environ.get("F1_DASHBOARD_DEBUG", "1") == "1"
-    app.run(host="0.0.0.0", port=5300, debug=debug_mode)
+    port = int(os.environ.get("PORT", "5300"))
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)

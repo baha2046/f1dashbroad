@@ -17,6 +17,7 @@ const state = {
     positionByLap: {},
     laps: {}, // map of driverNumber -> laps array
     allSessionLaps: null,
+    telemetryCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/car_telemetry payload
     selectedDriverStats: null,
     selectedCompareDrivers: [],
     compareView: createCompareViewState(),

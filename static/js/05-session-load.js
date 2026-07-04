@@ -12,6 +12,7 @@ async function selectSession(session) {
     state.positionByLap = {};
     state.laps = {};
     state.allSessionLaps = null;
+    state.telemetryCache = {};
     state.selectedDriverStats = null;
     state.selectedCompareDrivers = [];
     state.compareView = createCompareViewState();
