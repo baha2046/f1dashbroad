@@ -3366,3 +3366,62 @@ body {
     font-size: 11px;
     font-weight: 700;
 }
+
+/* Group Headers & Sticky behavior */
+.race-control-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.race-control-group-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(22, 22, 30, 0.95);
+    backdrop-filter: blur(12px);
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+/* Inline Driver Pills inside Messages */
+.driver-inline-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(var(--team-color-rgb), 0.12);
+    border: 1px solid rgba(var(--team-color-rgb), 0.28);
+    border-left: 4px solid var(--team-color);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 2px;
+    vertical-align: middle;
+}
+
+.driver-pill-name {
+    font-weight: 700;
+}
+
+.driver-pill-number {
+    font-size: 10px;
+    opacity: 0.8;
+    font-family: monospace;
+}
+
+/* Meta Pill team color dot */
+.driver-pill-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+    display: inline-block;
+}
