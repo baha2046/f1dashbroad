@@ -3425,3 +3425,168 @@ body {
     margin-right: 6px;
     display: inline-block;
 }
+
+/* ===== Lap Telemetry (car_data deep-dive) ===== */
+.telemetry-section {
+    margin-bottom: 28px;
+}
+
+.telemetry-lap-select-wrapper {
+    align-items: center;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 800;
+    gap: 8px;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+}
+
+.telemetry-lap-select-wrapper select {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 800;
+    max-width: 240px;
+    min-height: 32px;
+    outline: none;
+    padding: 6px 28px 6px 10px;
+}
+
+.telemetry-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.telemetry-stat-chip {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 96px;
+    padding: 8px 14px;
+}
+
+.telemetry-stat-chip .stat-chip-label {
+    color: var(--text-muted);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}
+
+.telemetry-stat-chip .stat-chip-value {
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.telemetry-chart-wrapper {
+    margin-bottom: 12px;
+}
+
+#telemetrySpeedChart {
+    width: 100%;
+    height: 260px;
+    position: relative;
+}
+
+#telemetryInputsChart {
+    width: 100%;
+    height: 170px;
+    position: relative;
+}
+
+.telemetry-speed-line {
+    fill: none;
+    stroke: var(--team-color, #ff1801);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 5px var(--team-color-glow, rgba(255, 255, 255, 0.25)));
+}
+
+.telemetry-throttle-line {
+    fill: none;
+    stroke: #34d27b;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+}
+
+.telemetry-brake-line {
+    fill: none;
+    stroke: #ff523d;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+}
+
+.telemetry-drs-shading {
+    fill: rgba(77, 195, 255, 0.08);
+    pointer-events: none;
+}
+
+.telemetry-drs-text {
+    fill: rgba(77, 195, 255, 0.8);
+    font-family: var(--font-sans);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+}
+
+.telemetry-crosshair {
+    pointer-events: none;
+    stroke: rgba(255, 255, 255, 0.35);
+    stroke-dasharray: 3 3;
+    stroke-width: 1;
+}
+
+.telemetry-hover-target {
+    cursor: crosshair;
+    fill: transparent;
+}
+
+.telemetry-legend {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    font-size: 10px;
+    font-weight: 700;
+    gap: 14px;
+    letter-spacing: 0.5px;
+    margin-top: 8px;
+    text-transform: uppercase;
+}
+
+.telemetry-legend-swatch {
+    border-radius: 2px;
+    display: inline-block;
+    height: 3px;
+    margin-right: 5px;
+    vertical-align: middle;
+    width: 14px;
+}
+
+.telemetry-legend-swatch.throttle {
+    background: #34d27b;
+}
+
+.telemetry-legend-swatch.brake {
+    background: #ff523d;
+}
+
+.telemetry-chart-message {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    font-size: 13px;
+    height: 100%;
+    justify-content: center;
+}
