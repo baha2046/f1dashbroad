@@ -1,0 +1,190 @@
+import json
+import shutil
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import app as dashboard_app
+
+from js_sources import read_dashboard_js
+
+PROJECT_TEMP_DIR = Path(__file__).resolve().parents[1] / "tests" / ".tmp"
+
+LAP_FIXTURES = [
+    {"lap_number": 5, "date_start": "2026-05-24T13:03:00+00:00", "lap_duration": 90.0},
+    {"lap_number": 6, "date_start": "2026-05-24T13:04:30+00:00", "lap_duration": 89.5},
+]
+
+
+def location_sample(date, driver_number, x=100, y=200, z=5):
+    return {"date": date, "driver_number": driver_number, "x": x, "y": y, "z": z}
+
+
+class TrackReplayParamValidationTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.client = dashboard_app.app.test_client()
+
+    async def test_missing_params_are_rejected(self):
+        for query in (
+            "",
+            "session_key=4242",
+            "session_key=4242&driver_number=1",
+            "driver_number=1&lap_number=5",
+        ):
+            response = await self.client.get(f"/api/track_replay?{query}")
+            self.assertEqual(response.status_code, 400, f"query {query!r} was accepted")
+
+    async def test_traversal_and_non_numeric_params_are_rejected(self):
+        for query in (
+            "session_key=../../etc/passwd&driver_number=1&lap_number=5",
+            "session_key=4242&driver_number=../evil&lap_number=5",
+            "session_key=4242&driver_number=1&lap_number=5;rm",
+        ):
+            response = await self.client.get(f"/api/track_replay?{query}")
+            self.assertEqual(response.status_code, 400, f"query {query!r} was accepted")
+
+
+class TrackReplayEndpointTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir.mkdir(parents=True)
+        (self.cache_dir / "laps_4242_1.json").write_text(
+            json.dumps(LAP_FIXTURES), encoding="utf-8"
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+
+    async def request(self, fetch_mock, lap_number=5):
+        with (
+            patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
+            patch.object(dashboard_app, "fetch_url", new=fetch_mock),
+        ):
+            client = dashboard_app.app.test_client()
+            return await client.get(
+                f"/api/track_replay?session_key=4242&driver_number=1&lap_number={lap_number}"
+            )
+
+    async def test_queries_location_for_whole_field_in_lap_window(self):
+        fetch_mock = AsyncMock(return_value=[
+            location_sample("2026-05-24T13:03:00+00:00", 1, x=-3650, y=1193),
+            location_sample("2026-05-24T13:03:01.500000+00:00", 1, x=-3600, y=1210),
+            location_sample("2026-05-24T13:03:00.500000+00:00", 44, x=500, y=-750),
+        ])
+        response = await self.request(fetch_mock)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(fetch_mock.await_count, 1)
+        url = fetch_mock.await_args.args[0]
+        self.assertIn("/location", url)
+        self.assertIn("session_key=4242", url)
+        self.assertNotIn("driver_number", url)  # one query returns the whole field
+        self.assertIn("date>=2026-05-24T13:03:00", url)
+        self.assertIn("date<2026-05-24T13:04:30", url)
+
+        data = await response.get_json()
+        self.assertEqual(data["session_key"], 4242)
+        self.assertEqual(data["driver_number"], 1)
+        self.assertEqual(data["lap_number"], 5)
+        self.assertEqual(data["lap_duration"], 90.0)
+        self.assertEqual(data["window_seconds"], 90.0)
+
+        drivers = {d["driver_number"]: d["samples"] for d in data["drivers"]}
+        self.assertEqual(set(drivers), {1, 44})
+        self.assertEqual(drivers[1], [[0.0, -3650, 1193], [1.5, -3600, 1210]])
+        self.assertEqual(drivers[44], [[0.5, 500, -750]])
+
+    async def test_samples_outside_window_or_without_coords_are_dropped(self):
+        fetch_mock = AsyncMock(return_value=[
+            location_sample("2026-05-24T13:02:59+00:00", 1),            # before start
+            location_sample("2026-05-24T13:03:10+00:00", 1, x=7, y=8),
+            location_sample("2026-05-24T13:04:31+00:00", 1),            # after end
+            {"date": "2026-05-24T13:03:11+00:00", "driver_number": 1},  # no coords
+        ])
+        response = await self.request(fetch_mock)
+
+        data = await response.get_json()
+        self.assertEqual(len(data["drivers"]), 1)
+        self.assertEqual(data["drivers"][0]["samples"], [[10.0, 7, 8]])
+
+    async def test_unknown_lap_returns_404(self):
+        response = await self.request(AsyncMock(return_value=[]), lap_number=99)
+        self.assertEqual(response.status_code, 404)
+
+    async def test_oversized_driver_series_is_downsampled(self):
+        lap_start = datetime(2026, 5, 24, 13, 3, 0, tzinfo=timezone.utc)
+        samples = [
+            location_sample((lap_start + timedelta(milliseconds=i * 100)).isoformat(), 1, x=i, y=i)
+            for i in range(880)  # 88s of 10Hz data
+        ]
+        fetch_mock = AsyncMock(return_value=samples)
+        response = await self.request(fetch_mock)
+
+        data = await response.get_json()
+        self.assertTrue(data["downsampled"])
+        series = data["drivers"][0]["samples"]
+        self.assertEqual(len(series), dashboard_app.REPLAY_MAX_POINTS_PER_DRIVER)
+        self.assertEqual(series[0], [0.0, 0, 0])
+        self.assertEqual(series[-1], [87.9, 879, 879])
+
+    async def test_second_request_is_served_from_cache(self):
+        fetch_mock = AsyncMock(return_value=[
+            location_sample("2026-05-24T13:03:10+00:00", 1),
+        ])
+        first = await self.request(fetch_mock)
+        self.assertEqual(first.status_code, 200)
+        cache_file = self.cache_dir / "track_replay_4242_1_5.json"
+        self.assertTrue(cache_file.exists())
+
+        second = await self.request(fetch_mock)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(fetch_mock.await_count, 1)
+        self.assertEqual(await first.get_json(), await second.get_json())
+
+
+class TrackReplayStaticWiringTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
+        self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    def test_circuit_view_contains_replay_card(self):
+        self.assertIn('id="replayCard"', self.index_html)
+        self.assertIn('id="replayDriverSelect"', self.index_html)
+        self.assertIn('id="replayLapSelect"', self.index_html)
+        self.assertIn('id="replayPlayBtn"', self.index_html)
+        self.assertIn('id="replayScrubber"', self.index_html)
+        self.assertIn('id="replaySpeedToggle"', self.index_html)
+        self.assertIn('id="replayMapContent"', self.index_html)
+        self.assertIn("/static/js/10-track-replay.js", self.index_html)
+
+    def test_dashboard_js_wires_replay(self):
+        self.assertIn("replayDriverSelect: document.getElementById('replayDriverSelect')", self.dashboard_js)
+        self.assertIn("replayLapSelect: document.getElementById('replayLapSelect')", self.dashboard_js)
+        self.assertIn("replayMapContent: document.getElementById('replayMapContent')", self.dashboard_js)
+        self.assertIn("function setupReplaySection", self.dashboard_js)
+        self.assertIn("function maybeAutoLoadReplay", self.dashboard_js)
+        self.assertIn("function loadTrackReplay", self.dashboard_js)
+        self.assertIn("/api/track_replay", self.dashboard_js)
+        self.assertIn("replayCache", self.dashboard_js)
+        self.assertIn("requestAnimationFrame", self.dashboard_js)
+
+    def test_styles_contain_replay_classes(self):
+        for css_class in (
+            ".replay-card",
+            ".replay-controls",
+            ".replay-play-btn",
+            ".replay-scrubber",
+            ".replay-speed-toggle",
+            ".replay-track-path",
+            ".replay-car-dot",
+            ".replay-car-label",
+        ):
+            self.assertIn(css_class, self.styles_css)
+
+
+if __name__ == "__main__":
+    unittest.main()
