@@ -44,7 +44,7 @@ class PositionApiTests(unittest.IsolatedAsyncioTestCase):
         response = await client.get("/api/position")
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(await response.get_json(), {"error": "session_key is required"})
+        self.assertEqual(await response.get_json(), {"error": "session_key is required and must be an integer"})
 
 
 class ComparePositionChartStaticWiringTests(unittest.TestCase):

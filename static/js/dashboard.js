@@ -274,8 +274,7 @@ async function customFetch(url, options = {}) {
     
     try {
         const response = await fetch(url, options);
-        console.log(response);
-        
+
         if (response.status === 403 || response.status === 401) {
             try {
                 const clone = response.clone();
@@ -285,6 +284,16 @@ async function customFetch(url, options = {}) {
                 }
             } catch (e) {
                 console.error('Error parsing restriction details:', e);
+            }
+        } else if (response.status === 502 || response.status === 503) {
+            try {
+                const clone = response.clone();
+                const errData = await clone.json();
+                if (errData && errData.error === 'upstream_error') {
+                    showLiveRestrictionBanner(errData.detail || 'F1 data service is temporarily unavailable.');
+                }
+            } catch (e) {
+                console.error('Error parsing upstream error details:', e);
             }
         } else if (response.ok) {
             hideLiveRestrictionBanner();
