@@ -3822,3 +3822,148 @@ body {
     stroke: rgba(255, 255, 255, 0.85);
     stroke-width: 2.5;
 }
+
+/* ==============================
+   Live Mode (auto-refresh)
+   ============================== */
+
+.session-header-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.live-indicator {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 30px;
+    background: rgba(255, 24, 1, 0.12);
+    border: 1px solid rgba(255, 24, 1, 0.35);
+    box-shadow: 0 0 12px rgba(255, 24, 1, 0.2);
+}
+
+.live-indicator.active {
+    display: inline-flex;
+}
+
+.live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-red);
+    animation: statusPulse 2s infinite;
+}
+
+.live-indicator-label {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: var(--accent-red);
+}
+
+.live-countdown {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* Live Timing table (Drivers tab, live sessions only) */
+.live-timing-card {
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+
+.live-timing-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.live-timing-header h3 {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+}
+
+.live-timing-updated {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.live-timing-table-wrapper {
+    overflow-x: auto;
+}
+
+.live-timing-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.live-timing-table th {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.live-timing-table td {
+    padding: 7px 12px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    white-space: nowrap;
+}
+
+.live-timing-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.live-timing-pos {
+    font-weight: 800;
+    color: var(--text-secondary);
+    width: 44px;
+}
+
+.live-timing-driver-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.live-timing-team-bar {
+    width: 4px;
+    height: 18px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.live-timing-driver-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.live-timing-driver-team {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.live-timing-gap {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
+.live-timing-leader .live-timing-gap {
+    color: var(--accent-red);
+    font-weight: 700;
+}
