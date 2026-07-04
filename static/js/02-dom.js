@@ -82,6 +82,14 @@ const DOM = {
     circuitStartDate: document.getElementById('circuitStartDate'),
     circuitEndDate: document.getElementById('circuitEndDate'),
     circuitMapContent: document.getElementById('circuitMapContent'),
+    replayCard: document.getElementById('replayCard'),
+    replayDriverSelect: document.getElementById('replayDriverSelect'),
+    replayLapSelect: document.getElementById('replayLapSelect'),
+    replayPlayBtn: document.getElementById('replayPlayBtn'),
+    replayScrubber: document.getElementById('replayScrubber'),
+    replayTimeLabel: document.getElementById('replayTimeLabel'),
+    replaySpeedToggle: document.getElementById('replaySpeedToggle'),
+    replayMapContent: document.getElementById('replayMapContent'),
     
     // Results
     resultsTableBody: document.getElementById('resultsTableBody'),

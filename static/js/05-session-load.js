@@ -13,6 +13,7 @@ async function selectSession(session) {
     state.laps = {};
     state.allSessionLaps = null;
     state.telemetryCache = {};
+    resetReplay();
     state.selectedDriverStats = null;
     state.selectedCompareDrivers = [];
     state.compareView = createCompareViewState();
@@ -139,6 +140,7 @@ async function selectSession(session) {
         renderCompareDriverSelector();
         renderCompareLapChart();
         renderCircuitTab();
+        setupReplaySection();
         renderResultsTab();
         renderRaceStandingsTables();
         renderChampionshipProgressionChart();

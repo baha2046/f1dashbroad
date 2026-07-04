@@ -621,6 +621,37 @@
                                 <!-- Dynamically rendered SVG track map or F1 fallback image -->
                             </div>
                         </div>
+
+                        <!-- Track Position Replay -->
+                        <div class="replay-card glass" id="replayCard">
+                            <div class="circuit-card-header">
+                                <span class="material-icons-round circuit-map-icon">play_circle</span>
+                                <h3>Track Position Replay</h3>
+                            </div>
+                            <div class="replay-controls">
+                                <label class="replay-select-wrapper">
+                                    <span>Driver</span>
+                                    <select id="replayDriverSelect" aria-label="Select reference driver for replay"></select>
+                                </label>
+                                <label class="replay-select-wrapper">
+                                    <span>Lap</span>
+                                    <select id="replayLapSelect" aria-label="Select lap for replay"></select>
+                                </label>
+                                <button type="button" class="replay-play-btn" id="replayPlayBtn" aria-label="Play or pause replay" disabled>
+                                    <span class="material-icons-round">play_arrow</span>
+                                </button>
+                                <input type="range" class="replay-scrubber" id="replayScrubber" min="0" max="1000" step="1" value="0" aria-label="Replay position" disabled>
+                                <span class="replay-time-label" id="replayTimeLabel">0.0s / 0.0s</span>
+                                <div class="replay-speed-toggle" id="replaySpeedToggle" role="group" aria-label="Replay speed">
+                                    <button type="button" data-speed="1" class="active">1x</button>
+                                    <button type="button" data-speed="2">2x</button>
+                                    <button type="button" data-speed="4">4x</button>
+                                </div>
+                            </div>
+                            <div class="replay-map-content" id="replayMapContent">
+                                <!-- SVG replay map generated dynamically -->
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -639,5 +670,6 @@
     <script src="/static/js/07-driver-grids.js?v={{ version }}"></script>
     <script src="/static/js/08-compare-charts.js?v={{ version }}"></script>
     <script src="/static/js/09-laps-tab.js?v={{ version }}"></script>
+    <script src="/static/js/10-track-replay.js?v={{ version }}"></script>
 </body>
 </html>

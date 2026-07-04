@@ -24,6 +24,7 @@ CACHE_MAX_BYTES = int(os.environ.get("F1_CACHE_MAX_MB", "512")) * 1024 * 1024
 GZIP_MIN_BYTES = 1024
 
 TELEMETRY_MAX_POINTS = 700
+REPLAY_MAX_POINTS_PER_DRIVER = 400
 
 def current_season_year():
     return datetime.now(timezone.utc).year
@@ -743,6 +744,100 @@ async def api_car_telemetry():
             "sample_count": len(telemetry),
             "downsampled": downsampled,
             "telemetry": telemetry,
+        }
+        await write_cache(cache_path, payload)
+        return jsonify(payload)
+
+@app.route("/api/track_replay")
+async def api_track_replay():
+    session_key = parse_int_param(request.args.get("session_key"))
+    if session_key is None:
+        return invalid_param_response("session_key")
+    driver_number = parse_int_param(request.args.get("driver_number"))
+    if driver_number is None:
+        return invalid_param_response("driver_number")
+    lap_number = parse_int_param(request.args.get("lap_number"))
+    if lap_number is None:
+        return invalid_param_response("lap_number")
+
+    cache_name = f"track_replay_{session_key}_{driver_number}_{lap_number}.json"
+    cache_path = os.path.join(CACHE_DIR, cache_name)
+    session = await asyncio.to_thread(get_session_info, session_key)
+    ttl = None if is_historical(session) else 300
+
+    cached = await read_cache(cache_path, ttl)
+    if cached is not None:
+        return jsonify(cached)
+
+    api_key = request.headers.get("X-OpenF1-Key")
+
+    async with get_cache_lock(cache_path):
+        cached = await read_cache(cache_path, ttl)
+        if cached is not None:
+            return jsonify(cached)
+
+        laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}&driver_number={driver_number}"
+        laps = await get_cached_api(
+            laps_url,
+            f"laps_{session_key}_{driver_number}.json",
+            session_key=session_key,
+            api_key=api_key,
+        )
+        window = build_lap_telemetry_window(laps, lap_number)
+        if window is None:
+            return jsonify({"error": "No replay window available for this lap"}), 404
+        lap, start, end = window
+
+        # No driver filter: one query returns the whole field for the window
+        url = (
+            f"https://api.openf1.org/v1/location?session_key={session_key}"
+            f"&date>={format_openf1_date(start)}&date<{format_openf1_date(end)}"
+        )
+        try:
+            location_data = await fetch_url(url, api_key=api_key)
+        except OpenF1AuthError:
+            raise
+        except Exception as e:
+            print(f"Error fetching {url}: {e}")
+            stale = await read_stale_cache(cache_path)
+            if stale is not None:
+                return jsonify(stale)
+            raise UpstreamAPIError(f"Upstream API request failed for {cache_name}")
+
+        window_seconds = (end - start).total_seconds()
+        samples_by_driver = {}
+        for sample in location_data if isinstance(location_data, list) else []:
+            if not isinstance(sample, dict):
+                continue
+            sample_driver = parse_int_param(sample.get("driver_number"))
+            sample_time = parse_iso_utc(sample.get("date"))
+            x = parse_float(sample.get("x"))
+            y = parse_float(sample.get("y"))
+            if sample_driver is None or sample_time is None or x is None or y is None:
+                continue
+            t = (sample_time - start).total_seconds()
+            if t < 0 or t > window_seconds:
+                continue
+            samples_by_driver.setdefault(sample_driver, []).append(
+                [round(t, 3), round(x), round(y)]
+            )
+
+        downsampled = False
+        drivers = []
+        for number in sorted(samples_by_driver):
+            series = sorted(samples_by_driver[number], key=lambda item: item[0])
+            series, was_downsampled = downsample_telemetry(series, REPLAY_MAX_POINTS_PER_DRIVER)
+            downsampled = downsampled or was_downsampled
+            drivers.append({"driver_number": number, "samples": series})
+
+        payload = {
+            "session_key": session_key,
+            "driver_number": driver_number,
+            "lap_number": lap_number,
+            "lap_duration": parse_float(lap.get("lap_duration")),
+            "window_seconds": round(window_seconds, 3),
+            "downsampled": downsampled,
+            "drivers": drivers,
         }
         await write_cache(cache_path, payload)
         return jsonify(payload)

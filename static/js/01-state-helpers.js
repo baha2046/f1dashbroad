@@ -18,6 +18,8 @@ const state = {
     laps: {}, // map of driverNumber -> laps array
     allSessionLaps: null,
     telemetryCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/car_telemetry payload
+    replayCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/track_replay payload
+    replay: createReplayState(),
     selectedDriverStats: null,
     selectedCompareDrivers: [],
     compareView: createCompareViewState(),
@@ -34,6 +36,19 @@ function createCompareViewState() {
         highlightedDriver: null,
         hoverLap: null,
         zoomDrag: null
+    };
+}
+
+function createReplayState() {
+    return {
+        data: null,        // loaded /api/track_replay payload
+        loadedKey: null,   // cache key of the loaded payload
+        playing: false,
+        t: 0,              // current replay time in seconds
+        speed: 1,
+        rafId: null,
+        lastFrameTs: null,
+        carNodes: {}       // driver_number -> { group, samples } for the built SVG
     };
 }
 

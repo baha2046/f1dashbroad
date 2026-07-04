@@ -195,6 +195,37 @@ function setupEventListeners() {
         });
     }
 
+    // Track Replay Controls
+    if (DOM.replayDriverSelect) {
+        DOM.replayDriverSelect.addEventListener('change', () => {
+            populateReplayLapSelect().then(() => maybeAutoLoadReplay());
+        });
+    }
+    if (DOM.replayLapSelect) {
+        DOM.replayLapSelect.addEventListener('change', () => {
+            maybeAutoLoadReplay();
+        });
+    }
+    if (DOM.replayPlayBtn) {
+        DOM.replayPlayBtn.addEventListener('click', () => {
+            toggleReplayPlayback();
+        });
+    }
+    if (DOM.replayScrubber) {
+        DOM.replayScrubber.addEventListener('input', () => {
+            scrubReplayToFraction(Number(DOM.replayScrubber.value) / Number(DOM.replayScrubber.max || 1000));
+        });
+    }
+    if (DOM.replaySpeedToggle) {
+        DOM.replaySpeedToggle.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-speed]');
+            if (!btn) return;
+            DOM.replaySpeedToggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.replay.speed = Number(btn.dataset.speed) || 1;
+        });
+    }
+
     // Chart Outlier Toggle
     if (DOM.chartHideOutliers) {
         DOM.chartHideOutliers.addEventListener('change', () => {
@@ -246,6 +277,11 @@ function setupEventListeners() {
             // Telemetry fetches are deferred until the Laps tab is actually visible
             if (targetTab === 'laps-view') {
                 maybeAutoLoadTelemetry();
+            }
+
+            // Replay fetches are deferred until the Circuit tab is actually visible
+            if (targetTab === 'circuit-view') {
+                maybeAutoLoadReplay();
             }
         });
     });
