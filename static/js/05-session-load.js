@@ -40,7 +40,12 @@ async function selectSession(session) {
         const raceStandingsRequest = isRaceStandingsSession(session)
             ? customFetch(`/api/race_standings?year=${encodeURIComponent(session.year || state.selectedYear)}&date=${encodeURIComponent(getSessionDateToken(session))}`)
             : Promise.resolve(null);
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes] = await Promise.all([
+        // Season progression is session-independent; refetch only when the year changes
+        const progressionYear = String(session.year || state.selectedYear);
+        const progressionRequest = isRaceStandingsSession(session) && (!state.seasonProgression || state.seasonProgression.season !== progressionYear)
+            ? customFetch(`/api/season_progression?year=${encodeURIComponent(progressionYear)}`)
+            : Promise.resolve(null);
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}`),
             customFetch(`/api/weather?session_key=${session.session_key}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
@@ -50,7 +55,8 @@ async function selectSession(session) {
             pitStopsRequest,
             lapsRequest,
             positionRequest,
-            raceStandingsRequest
+            raceStandingsRequest,
+            progressionRequest
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
@@ -120,6 +126,10 @@ async function selectSession(session) {
             state.raceStandings = await raceStandingsRes.json();
         }
 
+        if (progressionRes && progressionRes.ok) {
+            state.seasonProgression = await progressionRes.json();
+        }
+
         // Render dashboard components
         renderSessionHeader();
         renderWeather();
@@ -130,6 +140,7 @@ async function selectSession(session) {
         renderCircuitTab();
         renderResultsTab();
         renderRaceStandingsTables();
+        renderChampionshipProgressionChart();
         renderRaceControlFeed();
         
         // Hide empty state and show dashboard content

@@ -9,6 +9,8 @@ const state = {
     stints: [],
     results: [],
     raceStandings: null,
+    seasonProgression: null,
+    progressionView: 'drivers',
     raceControl: [],
     pitStops: [],
     position: [],

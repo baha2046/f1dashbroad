@@ -552,6 +552,170 @@ function renderRaceStandingsTables() {
     }
 }
 
+// Jolpica constructor names ("RB F1 Team", "Alpine F1 Team") don't always
+// match the OpenF1-style TEAM_COLORS keys, so fall back progressively.
+function getProgressionTeamHex(series) {
+    const raw = (series.team || '').toLowerCase();
+    if (TEAM_COLORS[raw]) return TEAM_COLORS[raw];
+    const stripped = raw.replace(/\s*f1 team$/, '').trim();
+    if (TEAM_COLORS[stripped]) return TEAM_COLORS[stripped];
+    const partialKey = Object.keys(TEAM_COLORS).find(key => raw.includes(key));
+    return partialKey ? TEAM_COLORS[partialKey] : '787878';
+}
+
+function getProgressionEndLabel(series) {
+    if (series.code) return series.code;
+    return (series.name || '').replace(/\s*F1 Team$/i, '');
+}
+
+function getProgressionSeriesList() {
+    const data = state.seasonProgression;
+    if (!data) return [];
+    const list = state.progressionView === 'constructors' ? data.constructors : data.drivers;
+    return Array.isArray(list) ? list : [];
+}
+
+function renderChampionshipProgressionChart() {
+    const wrapper = DOM.progressionWrapper;
+    const container = DOM.progressionChartContainer;
+    if (!wrapper || !container) return;
+
+    const data = state.seasonProgression;
+    const rounds = data && Array.isArray(data.rounds) ? data.rounds : [];
+    const seriesList = getProgressionSeriesList();
+    const sessionEligible = state.selectedSession && isRaceStandingsSession(state.selectedSession);
+
+    if (!sessionEligible || !rounds.length || !seriesList.length) {
+        wrapper.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+
+    wrapper.style.display = 'block';
+    if (DOM.progressionSummary) {
+        const roundLabel = rounds.length === 1 ? '1 round' : `${rounds.length} rounds`;
+        DOM.progressionSummary.textContent = `${data.season} season — cumulative points after ${roundLabel}`;
+    }
+    if (DOM.progressionDriversBtn && DOM.progressionConstructorsBtn) {
+        DOM.progressionDriversBtn.classList.toggle('active', state.progressionView !== 'constructors');
+        DOM.progressionConstructorsBtn.classList.toggle('active', state.progressionView === 'constructors');
+    }
+
+    container.innerHTML = '';
+    const svgNamespace = 'http://www.w3.org/2000/svg';
+    const width = 900;
+    const height = 420;
+    const padding = { top: 24, right: 96, bottom: 40, left: 52 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const allPoints = seriesList.flatMap(series => series.points.filter(value => value !== null && value !== undefined));
+    const maxPoints = Math.max(...allPoints, 1);
+
+    const getX = index => rounds.length === 1
+        ? padding.left + chartWidth / 2
+        : padding.left + (index / (rounds.length - 1)) * chartWidth;
+    const getY = value => padding.top + chartHeight - (value / maxPoints) * chartHeight;
+
+    const svg = document.createElementNS(svgNamespace, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.classList.add('progression-chart');
+
+    // Horizontal gridlines with point labels
+    const tickCount = 5;
+    for (let i = 0; i <= tickCount; i++) {
+        const value = (maxPoints / tickCount) * i;
+        const y = getY(value);
+        const gridLine = document.createElementNS(svgNamespace, 'line');
+        gridLine.setAttribute('x1', padding.left);
+        gridLine.setAttribute('x2', width - padding.right);
+        gridLine.setAttribute('y1', y);
+        gridLine.setAttribute('y2', y);
+        gridLine.classList.add('progression-grid-line');
+        svg.appendChild(gridLine);
+
+        const label = document.createElementNS(svgNamespace, 'text');
+        label.setAttribute('x', padding.left - 8);
+        label.setAttribute('y', y + 4);
+        label.setAttribute('text-anchor', 'end');
+        label.classList.add('progression-axis-label');
+        label.textContent = Math.round(value);
+        svg.appendChild(label);
+    }
+
+    // X axis: round numbers, thinned to at most ~12 labels
+    const labelStep = Math.max(1, Math.ceil(rounds.length / 12));
+    rounds.forEach((round, index) => {
+        if (index % labelStep !== 0 && index !== rounds.length - 1) return;
+        const label = document.createElementNS(svgNamespace, 'text');
+        label.setAttribute('x', getX(index));
+        label.setAttribute('y', height - 12);
+        label.setAttribute('text-anchor', 'middle');
+        label.classList.add('progression-axis-label');
+        label.textContent = `R${round.round}`;
+        svg.appendChild(label);
+    });
+
+    // Draw from last place to leader so leaders end up on top; dash the
+    // second entrant per team so teammates stay distinguishable.
+    const teamLineCount = {};
+    seriesList.forEach(series => {
+        const key = (series.team || series.id || '').toLowerCase();
+        teamLineCount[key] = (teamLineCount[key] || 0) + 1;
+        series._dashed = teamLineCount[key] > 1;
+    });
+
+    [...seriesList].reverse().forEach(series => {
+        const hex = getProgressionTeamHex(series);
+        let pathData = '';
+        series.points.forEach((value, index) => {
+            if (value === null || value === undefined) return;
+            pathData += `${pathData ? ' L' : 'M'} ${getX(index).toFixed(1)} ${getY(value).toFixed(1)}`;
+        });
+        if (!pathData) return;
+
+        const path = document.createElementNS(svgNamespace, 'path');
+        path.setAttribute('d', pathData);
+        path.setAttribute('stroke', `#${hex}`);
+        path.classList.add('progression-line');
+        if (series._dashed) path.setAttribute('stroke-dasharray', '6 4');
+        svg.appendChild(path);
+
+        series.points.forEach((value, index) => {
+            if (value === null || value === undefined) return;
+            const dot = document.createElementNS(svgNamespace, 'circle');
+            dot.setAttribute('cx', getX(index).toFixed(1));
+            dot.setAttribute('cy', getY(value).toFixed(1));
+            dot.setAttribute('r', 3);
+            dot.setAttribute('fill', `#${hex}`);
+            dot.classList.add('progression-dot');
+            const title = document.createElementNS(svgNamespace, 'title');
+            const position = series.positions[index];
+            title.textContent = `${series.name} — ${rounds[index].race_name}: ${value} pts${position ? ` (P${position})` : ''}`;
+            dot.appendChild(title);
+            svg.appendChild(dot);
+        });
+    });
+
+    // End-of-line labels for the current top 5
+    seriesList.slice(0, 5).forEach(series => {
+        let lastIndex = -1;
+        for (let i = series.points.length - 1; i >= 0; i--) {
+            if (series.points[i] !== null && series.points[i] !== undefined) { lastIndex = i; break; }
+        }
+        if (lastIndex < 0) return;
+        const label = document.createElementNS(svgNamespace, 'text');
+        label.setAttribute('x', getX(lastIndex) + 8);
+        label.setAttribute('y', getY(series.points[lastIndex]) + 4);
+        label.setAttribute('fill', `#${getProgressionTeamHex(series)}`);
+        label.classList.add('progression-end-label');
+        label.textContent = getProgressionEndLabel(series);
+        svg.appendChild(label);
+    });
+
+    container.appendChild(svg);
+}
+
 function getRaceControlType(item) {
     const message = (item.message || '').toUpperCase();
     const category = item.category || 'Other';

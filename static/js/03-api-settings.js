@@ -174,6 +174,20 @@ function setupEventListeners() {
         });
     }
 
+    // Championship Progression: Drivers / Constructors toggle
+    if (DOM.progressionDriversBtn) {
+        DOM.progressionDriversBtn.addEventListener('click', () => {
+            state.progressionView = 'drivers';
+            renderChampionshipProgressionChart();
+        });
+    }
+    if (DOM.progressionConstructorsBtn) {
+        DOM.progressionConstructorsBtn.addEventListener('click', () => {
+            state.progressionView = 'constructors';
+            renderChampionshipProgressionChart();
+        });
+    }
+
     // Chart Outlier Toggle
     if (DOM.chartHideOutliers) {
         DOM.chartHideOutliers.addEventListener('change', () => {

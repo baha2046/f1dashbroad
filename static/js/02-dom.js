@@ -88,6 +88,11 @@ const DOM = {
     raceStandingsSummary: document.getElementById('raceStandingsSummary'),
     driverStandingsTableBody: document.getElementById('driverStandingsTableBody'),
     constructorStandingsTableBody: document.getElementById('constructorStandingsTableBody'),
+    progressionWrapper: document.getElementById('progressionWrapper'),
+    progressionSummary: document.getElementById('progressionSummary'),
+    progressionChartContainer: document.getElementById('progressionChartContainer'),
+    progressionDriversBtn: document.getElementById('progressionDriversBtn'),
+    progressionConstructorsBtn: document.getElementById('progressionConstructorsBtn'),
 
     // Race Control
     raceControlFeed: document.getElementById('raceControlFeed'),

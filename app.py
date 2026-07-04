@@ -37,6 +37,12 @@ def parse_int_param(value):
 def invalid_param_response(name):
     return jsonify({"error": f"{name} is required and must be an integer"}), 400
 
+def parse_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 # Shared HTTP client (connection pooling); created lazily, closed on shutdown
 _http_client = None
 
@@ -596,6 +602,116 @@ async def api_laps():
     api_key = request.headers.get("X-OpenF1-Key")
     data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
     return jsonify(data)
+
+@app.route("/api/season_progression")
+async def api_season_progression():
+    year = parse_int_param(request.args.get("year") or str(current_season_year()))
+    if year is None:
+        return invalid_param_response("year")
+
+    races_url = f"https://api.jolpi.ca/ergast/f1/{year}/races/?format=json"
+    races_data = await get_cached_jolpica_api(races_url, f"jolpica_races_{year}.json", year=year)
+    today = datetime.now(timezone.utc).date().isoformat()
+    completed_races = [
+        race for race in extract_jolpica_races(races_data)
+        if race.get("round") and race.get("date") and race["date"] <= today
+    ]
+
+    # Jolpica rate-limits aggressively; cap concurrency (fetch_url retries 429s).
+    semaphore = asyncio.Semaphore(4)
+
+    async def fetch_round_standings(round_number):
+        driver_url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/driverstandings/?format=json"
+        constructor_url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/constructorstandings/?format=json"
+        async with semaphore:
+            driver_data = await get_cached_jolpica_api(
+                driver_url, f"jolpica_driver_standings_{year}_{round_number}.json", year=year
+            )
+        async with semaphore:
+            constructor_data = await get_cached_jolpica_api(
+                constructor_url, f"jolpica_constructor_standings_{year}_{round_number}.json", year=year
+            )
+        return driver_data, constructor_data
+
+    round_results = await asyncio.gather(
+        *(fetch_round_standings(race["round"]) for race in completed_races)
+    )
+
+    rounds = []
+    driver_series = {}
+    constructor_series = {}
+
+    def pad_to_previous_round(series):
+        while len(series["points"]) < len(rounds) - 1:
+            series["points"].append(None)
+            series["positions"].append(None)
+
+    for race, (driver_data, constructor_data) in zip(completed_races, round_results):
+        driver_standings = extract_jolpica_standings(driver_data, "DriverStandings")
+        constructor_standings = extract_jolpica_standings(constructor_data, "ConstructorStandings")
+        if not driver_standings and not constructor_standings:
+            continue  # raced too recently for standings to be published yet
+
+        rounds.append({
+            "round": race.get("round"),
+            "race_name": race.get("raceName"),
+            "date": race.get("date"),
+        })
+
+        for item in driver_standings:
+            driver = item.get("Driver") or {}
+            key = driver.get("driverId") or driver.get("code") or driver.get("familyName")
+            if not key:
+                continue
+            series = driver_series.setdefault(key, {
+                "id": key,
+                "code": driver.get("code"),
+                "name": f"{driver.get('givenName', '')} {driver.get('familyName', '')}".strip(),
+                "team": None,
+                "points": [],
+                "positions": [],
+            })
+            pad_to_previous_round(series)
+            series["points"].append(parse_float(item.get("points")))
+            series["positions"].append(parse_int_param(item.get("position")))
+            constructors = item.get("Constructors") or []
+            if constructors:
+                series["team"] = constructors[-1].get("name")
+
+        for item in constructor_standings:
+            constructor = item.get("Constructor") or {}
+            key = constructor.get("constructorId") or constructor.get("name")
+            if not key:
+                continue
+            series = constructor_series.setdefault(key, {
+                "id": key,
+                "name": constructor.get("name"),
+                "team": constructor.get("name"),
+                "points": [],
+                "positions": [],
+            })
+            pad_to_previous_round(series)
+            series["points"].append(parse_float(item.get("points")))
+            series["positions"].append(parse_int_param(item.get("position")))
+
+    def finalize_series(series_map):
+        def latest_points(series):
+            return next((p for p in reversed(series["points"]) if p is not None), 0)
+
+        series_list = list(series_map.values())
+        for series in series_list:
+            while len(series["points"]) < len(rounds):
+                series["points"].append(None)
+                series["positions"].append(None)
+        series_list.sort(key=latest_points, reverse=True)
+        return series_list
+
+    return jsonify({
+        "season": str(year),
+        "rounds": rounds,
+        "drivers": finalize_series(driver_series),
+        "constructors": finalize_series(constructor_series),
+    })
 
 @app.route("/api/race_standings")
 async def api_race_standings():

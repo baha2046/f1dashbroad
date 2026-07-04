@@ -59,6 +59,7 @@ Our F1 Dashboard offers standard-setting telemetry analysis and event coverage t
 
 ### 5. Official Session Results (Results Tab)
 * Displays the final driver standings, grid positions, total laps completed, time/gaps, race status (Finished, DNF, DNS), and championship points awarded.
+* **Championship Progression Chart:** Cumulative points per round across the season as team-colored SVG line charts, switchable between Drivers and Constructors, with per-round tooltips and dashed lines to distinguish teammates.
 
 ### 6. Weather Telemetry Widget
 * Aggregates live track and air temperature, humidity levels, wind speed, and outputs rainfall warnings.

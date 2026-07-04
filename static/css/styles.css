@@ -3286,3 +3286,83 @@ body {
 .driver-wiki-link span {
     font-size: 14px;
 }
+
+/* Championship Progression Chart (Results tab) */
+.progression-wrapper {
+    margin-top: 24px;
+}
+
+.progression-toggle {
+    display: flex;
+    gap: 6px;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-control);
+}
+
+.progression-toggle-btn {
+    border: none;
+    border-radius: 7px;
+    padding: 6px 14px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: transparent;
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.progression-toggle-btn:hover {
+    color: var(--text-primary);
+}
+
+.progression-toggle-btn.active {
+    color: var(--text-primary);
+    background: var(--bg-card-hover);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.progression-panel {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(18, 18, 26, 0.45);
+    overflow: hidden;
+    padding: 16px;
+}
+
+.progression-chart-container svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.progression-grid-line {
+    stroke: rgba(255, 255, 255, 0.07);
+    stroke-width: 1;
+}
+
+.progression-axis-label {
+    fill: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 11px;
+}
+
+.progression-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    opacity: 0.9;
+}
+
+.progression-dot {
+    opacity: 0.85;
+}
+
+.progression-end-label {
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 700;
+}
