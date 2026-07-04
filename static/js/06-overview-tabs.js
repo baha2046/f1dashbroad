@@ -238,6 +238,52 @@ function renderResultsTab() {
     if (DOM.resultsEmptyState) DOM.resultsEmptyState.style.display = 'none';
     if (DOM.resultsTableWrapper) DOM.resultsTableWrapper.style.display = 'block';
 
+    // Qualifying results carry per-segment arrays: duration/gap_to_leader = [Q1, Q2, Q3]
+    const isQualiResults = isQualifyingSession(state.selectedSession) &&
+        state.results.some(item => Array.isArray(item.duration));
+    const isSprintQuali = isQualiResults &&
+        [state.selectedSession.session_type, state.selectedSession.session_name].some(value => (
+            String(value || '').toLowerCase().includes('sprint')
+        ));
+    const segmentLabels = isSprintQuali ? ['SQ1', 'SQ2', 'SQ3'] : ['Q1', 'Q2', 'Q3'];
+
+    const resultsTable = DOM.resultsTableHeadRow ? DOM.resultsTableHeadRow.closest('table') : null;
+    if (resultsTable) resultsTable.classList.toggle('quali-results', isQualiResults);
+
+    if (DOM.resultsTableHeadRow) {
+        DOM.resultsTableHeadRow.innerHTML = isQualiResults
+            ? `
+                <th class="results-position-cell">Pos</th>
+                <th>Driver</th>
+                <th>Laps</th>
+                <th>${segmentLabels[0]}</th>
+                <th>${segmentLabels[1]}</th>
+                <th>${segmentLabels[2]}</th>
+                <th>Status</th>
+            `
+            : `
+                <th class="results-position-cell">Pos</th>
+                <th>Driver</th>
+                <th>Laps</th>
+                <th>Time / Gap</th>
+                <th>Status</th>
+                <th>Points</th>
+            `;
+    }
+
+    const segmentBest = [null, null, null];
+    if (isQualiResults) {
+        state.results.forEach((item) => {
+            if (!Array.isArray(item.duration)) return;
+            item.duration.forEach((t, i) => {
+                const value = Number(t);
+                if (Number.isFinite(value) && value > 0 && (segmentBest[i] === null || value < segmentBest[i])) {
+                    segmentBest[i] = value;
+                }
+            });
+        });
+    }
+
     const sortedResults = [...state.results].sort((a, b) => {
         const aPos = a.position !== null && a.position !== undefined ? Number(a.position) : Infinity;
         const bPos = b.position !== null && b.position !== undefined ? Number(b.position) : Infinity;
@@ -309,20 +355,52 @@ function renderResultsTab() {
             } else if (item.position === null || item.position === undefined) {
                 statusText = 'Not Classified';
                 statusClass = 'dnf';
+            } else if (isQualiResults) {
+                const segmentsRun = Array.isArray(item.duration)
+                    ? item.duration.filter(t => Number.isFinite(Number(t)) && Number(t) > 0).length
+                    : 0;
+                if (segmentsRun >= 3) {
+                    statusText = `Reached ${segmentLabels[2]}`;
+                } else if (segmentsRun > 0) {
+                    statusText = `Eliminated in ${segmentLabels[segmentsRun - 1]}`;
+                }
             }
 
-            let timeGapDisplay = '--';
-            if (item.position === 1 && item.duration) {
-                timeGapDisplay = formatDuration(item.duration);
-            } else if (item.gap_to_leader !== null && item.gap_to_leader !== undefined) {
-                if (typeof item.gap_to_leader === 'number') {
-                    timeGapDisplay = `+${item.gap_to_leader.toFixed(3)}s`;
-                } else {
-                    timeGapDisplay = item.gap_to_leader;
+            let timingCells = '';
+            if (isQualiResults) {
+                const durations = Array.isArray(item.duration) ? item.duration : [];
+                const gaps = Array.isArray(item.gap_to_leader) ? item.gap_to_leader : [];
+                timingCells = [0, 1, 2].map((i) => {
+                    const time = Number(durations[i]);
+                    if (!Number.isFinite(time) || time <= 0) {
+                        return '<td class="quali-seg-cell quali-seg-out">--</td>';
+                    }
+                    const isBest = segmentBest[i] !== null && time === segmentBest[i];
+                    const gap = Number(gaps[i]);
+                    const gapHtml = Number.isFinite(gap) && gap > 0
+                        ? `<span class="quali-seg-gap">+${gap.toFixed(3)}</span>`
+                        : '';
+                    return `<td class="quali-seg-cell"><span class="lap-duration-val${isBest ? ' fastest-lap-highlight' : ''}">${formatLapTime(time)}</span>${gapHtml}</td>`;
+                }).join('');
+            } else {
+                let timeGapDisplay = '--';
+                if (item.position === 1 && item.duration) {
+                    timeGapDisplay = formatDuration(item.duration);
+                } else if (item.gap_to_leader !== null && item.gap_to_leader !== undefined) {
+                    if (typeof item.gap_to_leader === 'number') {
+                        timeGapDisplay = `+${item.gap_to_leader.toFixed(3)}s`;
+                    } else {
+                        timeGapDisplay = item.gap_to_leader;
+                    }
+                } else if (item.duration) {
+                    timeGapDisplay = formatDuration(item.duration);
                 }
-            } else if (item.duration) {
-                timeGapDisplay = formatDuration(item.duration);
+                timingCells = `<td class="lap-duration-val">${timeGapDisplay}</td>`;
             }
+
+            const pointsCell = isQualiResults
+                ? ''
+                : `<td style="font-weight: 600; color: ${item.points > 0 ? 'var(--text-primary)' : 'var(--text-muted)'};">${item.points && true ? item.points : '-'}</td>`;
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -338,9 +416,9 @@ function renderResultsTab() {
                     </div>
                 </td>
                 <td>${item.number_of_laps !== null ? item.number_of_laps : '--'}</td>
-                <td class="lap-duration-val">${timeGapDisplay}</td>
+                ${timingCells}
                 <td><span class="status-pill ${statusClass}">${statusText}</span></td>
-                <td style="font-weight: 600; color: ${item.points > 0 ? 'var(--text-primary)' : 'var(--text-muted)'};">${item.points && true ? item.points : '-'}</td>
+                ${pointsCell}
             `;
             DOM.resultsTableBody.appendChild(tr);
         });

@@ -2582,7 +2582,7 @@ body {
 
 .results-table-wrapper {
     flex-grow: 1;
-    overflow-y: auto;
+    overflow: auto;
     border: 1px solid var(--border-color);
     border-radius: 12px;
     background: rgba(18, 18, 26, 0.4);
@@ -2624,6 +2624,27 @@ body {
 
 .results-table tbody tr:last-child td {
     border-bottom: none;
+}
+
+/* Qualifying Q1/Q2/Q3 segment columns */
+.results-table.quali-results th,
+.results-table.quali-results td {
+    padding: 12px 12px;
+}
+
+.quali-seg-cell {
+    white-space: nowrap;
+}
+
+.quali-seg-cell.quali-seg-out {
+    color: var(--text-muted);
+}
+
+.quali-seg-gap {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
 }
 
 /* Driver column in table */

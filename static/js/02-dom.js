@@ -99,6 +99,7 @@ const DOM = {
     replayMapContent: document.getElementById('replayMapContent'),
     
     // Results
+    resultsTableHeadRow: document.getElementById('resultsTableHeadRow'),
     resultsTableBody: document.getElementById('resultsTableBody'),
     resultsTableWrapper: document.getElementById('resultsTableWrapper'),
     resultsEmptyState: document.getElementById('resultsEmptyState'),
