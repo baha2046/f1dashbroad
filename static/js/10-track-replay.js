@@ -280,7 +280,17 @@ function buildReplayScene(payload, cacheKey) {
 // Interpolated [x, y] at time t, or null when t falls outside the series or in a data gap
 function interpolateReplaySample(samples, t) {
     if (samples.length === 0) return null;
-    if (t < samples[0][0] || t > samples[samples.length - 1][0]) return null;
+
+    // Samples rarely start exactly at t=0 (or end exactly at the window edge);
+    // snap to the nearest edge sample instead of hiding the car there.
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    if (t < first[0]) {
+        return (first[0] - t) <= REPLAY_SAMPLE_GAP_SECONDS ? [first[1], first[2]] : null;
+    }
+    if (t > last[0]) {
+        return (t - last[0]) <= REPLAY_SAMPLE_GAP_SECONDS ? [last[1], last[2]] : null;
+    }
 
     let lo = 0;
     let hi = samples.length - 1;
