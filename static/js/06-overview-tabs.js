@@ -734,6 +734,26 @@ function getRaceControlClass(label) {
     return `race-control-type-${String(label || 'other').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 }
 
+function formatDriversInMessage(messageText) {
+    let escaped = escapeHtml(messageText || '');
+    // Regex to match e.g. CAR 12 (ANT) or CARS 11 (PER) or 30 (LAW)
+    const regex = /(?:CAR(?:S)?\s+)?(\d+)\s*\(([A-Z]{3})\)/gi;
+    return escaped.replace(regex, (match, driverNumStr, acronym) => {
+        const num = parseInt(driverNumStr, 10);
+        const driver = state.drivers ? state.drivers.find(d => d.driver_number === num || (d.name_acronym || '').toUpperCase() === acronym.toUpperCase()) : null;
+        if (driver) {
+            const teamHex = getDriverTeamHex(driver);
+            const fullName = `${driver.first_name || ''} ${driver.last_name || driver.broadcast_name || ''}`.trim();
+            const rgb = getRGBColor(teamHex);
+            return `<span class="driver-inline-pill" style="--team-color: #${teamHex}; --team-color-rgb: ${rgb};">` +
+                   `<span class="driver-pill-name">${escapeHtml(fullName)}</span>` +
+                   `<span class="driver-pill-number">#${num}</span>` +
+                   `</span>`;
+        }
+        return match;
+    });
+}
+
 function renderRaceControlFeed() {
     if (!DOM.raceControlFeed || !DOM.raceControlEmptyState) return;
 
@@ -776,31 +796,84 @@ function renderRaceControlFeed() {
         DOM.raceControlSummary.textContent = `${sortedMessages.length} messages, ${incidentCount} incident updates`;
     }
 
-    DOM.raceControlFeed.innerHTML = sortedMessages.map((item) => {
-        const typeLabel = getRaceControlType(item);
-        const typeClass = getRaceControlClass(typeLabel);
-        const driver = item.driver_number ? state.drivers.find(d => d.driver_number === item.driver_number) : null;
-        const driverLabel = driver ? `${driver.name_acronym || driver.last_name} #${item.driver_number}` : (item.driver_number ? `Car ${item.driver_number}` : '');
-        const metaItems = [
-            item.lap_number !== null && item.lap_number !== undefined ? `Lap ${item.lap_number}` : '',
-            driverLabel,
-            item.scope ? item.scope : '',
-            item.sector !== null && item.sector !== undefined ? `Sector ${item.sector}` : ''
-        ].filter(Boolean);
+    // Group contiguous messages by lap
+    const groups = [];
+    let currentGroup = null;
+
+    sortedMessages.forEach((item) => {
+        const lap = (item.lap_number !== null && item.lap_number !== undefined) ? item.lap_number : null;
+        if (!currentGroup || currentGroup.lap !== lap) {
+            currentGroup = {
+                lap: lap,
+                messages: []
+            };
+            groups.push(currentGroup);
+        }
+        currentGroup.messages.push(item);
+    });
+
+    DOM.raceControlFeed.innerHTML = groups.map(group => {
+        let groupTitle = '';
+        let groupClass = '';
+        if (group.lap === null) {
+            groupTitle = 'General Notices';
+            groupClass = 'race-control-group-general';
+        } else {
+            groupTitle = `Lap ${group.lap}`;
+            groupClass = 'race-control-group-lap';
+        }
+
+        const messagesHtml = group.messages.map(item => {
+            const typeLabel = getRaceControlType(item);
+            const typeClass = getRaceControlClass(typeLabel);
+            const driver = item.driver_number ? state.drivers.find(d => d.driver_number === item.driver_number) : null;
+            
+            let driverLabel = '';
+            let driverColorBar = '';
+            let driverPillClass = '';
+            
+            if (driver) {
+                const teamHex = getDriverTeamHex(driver);
+                driverLabel = `${driver.first_name || ''} ${driver.last_name || driver.broadcast_name || ''}`.trim();
+                driverColorBar = `<span class="driver-pill-dot" style="background: #${teamHex};"></span>`;
+                driverPillClass = 'has-driver';
+            } else if (item.driver_number) {
+                driverLabel = `Car ${item.driver_number}`;
+            }
+
+            const metaItems = [
+                driverLabel ? `<span class="race-control-meta-pill ${driverPillClass}">${driverColorBar}${escapeHtml(driverLabel)}</span>` : '',
+                item.scope ? `<span class="race-control-meta-pill">${escapeHtml(item.scope)}</span>` : '',
+                item.sector !== null && item.sector !== undefined ? `<span class="race-control-meta-pill">Sector ${escapeHtml(item.sector)}</span>` : ''
+            ].filter(Boolean);
+
+            const parsedMessage = formatDriversInMessage(item.message || 'Race control notice');
+
+            return `
+                <article class="race-control-item">
+                    <div class="race-control-time">${escapeHtml(formatRaceControlTime(item.date))}</div>
+                    <div class="race-control-main">
+                        <div class="race-control-row">
+                            <span class="race-control-type ${typeClass}">${escapeHtml(typeLabel)}</span>
+                            <div class="race-control-meta">
+                                ${metaItems.join('')}
+                            </div>
+                        </div>
+                        <p class="race-control-message">${parsedMessage}</p>
+                    </div>
+                </article>
+            `;
+        }).join('');
 
         return `
-            <article class="race-control-item">
-                <div class="race-control-time">${escapeHtml(formatRaceControlTime(item.date))}</div>
-                <div class="race-control-main">
-                    <div class="race-control-row">
-                        <span class="race-control-type ${typeClass}">${escapeHtml(typeLabel)}</span>
-                        <div class="race-control-meta">
-                            ${metaItems.map(meta => `<span class="race-control-meta-pill">${escapeHtml(meta)}</span>`).join('')}
-                        </div>
-                    </div>
-                    <p class="race-control-message">${escapeHtml(item.message || 'Race control notice')}</p>
+            <div class="race-control-group">
+                <header class="race-control-group-header ${groupClass}">
+                    <span class="race-control-group-title">${groupTitle}</span>
+                </header>
+                <div class="race-control-group-items">
+                    ${messagesHtml}
                 </div>
-            </article>
+            </div>
         `;
     }).join('');
 }
