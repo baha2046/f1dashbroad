@@ -66,6 +66,9 @@ class RaceControlFeedStaticWiringTests(unittest.TestCase):
         self.assertIn("function renderRaceControlFeed()", self.dashboard_js)
         self.assertIn("renderRaceControlFeed();", self.dashboard_js)
         self.assertIn("race-control-item", self.dashboard_js)
+        self.assertIn("function formatDriversInMessage", self.dashboard_js)
+        self.assertIn("driver-inline-pill", self.dashboard_js)
+        self.assertIn("race-control-group-header", self.dashboard_js)
 
     def test_race_control_feed_has_dedicated_compact_styles(self):
         self.assertIn(".race-control-container", self.styles_css)
@@ -73,6 +76,8 @@ class RaceControlFeedStaticWiringTests(unittest.TestCase):
         self.assertIn(".race-control-item", self.styles_css)
         self.assertIn(".race-control-meta-pill", self.styles_css)
         self.assertIn(".race-control-toggle", self.styles_css)
+        self.assertIn(".race-control-group-header", self.styles_css)
+        self.assertIn(".driver-inline-pill", self.styles_css)
 
 
 if __name__ == "__main__":
