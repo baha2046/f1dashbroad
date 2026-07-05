@@ -61,6 +61,7 @@ function createLiveState() {
     return {
         active: false,
         sessionKey: null,
+        liveStartTimerId: null,
         refreshTimerId: null,
         countdownTimerId: null,
         nextRefreshAt: null,
@@ -192,4 +193,3 @@ function formatRaceControlTime(dateValue) {
         second: '2-digit'
     });
 }
-

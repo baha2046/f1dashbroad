@@ -5,13 +5,33 @@ const LIVE_REFRESH_SECONDS = 30;
 
 // Mirrors the backend is_session_live rule; the 30-minute buffer covers
 // sessions (especially races) that overrun their scheduled date_end.
-function isLiveSessionNow(session, now = new Date()) {
+function isLiveSessionNow(session, now = Date.now()) {
     if (!session || session.is_cancelled === true) return false;
-    const nowTime = now instanceof Date ? now.getTime() : new Date(now).getTime();
+    const nowTime = now instanceof Date ? now.getTime() : (typeof now === 'number' ? now : new Date(now).getTime());
     const start = new Date(session.date_start).getTime();
     const end = new Date(session.date_end).getTime();
     if (!Number.isFinite(nowTime) || !Number.isFinite(start) || !Number.isFinite(end)) return false;
     return nowTime >= start && nowTime <= end + 30 * 60 * 1000;
+}
+
+function getLiveSessionStatus(session, now = Date.now()) {
+    if (!session) return { text: '', className: '' };
+    if (session.is_cancelled === true) {
+        return { text: 'Cancelled', className: 'status-cancelled' };
+    }
+
+    const nowTime = now instanceof Date ? now.getTime() : (typeof now === 'number' ? now : new Date(now).getTime());
+    const start = new Date(session.date_start).getTime();
+    if (!Number.isFinite(nowTime) || !Number.isFinite(start)) {
+        return { text: '', className: '' };
+    }
+    if (nowTime < start) {
+        return { text: 'Upcoming', className: 'status-upcoming' };
+    }
+    if (isLiveSessionNow(session, now)) {
+        return { text: 'Live', className: 'status-live' };
+    }
+    return { text: 'Past', className: 'status-past' };
 }
 
 // Reduce the position/interval event streams to the latest record per driver
@@ -59,19 +79,35 @@ function formatLiveGap(value) {
 function setupLiveMode() {
     stopLiveMode();
     const session = state.selectedSession;
-    if (!session || !isLiveSessionNow(session)) return;
+    if (!session || session.is_cancelled === true) return;
+
+    state.live.sessionKey = session.session_key;
+    if (!isLiveSessionNow(session)) {
+        const start = new Date(session.date_start).getTime();
+        const nowTime = Date.now();
+        if (Number.isFinite(start) && Number.isFinite(nowTime) && nowTime < start) {
+            const delay = Math.max(0, Math.min(start - nowTime, 2147483647));
+            state.live.liveStartTimerId = setTimeout(() => {
+                if (!state.selectedSession || state.selectedSession.session_key !== session.session_key) return;
+                renderSessionHeader();
+                renderSessionsList();
+                setupLiveMode();
+            }, delay);
+        }
+        return;
+    }
 
     state.live.active = true;
-    state.live.sessionKey = session.session_key;
     if (DOM.liveIndicator) DOM.liveIndicator.classList.add('active');
 
     renderLiveTiming();
     refreshLiveData();
-    state.live.refreshTimerId = setInterval(refreshLiveData, LIVE_REFRESH_SECONDS * 1000);
+    state.live.refreshTimerId = setInterval(refreshLiveData, 30 * 1000);
     state.live.countdownTimerId = setInterval(updateLiveCountdown, 1000);
 }
 
 function stopLiveMode() {
+    if (state.live.liveStartTimerId) clearTimeout(state.live.liveStartTimerId);
     if (state.live.refreshTimerId) clearInterval(state.live.refreshTimerId);
     if (state.live.countdownTimerId) clearInterval(state.live.countdownTimerId);
     state.live = createLiveState();
@@ -124,6 +160,7 @@ async function refreshLiveData() {
         state.live.lastUpdated = new Date();
         renderLiveTiming();
         renderSessionHeader(); // refresh the Live/Past status badge
+        renderSessionsList();
     } catch (error) {
         console.error('Live data refresh failed:', error);
     } finally {
@@ -133,6 +170,8 @@ async function refreshLiveData() {
 
     // Session over: stop polling but keep the final data on screen
     if (state.live.active && !isLiveSessionNow(state.selectedSession)) {
+        renderSessionHeader();
+        renderSessionsList();
         stopLiveMode();
     }
 }

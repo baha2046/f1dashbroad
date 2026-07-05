@@ -13,29 +13,9 @@ function renderSessionHeader() {
     // Render status badge in header
     const headerStatusBadge = document.getElementById('headerStatusBadge');
     if (headerStatusBadge) {
-        const now = new Date();
-        const startDate = new Date(s.date_start);
-        const endDate = new Date(s.date_end);
-        
-        let statusText = '';
-        let statusClass = '';
-        
-        if (s.is_cancelled) {
-            statusText = 'Cancelled';
-            statusClass = 'status-cancelled';
-        } else if (now < startDate) {
-            statusText = 'Upcoming';
-            statusClass = 'status-upcoming';
-        } else if (now > endDate) {
-            statusText = 'Past';
-            statusClass = 'status-past';
-        } else {
-            statusText = 'Live';
-            statusClass = 'status-live';
-        }
-        
-        headerStatusBadge.textContent = statusText;
-        headerStatusBadge.className = `status-badge ${statusClass}`;
+        const status = getLiveSessionStatus(s);
+        headerStatusBadge.textContent = status.text;
+        headerStatusBadge.className = `status-badge ${status.className}`;
     }
 }
 

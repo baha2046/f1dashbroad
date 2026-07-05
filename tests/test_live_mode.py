@@ -228,6 +228,39 @@ class LiveModeJsHelperTests(unittest.TestCase):
         expected = [case[3] for case in cases] + [False]
         self.assertEqual(self._run_node(script), expected)
 
+    def test_get_live_session_status_uses_overrun_window(self):
+        helper_sources = "\n\n".join([
+            self._extract_function("isLiveSessionNow"),
+            self._extract_function("getLiveSessionStatus"),
+        ])
+        script = textwrap.dedent(f"""
+            {helper_sources}
+
+            const now = new Date("2026-07-04T14:00:00+00:00");
+            const session = (startMin, endMin, cancelled = false) => ({{
+                date_start: new Date(now.getTime() + startMin * 60000).toISOString(),
+                date_end: new Date(now.getTime() + endMin * 60000).toISOString(),
+                is_cancelled: cancelled
+            }});
+            const statuses = [
+                getLiveSessionStatus(session(30, 90), now),
+                getLiveSessionStatus(session(-60, 60), now),
+                getLiveSessionStatus(session(-180, -20), now),
+                getLiveSessionStatus(session(-240, -40), now),
+                getLiveSessionStatus(session(-60, 60, true), now),
+                getLiveSessionStatus(null, now)
+            ];
+            console.log(JSON.stringify(statuses));
+        """)
+        self.assertEqual(self._run_node(script), [
+            {"text": "Upcoming", "className": "status-upcoming"},
+            {"text": "Live", "className": "status-live"},
+            {"text": "Live", "className": "status-live"},
+            {"text": "Past", "className": "status-past"},
+            {"text": "Cancelled", "className": "status-cancelled"},
+            {"text": "", "className": ""},
+        ])
+
     def test_build_live_timing_rows_uses_latest_records_sorted_by_position(self):
         function_source = self._extract_function("buildLiveTimingRows")
         positions = [
@@ -281,6 +314,98 @@ class LiveModeJsHelperTests(unittest.TestCase):
         """)
         self.assertEqual(self._run_node(script), [[], []])
 
+    def test_setup_live_mode_schedules_upcoming_selected_session_start(self):
+        helper_sources = "\n\n".join([
+            self._extract_function("createLiveState"),
+            self._extract_function("isLiveSessionNow"),
+            self._extract_function("setupLiveMode"),
+            self._extract_function("stopLiveMode"),
+        ])
+        script = textwrap.dedent(f"""
+            {helper_sources}
+
+            const timers = [];
+            const intervals = [];
+            let renderHeaderCalls = 0;
+            let renderListCalls = 0;
+            let refreshCalls = 0;
+            Date.now = () => new Date("2026-07-04T14:00:00+00:00").getTime();
+            const originalDate = Date;
+            global.setTimeout = (fn, delay) => {{
+                timers.push({{ fn, delay }});
+                return `timeout-${{timers.length}}`;
+            }};
+            global.clearTimeout = () => {{}};
+            global.setInterval = (fn, delay) => {{
+                intervals.push({{ fn, delay }});
+                return `interval-${{intervals.length}}`;
+            }};
+            global.clearInterval = () => {{}};
+
+            const state = {{
+                selectedSession: {{
+                    session_key: 9876,
+                    date_start: "2026-07-04T14:05:00+00:00",
+                    date_end: "2026-07-04T15:05:00+00:00",
+                    is_cancelled: false
+                }},
+                live: createLiveState()
+            }};
+            const DOM = {{
+                liveIndicator: {{ classList: {{ add() {{}}, remove() {{}} }} }},
+                liveCountdown: {{ textContent: "" }},
+                liveTimingCard: {{ style: {{ display: "" }} }}
+            }};
+            function renderLiveTiming() {{}}
+            function refreshLiveData() {{ refreshCalls += 1; }}
+            function updateLiveCountdown() {{}}
+            function renderSessionHeader() {{ renderHeaderCalls += 1; }}
+            function renderSessionsList() {{ renderListCalls += 1; }}
+
+            setupLiveMode();
+            const beforeStart = {{
+                active: state.live.active,
+                sessionKey: state.live.sessionKey,
+                timeoutDelay: timers[0] && timers[0].delay,
+                timeoutCount: timers.length,
+                intervalCount: intervals.length,
+                refreshCalls
+            }};
+
+            Date.now = () => new originalDate("2026-07-04T14:05:01+00:00").getTime();
+            timers[0].fn();
+            const afterStart = {{
+                active: state.live.active,
+                sessionKey: state.live.sessionKey,
+                timeoutCount: timers.length,
+                intervalCount: intervals.length,
+                refreshCalls,
+                renderHeaderCalls,
+                renderListCalls
+            }};
+
+            console.log(JSON.stringify({{ beforeStart, afterStart }}));
+        """)
+        self.assertEqual(self._run_node(script), {
+            "beforeStart": {
+                "active": False,
+                "sessionKey": 9876,
+                "timeoutDelay": 300000,
+                "timeoutCount": 1,
+                "intervalCount": 0,
+                "refreshCalls": 0,
+            },
+            "afterStart": {
+                "active": True,
+                "sessionKey": 9876,
+                "timeoutCount": 1,
+                "intervalCount": 2,
+                "refreshCalls": 1,
+                "renderHeaderCalls": 1,
+                "renderListCalls": 1,
+            },
+        })
+
 
 class LiveModeStaticWiringTests(unittest.TestCase):
     def setUp(self):
@@ -309,9 +434,15 @@ class LiveModeStaticWiringTests(unittest.TestCase):
         self.assertIn("function renderLiveTiming", self.dashboard_js)
         self.assertIn("/api/intervals", self.dashboard_js)
         self.assertIn("state.intervals", self.dashboard_js)
+        self.assertIn("function getLiveSessionStatus", self.dashboard_js)
+        self.assertIn("liveStartTimerId", self.dashboard_js)
         # live mode lifecycle is tied to session selection
         self.assertIn("stopLiveMode();", self.dashboard_js)
         self.assertIn("setupLiveMode();", self.dashboard_js)
+
+    def test_status_badges_use_shared_live_session_status_helper(self):
+        self.assertIn("const status = getLiveSessionStatus(session);", self.dashboard_js)
+        self.assertIn("const status = getLiveSessionStatus(s);", self.dashboard_js)
 
     def test_styles_contain_live_mode_classes(self):
         for css_class in (

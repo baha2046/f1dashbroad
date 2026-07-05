@@ -214,26 +214,7 @@ function renderSessionsList() {
         }
 
         // Determine status for badge
-        const now = new Date();
-        const startDate = new Date(session.date_start);
-        const endDate = new Date(session.date_end);
-
-        let statusText = '';
-        let statusClass = '';
-
-        if (isCancelled) {
-            statusText = 'Cancelled';
-            statusClass = 'status-cancelled';
-        } else if (now < startDate) {
-            statusText = 'Upcoming';
-            statusClass = 'status-upcoming';
-        } else if (now > endDate) {
-            statusText = 'Past';
-            statusClass = 'status-past';
-        } else {
-            statusText = 'Live';
-            statusClass = 'status-live';
-        }
+        const status = getLiveSessionStatus(session);
 
         const flagEmoji = COUNTRY_FLAGS[session.country_code] || '🏁';
         const sessionDate = new Date(session.date_start).toLocaleDateString(undefined, {
@@ -251,7 +232,7 @@ function renderSessionsList() {
                 <div class="card-top">
                     <span class="session-type-badge ${badgeClass}">${badgeText}</span>
                     <div class="card-top-right">
-                        <span class="status-badge ${statusClass}">${statusText}</span>
+                        <span class="status-badge ${status.className}">${status.text}</span>
                         <span class="session-date">${sessionDate}</span>
                     </div>
                 </div>
@@ -279,4 +260,3 @@ function renderSessionsList() {
         }
     });
 }
-
