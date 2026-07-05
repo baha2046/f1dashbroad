@@ -58,7 +58,9 @@ function createReplayState() {
         contextRows: {},
         positionIndex: null,
         intervalIndex: null,
+        stintIndex: null,
         pitWindows: null,
+        highlightedDriverNumber: null,
         intervalsSessionKey: null,
         intervalsLoading: null
     };

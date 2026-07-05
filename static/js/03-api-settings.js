@@ -209,6 +209,16 @@ function setupEventListeners() {
             onReplayTimelineClick(e);
         });
     }
+    if (DOM.replayMapContent) {
+        DOM.replayMapContent.addEventListener('click', (e) => {
+            onReplayDriverHighlightClick(e);
+        });
+    }
+    if (DOM.replayTowerBody) {
+        DOM.replayTowerBody.addEventListener('click', (e) => {
+            onReplayDriverHighlightClick(e);
+        });
+    }
     if (DOM.replayPlayBtn) {
         DOM.replayPlayBtn.addEventListener('click', () => {
             toggleReplayPlayback();
@@ -328,4 +338,3 @@ function setupEventListeners() {
         DOM.liveRestrictionCloseBtn.addEventListener('click', hideLiveRestrictionBanner);
     }
 }
-

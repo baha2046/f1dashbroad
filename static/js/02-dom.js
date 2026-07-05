@@ -103,6 +103,9 @@ const DOM = {
     replayRaceTower: document.getElementById('replayRaceTower'),
     replayTowerBody: document.getElementById('replayTowerBody'),
     replayMapContent: document.getElementById('replayMapContent'),
+    replayRaceControlTicker: document.getElementById('replayRaceControlTicker'),
+    replayRaceControlTickerType: document.getElementById('replayRaceControlTickerType'),
+    replayRaceControlTickerMessage: document.getElementById('replayRaceControlTickerMessage'),
     
     // Results
     resultsTableHeadRow: document.getElementById('resultsTableHeadRow'),

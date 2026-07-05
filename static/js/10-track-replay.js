@@ -642,6 +642,7 @@ function seekReplayToTimelineFraction(segment, fraction) {
 function maybeAutoLoadReplay() {
     if (state.currentTab !== 'replay-view') return;
     ensureReplayIntervalsLoaded();
+    ensureReplayAllSessionLapsLoaded();
     loadSelectedReplay();
 }
 
@@ -816,14 +817,14 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         const isReference = driverSeries.driver_number === payload.driver_number;
 
         const group = document.createElementNS(svgNamespace, "g");
+        group.setAttribute("class", `replay-car-group${isReference ? ' reference' : ''}`);
+        group.setAttribute("data-driver-number", String(driverSeries.driver_number));
         group.style.display = 'none';
 
-        if (isReference) {
-            const ring = document.createElementNS(svgNamespace, "circle");
-            ring.setAttribute("r", 22);
-            ring.setAttribute("class", "replay-car-highlight");
-            group.appendChild(ring);
-        }
+        const ring = document.createElementNS(svgNamespace, "circle");
+        ring.setAttribute("r", 22);
+        ring.setAttribute("class", "replay-car-highlight");
+        group.appendChild(ring);
 
         const dot = document.createElementNS(svgNamespace, "circle");
         dot.setAttribute("r", isReference ? 15 : 12);
@@ -849,6 +850,7 @@ function buildReplayScene(payload, cacheKey, options = {}) {
 
     DOM.replayMapContent.innerHTML = '';
     DOM.replayMapContent.appendChild(svg);
+    applyReplayHighlight();
 
     if (DOM.replayPlayBtn) DOM.replayPlayBtn.disabled = false;
     if (DOM.replayScrubber) DOM.replayScrubber.disabled = false;

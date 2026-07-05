@@ -352,6 +352,140 @@ class ReplayRaceContextTests(unittest.TestCase):
         """)
         self.assertEqual(self._run_node(script), [True, False, True])
 
+    def test_replay_view_has_phase2_context_surfaces(self):
+        replay_view = extract_section(self.index_html, "replay-view")
+        self.assertIsNotNone(replay_view, "replay-view section missing")
+        for element_id in (
+            'id="replayRaceControlTicker"',
+            'id="replayRaceControlTickerType"',
+            'id="replayRaceControlTickerMessage"',
+        ):
+            self.assertIn(element_id, replay_view)
+
+    def test_dom_map_wires_phase2_context_nodes(self):
+        for snippet in (
+            "replayRaceControlTicker: document.getElementById('replayRaceControlTicker')",
+            "replayRaceControlTickerType: document.getElementById('replayRaceControlTickerType')",
+            "replayRaceControlTickerMessage: document.getElementById('replayRaceControlTickerMessage')",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_js_defines_phase2_context_helpers(self):
+        for snippet in (
+            "const REPLAY_TYRE_COMPOUND_LABELS",
+            "function buildReplayStintIndex",
+            "function stintForDriverLap",
+            "function formatReplayTyreCompound",
+            "function isHighSignalReplayRaceControl",
+            "function latestReplayRaceControlAt",
+            "function updateReplayRaceControlTicker",
+            "function highlightReplayDriver",
+            "function applyReplayHighlight",
+            "function onReplayDriverHighlightClick",
+            "highlightedDriverNumber",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_styles_contain_phase2_context_classes(self):
+        for css_class in (
+            ".replay-tower-tyre",
+            ".replay-tower-tyre.compound-soft",
+            ".replay-race-control-ticker",
+            ".replay-car-group.highlighted",
+            ".replay-tower-row.highlighted",
+        ):
+            self.assertIn(css_class, self.styles_css)
+
+    def test_tower_layout_preserves_driver_code_space(self):
+        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);", self.styles_css)
+        self.assertIn("grid-template-columns: 22px 4px minmax(42px, 1fr) 22px minmax(32px, auto) minmax(58px, auto);", self.styles_css)
+
+    def test_tyre_stint_helper_picks_current_compound_by_driver_lap(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildReplayStintIndex"),
+            self._extract_function("stintForDriverLap"),
+        ])
+        stints = [
+            {"driver_number": 1, "lap_start": 1, "lap_end": 12, "compound": "SOFT"},
+            {"driver_number": 1, "lap_start": 13, "lap_end": 42, "compound": "MEDIUM"},
+            {"driver_number": 44, "lap_start": 1, "lap_end": 20, "compound": "HARD"},
+        ]
+        script = textwrap.dedent(f"""
+            {helpers}
+
+            const index = buildReplayStintIndex({json.dumps(stints)});
+            const medium = stintForDriverLap(index, 1, 15);
+            const missingLap = stintForDriverLap(index, 1, null);
+            const missingDriver = stintForDriverLap(index, 16, 15);
+            console.log(JSON.stringify([
+                medium && medium.compound,
+                missingLap,
+                missingDriver
+            ]));
+        """)
+        self.assertEqual(self._run_node(script), ["MEDIUM", None, None])
+
+    def test_race_control_ticker_filters_to_high_signal_latest_message(self):
+        helpers = "\n\n".join([
+            self._extract_function("getRaceControlType"),
+            self._extract_function("normalizeReplayDriverSet"),
+            self._extract_function("raceControlRecordMentionsShownDriver"),
+            self._extract_function("isHighSignalReplayRaceControl"),
+            self._extract_function("latestReplayRaceControlAt"),
+        ])
+        records = [
+            {
+                "date": "2026-07-05T10:00:05Z",
+                "category": "Timing",
+                "message": "LAP TIME DELETED - CAR 1",
+            },
+            {
+                "date": "2026-07-05T10:00:10Z",
+                "category": "Flag",
+                "flag": "YELLOW",
+                "message": "YELLOW FLAG",
+            },
+            {
+                "date": "2026-07-05T10:00:15Z",
+                "category": "Other",
+                "driver_number": 99,
+                "message": "PENALTY - CAR 99",
+            },
+            {
+                "date": "2026-07-05T10:00:20Z",
+                "category": "Other",
+                "driver_number": 44,
+                "message": "INCIDENT INVOLVING CAR 44 (HAM) INVESTIGATED",
+            },
+            {
+                "date": "2026-07-05T10:00:25Z",
+                "category": "Other",
+                "message": "NOTE - ADMIN MESSAGE",
+            },
+        ]
+        script = textwrap.dedent(f"""
+            {helpers}
+
+            const records = {json.dumps(records)};
+            const shown = new Set([1, 44]);
+            const at17 = latestReplayRaceControlAt(records, Date.parse("2026-07-05T10:00:17Z"), shown);
+            const at25 = latestReplayRaceControlAt(records, Date.parse("2026-07-05T10:00:25Z"), shown);
+            const before = latestReplayRaceControlAt(records, Date.parse("2026-07-05T10:00:02Z"), shown);
+            console.log(JSON.stringify([
+                at17 && at17.flag,
+                at25 && at25.driver_number,
+                before
+            ]));
+        """)
+        self.assertEqual(self._run_node(script), ["YELLOW", 44, None])
+
+    def test_highlight_driver_does_not_switch_reference_driver(self):
+        body = self._extract_function("highlightReplayDriver")
+        self.assertIn("state.replay.highlightedDriverNumber", body)
+        self.assertNotIn("state.replay.driverNumber =", body)
+        self.assertNotIn("loadTrackReplay(", body)
+        self.assertNotIn("setupReplayTimeline(", body)
+
 
 if __name__ == "__main__":
     unittest.main()

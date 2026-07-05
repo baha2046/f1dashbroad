@@ -4168,7 +4168,14 @@ body {
     align-items: stretch;
     display: grid;
     gap: 14px;
-    grid-template-columns: minmax(0, 1fr) minmax(190px, 230px);
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+}
+
+.replay-map-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
 }
 
 .replay-race-context {
@@ -4208,11 +4215,13 @@ body {
     background: rgba(255, 255, 255, 0.055);
     border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 6px;
+    cursor: pointer;
     display: grid;
     gap: 7px;
-    grid-template-columns: 22px 4px minmax(0, 1fr) minmax(34px, auto) minmax(58px, auto);
+    grid-template-columns: 22px 4px minmax(42px, 1fr) 22px minmax(32px, auto) minmax(58px, auto);
     min-height: 28px;
     padding: 4px 7px;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .replay-tower-row.out {
@@ -4224,8 +4233,14 @@ body {
     border-color: rgba(255, 138, 0, 0.22);
 }
 
+.replay-tower-row.highlighted {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.32);
+}
+
 .replay-tower-pos,
 .replay-tower-driver,
+.replay-tower-tyre,
 .replay-tower-gap,
 .replay-tower-status {
     overflow: hidden;
@@ -4249,6 +4264,48 @@ body {
     color: var(--text-primary);
     font-size: 12px;
     font-weight: 900;
+}
+
+.replay-tower-tyre {
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    color: #060609;
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 16px;
+    min-width: 20px;
+    padding: 0 5px;
+    text-align: center;
+}
+
+.replay-tower-tyre[hidden] {
+    display: none;
+}
+
+.replay-tower-tyre.compound-soft {
+    background: #ff3b30;
+    border-color: rgba(255, 59, 48, 0.65);
+}
+
+.replay-tower-tyre.compound-medium {
+    background: #ffd60a;
+    border-color: rgba(255, 214, 10, 0.7);
+}
+
+.replay-tower-tyre.compound-hard {
+    background: #f4f4f5;
+    border-color: rgba(244, 244, 245, 0.75);
+}
+
+.replay-tower-tyre.compound-intermediate {
+    background: #30d158;
+    border-color: rgba(48, 209, 88, 0.7);
+}
+
+.replay-tower-tyre.compound-wet {
+    background: #0a84ff;
+    border-color: rgba(10, 132, 255, 0.7);
+    color: #f8fbff;
 }
 
 .replay-tower-gap {
@@ -4293,6 +4350,41 @@ body {
     pointer-events: none;
     position: absolute;
     width: 14px;
+}
+
+.replay-race-control-ticker {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+    display: flex;
+    gap: 10px;
+    min-height: 34px;
+    padding: 7px 10px;
+}
+
+.replay-race-control-ticker[hidden] {
+    display: none;
+}
+
+.replay-race-control-time {
+    color: var(--text-muted);
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.replay-race-control-message {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.35;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Track outline tint follows the circuit state during playback */
@@ -4345,6 +4437,10 @@ body {
     stroke-width: 3;
 }
 
+.replay-car-group {
+    cursor: pointer;
+}
+
 .replay-car-label {
     fill: var(--text-primary);
     font-family: var(--font-sans);
@@ -4359,8 +4455,25 @@ body {
 
 .replay-car-highlight {
     fill: none;
+    opacity: 0;
     stroke: rgba(255, 255, 255, 0.85);
     stroke-width: 2.5;
+    transition: opacity var(--transition-fast), stroke var(--transition-fast), stroke-width var(--transition-fast);
+}
+
+.replay-car-group.reference .replay-car-highlight,
+.replay-car-group.highlighted .replay-car-highlight {
+    opacity: 1;
+}
+
+.replay-car-group.highlighted .replay-car-highlight {
+    stroke: var(--accent-red);
+    stroke-width: 4;
+}
+
+.replay-car-group.highlighted .replay-car-label {
+    fill: #ffffff;
+    font-weight: 900;
 }
 
 @media (max-width: 980px) {
