@@ -168,6 +168,8 @@ function resetReplay() {
     if (DOM.replayTimeLabel) {
         DOM.replayTimeLabel.textContent = '0.0s / 0.0s';
     }
+    resetReplaySpeedToggle();
+    clearReplayRaceContext();
     if (DOM.replayTimeline) {
         DOM.replayTimeline.innerHTML = '';
     }
@@ -248,6 +250,7 @@ async function setupReplayTimeline() {
     state.replay.timeline = buildRaceControlTimeline();
     if (state.replay.timeline) {
         renderReplayTimeline();
+        prepareReplayRaceContext();
     } else {
         DOM.replayTimeline.innerHTML = '<span class="replay-timeline-loading">Loading laps...</span>';
     }
@@ -276,7 +279,9 @@ async function setupReplayTimeline() {
     // Full race replays from the start; a driver preselects their fastest lap
     const initial = timeline.segments.find(seg => seg.isFastest) || timeline.segments[0];
     state.replay.lapNumber = initial.lapNumber;
+    prepareReplayRaceContext();
     renderReplayTimeline();
+    updateReplayRaceContext(true);
 }
 
 // Absolute session-time range covered by race control (and the session's own
@@ -529,6 +534,7 @@ function renderReplayTimeline() {
             btn.appendChild(label);
         }
         appendReplayStateBands(btn, timeline, seg.startMs, seg.endMs);
+        appendReplayPitMarkers(btn, seg);
         track.appendChild(btn);
     });
 
@@ -560,6 +566,7 @@ function renderReplayTimeline() {
 
     DOM.replayTimeline.appendChild(track);
     updateReplayTimelinePlayhead();
+    updateReplayLapChip();
 }
 
 function getTimelineSegment(lapNumber) {
@@ -634,6 +641,7 @@ function seekReplayToTimelineFraction(segment, fraction) {
 // Session Replay tab is actually visible.
 function maybeAutoLoadReplay() {
     if (state.currentTab !== 'replay-view') return;
+    ensureReplayIntervalsLoaded();
     loadSelectedReplay();
 }
 
@@ -976,11 +984,11 @@ function renderReplayFrame(t) {
         DOM.replayScrubber.value = Math.round((t / windowSeconds) * max);
     }
     if (DOM.replayTimeLabel) {
-        const lapPrefix = Number.isFinite(state.replay.lapNumber) ? `Lap ${state.replay.lapNumber} · ` : '';
-        DOM.replayTimeLabel.textContent = `${lapPrefix}${t.toFixed(1)}s / ${windowSeconds.toFixed(1)}s`;
+        DOM.replayTimeLabel.textContent = `${t.toFixed(1)}s / ${windowSeconds.toFixed(1)}s`;
     }
     updateReplayTimelinePlayhead();
     updateReplayCircuitState();
+    updateReplayRaceContext();
 }
 
 // Warm the cache for the next timeline lap so the lap handoff is seamless

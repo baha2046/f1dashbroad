@@ -1,4 +1,7 @@
+import json
 import re
+import subprocess
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -162,6 +165,192 @@ class FullRaceReplayTests(unittest.TestCase):
     def test_full_race_requests_omit_driver_number(self):
         # The backend switches to race-lap windows when driver_number is absent
         self.assertIn("driverNumber === REPLAY_FULL_RACE ? ''", self.dashboard_js)
+
+
+class ReplayRaceContextTests(unittest.TestCase):
+    """Phase 1 race-context surfaces for Session Replay
+    (doc/2026-07-05-session-replay-review-and-enhancement-plan.md)."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
+        self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    def _extract_function(self, function_name):
+        marker = f"function {function_name}"
+        start = self.dashboard_js.find(marker)
+        self.assertNotEqual(start, -1, f"{function_name} is missing from dashboard JS")
+
+        body_start = self.dashboard_js.find("{", start)
+        self.assertNotEqual(body_start, -1, f"{function_name} has no function body")
+
+        depth = 0
+        for index in range(body_start, len(self.dashboard_js)):
+            char = self.dashboard_js[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.dashboard_js[start:index + 1]
+
+        self.fail(f"{function_name} body was not closed")
+
+    def _run_node(self, script):
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+        return json.loads(completed.stdout)
+
+    def test_replay_view_has_race_context_surfaces(self):
+        replay_view = extract_section(self.index_html, "replay-view")
+        self.assertIsNotNone(replay_view, "replay-view section missing")
+        for element_id in (
+            'id="replayLapChip"',
+            'id="replayRaceContext"',
+            'id="replayRaceTower"',
+            'id="replayTowerBody"',
+        ):
+            self.assertIn(element_id, replay_view)
+
+    def test_dom_map_wires_race_context_nodes(self):
+        for snippet in (
+            "replayLapChip: document.getElementById('replayLapChip')",
+            "replayRaceContext: document.getElementById('replayRaceContext')",
+            "replayRaceTower: document.getElementById('replayRaceTower')",
+            "replayTowerBody: document.getElementById('replayTowerBody')",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_js_defines_race_context_helpers(self):
+        for snippet in (
+            "const REPLAY_CONTEXT_TICK_MS = 250",
+            "const REPLAY_INTERVAL_MAX_AGE_MS = 20000",
+            "function buildDriverDateIndex",
+            "function valueAtMs",
+            "function buildReplayRaceOrder",
+            "function buildReplayPitWindows",
+            "function deriveDriverLapAt",
+            "function updateReplayRaceContext",
+            "lastContextTickMs",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_speed_reset_sets_toggle_back_to_1x(self):
+        self.assertIn("function resetReplaySpeedToggle", self.dashboard_js)
+        self.assertIn("resetReplaySpeedToggle();", self.dashboard_js)
+
+    def test_replay_tab_fetches_historical_intervals_once(self):
+        for snippet in (
+            "function ensureReplayIntervalsLoaded",
+            "ensureReplayIntervalsLoaded();",
+            "state.replay.intervalsSessionKey",
+            "customFetch(`/api/intervals?session_key=${state.selectedSession.session_key}`)",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_timeline_renders_reference_driver_pit_markers(self):
+        for snippet in (
+            "function appendReplayPitMarkers",
+            "replay-timeline-pit-marker",
+            "PIT IN",
+            "state.replay.driverNumber !== REPLAY_FULL_RACE",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_styles_contain_race_context_classes(self):
+        for css_class in (
+            ".replay-context-layout",
+            ".replay-race-context",
+            ".replay-lap-chip",
+            ".replay-tower-row",
+            ".replay-tower-row.out",
+            ".replay-tower-pit",
+            ".replay-timeline-pit-marker",
+        ):
+            self.assertIn(css_class, self.styles_css)
+
+    def test_value_at_ms_returns_latest_and_rejects_stale_records(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildDriverDateIndex"),
+            self._extract_function("valueAtMs"),
+        ])
+        script = textwrap.dedent(f"""
+            {helpers}
+
+            const records = [
+                {{ driver_number: 1, position: 2, date: "2026-07-05T10:00:00Z" }},
+                {{ driver_number: 1, position: 1, date: "2026-07-05T10:00:10Z" }}
+            ];
+            const index = buildDriverDateIndex(records);
+            const fresh = valueAtMs(index.get(1), Date.parse("2026-07-05T10:00:15Z"), 20000);
+            const stale = valueAtMs(index.get(1), Date.parse("2026-07-05T10:00:45Z"), 20000);
+            console.log(JSON.stringify([fresh && fresh.position, stale]));
+        """)
+        self.assertEqual(self._run_node(script), [1, None])
+
+    def test_replay_race_order_seeds_sparse_position_stream(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildDriverDateIndex"),
+            self._extract_function("valueAtMs"),
+            self._extract_function("buildReplayRaceOrder"),
+        ])
+        positions = [
+            {"driver_number": 44, "position": 1, "date": "2026-07-05T10:00:00Z"},
+            {"driver_number": 1, "position": 2, "date": "2026-07-05T10:00:00Z"},
+            {"driver_number": 16, "position": 3, "date": "2026-07-05T10:00:00Z"},
+            {"driver_number": 1, "position": 1, "date": "2026-07-05T10:10:00Z"},
+            {"driver_number": 44, "position": 2, "date": "2026-07-05T10:10:00Z"},
+        ]
+        script = textwrap.dedent(f"""
+            {helpers}
+
+            const index = buildDriverDateIndex({json.dumps(positions)});
+            const order = buildReplayRaceOrder(index, Date.parse("2026-07-05T10:12:00Z"));
+            console.log(JSON.stringify(order.map(row => [row.driverNumber, row.position])));
+        """)
+        self.assertEqual(self._run_node(script), [[1, 1], [44, 2], [16, 3]])
+
+    def test_pit_windows_use_duration_padding_and_lap_fallback(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildReplayPitWindows"),
+            self._extract_function("isDriverInPitAtMs"),
+        ])
+        script = textwrap.dedent(f"""
+            const REPLAY_PIT_WINDOW_PAD_SECONDS = 5;
+            {helpers}
+
+            const timeline = {{
+                segments: [
+                    {{ lapNumber: 12, startMs: Date.parse("2026-07-05T10:20:00Z"), endMs: Date.parse("2026-07-05T10:21:30Z") }}
+                ]
+            }};
+            const windows = buildReplayPitWindows([
+                {{
+                    driver_number: 1,
+                    lap_number: 11,
+                    date: "2026-07-05T10:00:10Z",
+                    pit_duration: 20
+                }},
+                {{
+                    driver_number: 44,
+                    lap_number: 12
+                }}
+            ], timeline);
+            const cases = [
+                isDriverInPitAtMs(windows, 1, Date.parse("2026-07-05T10:00:06Z")),
+                isDriverInPitAtMs(windows, 1, Date.parse("2026-07-05T10:00:36Z")),
+                isDriverInPitAtMs(windows, 44, Date.parse("2026-07-05T10:20:15Z"))
+            ];
+            console.log(JSON.stringify(cases));
+        """)
+        self.assertEqual(self._run_node(script), [True, False, True])
 
 
 if __name__ == "__main__":

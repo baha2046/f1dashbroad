@@ -4156,6 +4156,148 @@ body {
     color: var(--text-primary);
 }
 
+.replay-lap-chip {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 10px;
+    white-space: nowrap;
+}
+
+.replay-context-layout {
+    align-items: stretch;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 230px);
+}
+
+.replay-race-context {
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    min-height: 380px;
+    padding-left: 14px;
+}
+
+.replay-context-header {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    font-size: 10px;
+    font-weight: 800;
+    justify-content: space-between;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.replay-race-tower {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.replay-tower-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.replay-tower-row {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 6px;
+    display: grid;
+    gap: 7px;
+    grid-template-columns: 22px 4px minmax(0, 1fr) minmax(34px, auto) minmax(58px, auto);
+    min-height: 28px;
+    padding: 4px 7px;
+}
+
+.replay-tower-row.out {
+    opacity: 0.5;
+}
+
+.replay-tower-row.in-pit {
+    background: rgba(255, 138, 0, 0.11);
+    border-color: rgba(255, 138, 0, 0.22);
+}
+
+.replay-tower-pos,
+.replay-tower-driver,
+.replay-tower-gap,
+.replay-tower-status {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.replay-tower-pos {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 900;
+    text-align: right;
+}
+
+.replay-tower-color {
+    border-radius: 2px;
+    height: 18px;
+}
+
+.replay-tower-driver {
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.replay-tower-gap {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+    text-align: right;
+}
+
+.replay-tower-status {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 900;
+    min-width: 0;
+    text-align: right;
+}
+
+.replay-tower-pit {
+    background: rgba(255, 138, 0, 0.18);
+    border: 1px solid rgba(255, 138, 0, 0.32);
+    border-radius: 999px;
+    color: #ffb04d;
+    padding: 1px 6px;
+}
+
+.replay-timeline-pit-marker {
+    align-items: center;
+    background: #ff8a00;
+    border-radius: 999px;
+    bottom: 8px;
+    box-shadow: 0 0 0 1px rgba(6, 6, 9, 0.8);
+    color: #060609;
+    display: inline-flex;
+    font-size: 8px;
+    font-weight: 900;
+    height: 14px;
+    justify-content: center;
+    left: 50%;
+    line-height: 1;
+    margin-left: -7px;
+    pointer-events: none;
+    position: absolute;
+    width: 14px;
+}
+
 /* Track outline tint follows the circuit state during playback */
 .replay-map-content[data-circuit-state="yellow"] .replay-track-path {
     stroke: rgba(255, 214, 0, 0.4);
@@ -4222,6 +4364,25 @@ body {
     fill: none;
     stroke: rgba(255, 255, 255, 0.85);
     stroke-width: 2.5;
+}
+
+@media (max-width: 980px) {
+    .replay-context-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .replay-race-context {
+        border-left: none;
+        border-top: 1px solid var(--border-color);
+        min-height: 0;
+        padding-left: 0;
+        padding-top: 12px;
+    }
+
+    .replay-tower-body {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
 }
 
 /* ==============================

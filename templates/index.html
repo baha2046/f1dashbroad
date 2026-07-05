@@ -619,6 +619,7 @@
                                 </button>
                                 <input type="range" class="replay-scrubber" id="replayScrubber" min="0" max="1000" step="1" value="0" aria-label="Position within current lap" disabled>
                                 <span class="replay-time-label" id="replayTimeLabel">0.0s / 0.0s</span>
+                                <span class="replay-lap-chip" id="replayLapChip" aria-live="polite" hidden>Lap -- / --</span>
                                 <span class="replay-state-chip" id="replayStateChip" aria-live="polite" hidden>Green</span>
                                 <div class="replay-speed-toggle" id="replaySpeedToggle" role="group" aria-label="Replay speed">
                                     <button type="button" data-speed="1" class="active">1x</button>
@@ -629,8 +630,21 @@
                             <div class="replay-timeline" id="replayTimeline" aria-label="Session timeline">
                                 <!-- Lap segments + playhead generated dynamically -->
                             </div>
-                            <div class="replay-map-content" id="replayMapContent">
-                                <!-- SVG replay map generated dynamically -->
+                            <div class="replay-context-layout">
+                                <div class="replay-map-content" id="replayMapContent">
+                                    <!-- SVG replay map generated dynamically -->
+                                </div>
+                                <aside class="replay-race-context" id="replayRaceContext" aria-label="Replay running order" hidden>
+                                    <div class="replay-context-header">
+                                        <span>Running Order</span>
+                                        <span>Gaps</span>
+                                    </div>
+                                    <div class="replay-race-tower" id="replayRaceTower">
+                                        <div class="replay-tower-body" id="replayTowerBody">
+                                            <!-- Running order rows generated dynamically -->
+                                        </div>
+                                    </div>
+                                </aside>
                             </div>
                         </div>
                     </div>
@@ -712,5 +726,6 @@
     <script src="/static/js/09-laps-tab.js?v={{ version }}"></script>
     <script src="/static/js/10-track-replay.js?v={{ version }}"></script>
     <script src="/static/js/11-live-mode.js?v={{ version }}"></script>
+    <script src="/static/js/12-replay-context.js?v={{ version }}"></script>
 </body>
 </html>

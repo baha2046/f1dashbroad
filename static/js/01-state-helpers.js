@@ -53,7 +53,14 @@ function createReplayState() {
         speed: 1,
         rafId: null,
         lastFrameTs: null,
-        carNodes: {}       // driver_number -> { group, samples } for the built SVG
+        carNodes: {},      // driver_number -> { group, samples } for the built SVG
+        lastContextTickMs: 0,
+        contextRows: {},
+        positionIndex: null,
+        intervalIndex: null,
+        pitWindows: null,
+        intervalsSessionKey: null,
+        intervalsLoading: null
     };
 }
 

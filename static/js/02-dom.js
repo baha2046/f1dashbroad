@@ -96,8 +96,12 @@ const DOM = {
     replayPlayBtn: document.getElementById('replayPlayBtn'),
     replayScrubber: document.getElementById('replayScrubber'),
     replayTimeLabel: document.getElementById('replayTimeLabel'),
+    replayLapChip: document.getElementById('replayLapChip'),
     replayStateChip: document.getElementById('replayStateChip'),
     replaySpeedToggle: document.getElementById('replaySpeedToggle'),
+    replayRaceContext: document.getElementById('replayRaceContext'),
+    replayRaceTower: document.getElementById('replayRaceTower'),
+    replayTowerBody: document.getElementById('replayTowerBody'),
     replayMapContent: document.getElementById('replayMapContent'),
     
     // Results

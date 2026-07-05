@@ -149,6 +149,7 @@ async function refreshLiveData() {
         if (intervalsRes.ok) {
             const intervals = await intervalsRes.json();
             state.intervals = Array.isArray(intervals) ? intervals : [];
+            if (typeof prepareReplayRaceContext === 'function') prepareReplayRaceContext();
         }
         if (raceControlRes.ok) {
             const raceControl = await raceControlRes.json();
