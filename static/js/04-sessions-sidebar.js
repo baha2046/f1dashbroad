@@ -331,8 +331,8 @@ function renderSessionsList() {
             if (isSessionActive) {
                 pillClass += ' active';
             }
-            const shortName = getSessionShortName(session.session_name);
-            sessionsHtml += `<button class="${pillClass}" data-session-key="${session.session_key}" title="${escapeHtml(session.session_name)}">${shortName}</button>`;
+                        const shortName = getSessionShortName(session.session_name);
+            sessionsHtml += `<button class="${pillClass}" data-session-key="${session.session_key}" data-tooltip="${escapeHtml(session.session_name)}">${shortName}</button>`;
         });
 
         meetingCard.innerHTML = `
