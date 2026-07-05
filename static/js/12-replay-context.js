@@ -585,7 +585,6 @@ function updateReplayRaceContext(force = false) {
         row.color.style.background = `#${teamHex}`;
         row.pos.textContent = String(raceRow.position);
         row.driver.textContent = getReplayDriverCode(raceRow.driverNumber);
-        row.tyre.hidden = !tyre;
         row.tyre.textContent = tyre ? tyre.label : '';
         row.tyre.title = tyre ? tyre.title : '';
         row.tyre.className = tyre ? `replay-tower-tyre ${tyre.className}` : 'replay-tower-tyre';
