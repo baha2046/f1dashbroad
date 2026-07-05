@@ -91,7 +91,7 @@ const DOM = {
     circuitMapContent: document.getElementById('circuitMapContent'),
     replayCard: document.getElementById('replayCard'),
     replayDriverSelect: document.getElementById('replayDriverSelect'),
-    replayLapSelect: document.getElementById('replayLapSelect'),
+    replayTimeline: document.getElementById('replayTimeline'),
     replayPlayBtn: document.getElementById('replayPlayBtn'),
     replayScrubber: document.getElementById('replayScrubber'),
     replayTimeLabel: document.getElementById('replayTimeLabel'),

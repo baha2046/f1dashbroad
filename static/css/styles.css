@@ -3682,12 +3682,16 @@ body {
     justify-content: center;
 }
 
-/* ===== Track Position Replay (location data) ===== */
+/* ===== Session Replay (location data) ===== */
+.replay-layout {
+    display: flex;
+    flex-direction: column;
+}
+
 .replay-card {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    grid-column: 1 / -1;
     padding: 20px 24px;
 }
 
@@ -3788,6 +3792,83 @@ body {
 .replay-speed-toggle button.active {
     background: rgba(255, 24, 1, 0.18);
     color: var(--text-primary);
+}
+
+/* Session timeline: one segment per lap of the reference driver + playhead */
+.replay-timeline {
+    padding: 4px 0 8px;
+}
+
+.replay-timeline:empty {
+    display: none;
+}
+
+.replay-timeline-loading {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.replay-timeline-track {
+    display: flex;
+    gap: 2px;
+    height: 32px;
+    position: relative;
+}
+
+.replay-timeline-segment {
+    background: rgba(255, 255, 255, 0.07);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-basis: 0;
+    min-width: 3px;
+    padding: 0;
+    position: relative;
+    transition: background var(--transition-fast);
+}
+
+.replay-timeline-segment:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.replay-timeline-segment.fastest {
+    background: rgba(208, 107, 255, 0.3); /* purple = fastest lap */
+}
+
+.replay-timeline-segment.fastest:hover {
+    background: rgba(208, 107, 255, 0.45);
+}
+
+.replay-timeline-segment.active {
+    background: rgba(255, 24, 1, 0.3);
+    box-shadow: inset 0 0 0 1px rgba(255, 24, 1, 0.65);
+}
+
+.replay-timeline-segment.fastest.active {
+    background: rgba(208, 107, 255, 0.45);
+}
+
+.replay-timeline-label {
+    color: var(--text-secondary);
+    font-size: 9px;
+    font-weight: 800;
+    left: 4px;
+    letter-spacing: 0.4px;
+    pointer-events: none;
+    position: absolute;
+    top: 3px;
+}
+
+.replay-timeline-playhead {
+    background: var(--accent-red);
+    border-radius: 1px;
+    bottom: -3px;
+    box-shadow: 0 0 6px var(--accent-red-glow);
+    margin-left: -1px;
+    pointer-events: none;
+    position: absolute;
+    top: -3px;
+    width: 2px;
 }
 
 .replay-map-content {

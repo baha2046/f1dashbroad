@@ -186,6 +186,9 @@
 
                 <!-- Dynamic Content Navigation Tabs -->
                 <nav class="dashboard-tabs glass" aria-label="Dashboard sections">
+                    <button class="tab-btn" id="tab-replay" data-tab="replay-view">
+                        <span class="material-icons-round">play_circle</span> Session Replay
+                    </button>
                     <button class="tab-btn active" id="tab-drivers" data-tab="drivers-view">
                         <span class="material-icons-round">groups</span> Drivers
                     </button>
@@ -202,7 +205,7 @@
                         <span class="material-icons-round">campaign</span> Race Control
                     </button>
                     <button class="tab-btn" id="tab-circuit" data-tab="circuit-view">
-                        <span class="material-icons-round">map</span> Circuit Details
+                        <span class="material-icons-round">map</span> Circuit
                     </button>
                 </nav>
 
@@ -595,6 +598,40 @@
                     </div>
                 </section>
 
+                <!-- Session Replay View -->
+                <section class="tab-view" id="replay-view" aria-label="Session replay">
+                    <div class="replay-layout">
+                        <div class="replay-card glass" id="replayCard">
+                            <div class="circuit-card-header">
+                                <span class="material-icons-round circuit-map-icon">play_circle</span>
+                                <h3>Session Replay</h3>
+                            </div>
+                            <div class="replay-controls">
+                                <label class="replay-select-wrapper">
+                                    <span>Driver</span>
+                                    <select id="replayDriverSelect" aria-label="Select reference driver for replay"></select>
+                                </label>
+                                <button type="button" class="replay-play-btn" id="replayPlayBtn" aria-label="Play or pause replay" disabled>
+                                    <span class="material-icons-round">play_arrow</span>
+                                </button>
+                                <input type="range" class="replay-scrubber" id="replayScrubber" min="0" max="1000" step="1" value="0" aria-label="Position within current lap" disabled>
+                                <span class="replay-time-label" id="replayTimeLabel">0.0s / 0.0s</span>
+                                <div class="replay-speed-toggle" id="replaySpeedToggle" role="group" aria-label="Replay speed">
+                                    <button type="button" data-speed="1" class="active">1x</button>
+                                    <button type="button" data-speed="2">2x</button>
+                                    <button type="button" data-speed="4">4x</button>
+                                </div>
+                            </div>
+                            <div class="replay-timeline" id="replayTimeline" aria-label="Session timeline">
+                                <!-- Lap segments + playhead generated dynamically -->
+                            </div>
+                            <div class="replay-map-content" id="replayMapContent">
+                                <!-- SVG replay map generated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Circuit Details View -->
                 <section class="tab-view" id="circuit-view" aria-label="Circuit details data">
                     <div class="circuit-layout">
@@ -651,36 +688,6 @@
                             </div>
                         </div>
 
-                        <!-- Track Position Replay -->
-                        <div class="replay-card glass" id="replayCard">
-                            <div class="circuit-card-header">
-                                <span class="material-icons-round circuit-map-icon">play_circle</span>
-                                <h3>Track Position Replay</h3>
-                            </div>
-                            <div class="replay-controls">
-                                <label class="replay-select-wrapper">
-                                    <span>Driver</span>
-                                    <select id="replayDriverSelect" aria-label="Select reference driver for replay"></select>
-                                </label>
-                                <label class="replay-select-wrapper">
-                                    <span>Lap</span>
-                                    <select id="replayLapSelect" aria-label="Select lap for replay"></select>
-                                </label>
-                                <button type="button" class="replay-play-btn" id="replayPlayBtn" aria-label="Play or pause replay" disabled>
-                                    <span class="material-icons-round">play_arrow</span>
-                                </button>
-                                <input type="range" class="replay-scrubber" id="replayScrubber" min="0" max="1000" step="1" value="0" aria-label="Replay position" disabled>
-                                <span class="replay-time-label" id="replayTimeLabel">0.0s / 0.0s</span>
-                                <div class="replay-speed-toggle" id="replaySpeedToggle" role="group" aria-label="Replay speed">
-                                    <button type="button" data-speed="1" class="active">1x</button>
-                                    <button type="button" data-speed="2">2x</button>
-                                    <button type="button" data-speed="4">4x</button>
-                                </div>
-                            </div>
-                            <div class="replay-map-content" id="replayMapContent">
-                                <!-- SVG replay map generated dynamically -->
-                            </div>
-                        </div>
                     </div>
                 </section>
 

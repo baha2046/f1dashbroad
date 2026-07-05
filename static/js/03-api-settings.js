@@ -195,15 +195,15 @@ function setupEventListeners() {
         });
     }
 
-    // Track Replay Controls
+    // Session Replay Controls
     if (DOM.replayDriverSelect) {
         DOM.replayDriverSelect.addEventListener('change', () => {
-            populateReplayLapSelect().then(() => maybeAutoLoadReplay());
+            setupReplayTimeline().then(() => maybeAutoLoadReplay());
         });
     }
-    if (DOM.replayLapSelect) {
-        DOM.replayLapSelect.addEventListener('change', () => {
-            maybeAutoLoadReplay();
+    if (DOM.replayTimeline) {
+        DOM.replayTimeline.addEventListener('click', (e) => {
+            onReplayTimelineClick(e);
         });
     }
     if (DOM.replayPlayBtn) {
@@ -279,8 +279,8 @@ function setupEventListeners() {
                 maybeAutoLoadTelemetry();
             }
 
-            // Replay fetches are deferred until the Circuit tab is actually visible
-            if (targetTab === 'circuit-view') {
+            // Replay fetches are deferred until the Session Replay tab is actually visible
+            if (targetTab === 'replay-view') {
                 maybeAutoLoadReplay();
             }
         });

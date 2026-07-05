@@ -151,10 +151,10 @@ class TrackReplayStaticWiringTests(unittest.TestCase):
         self.dashboard_js = read_dashboard_js(self.root)
         self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
 
-    def test_circuit_view_contains_replay_card(self):
+    def test_index_contains_replay_card(self):
         self.assertIn('id="replayCard"', self.index_html)
         self.assertIn('id="replayDriverSelect"', self.index_html)
-        self.assertIn('id="replayLapSelect"', self.index_html)
+        self.assertIn('id="replayTimeline"', self.index_html)
         self.assertIn('id="replayPlayBtn"', self.index_html)
         self.assertIn('id="replayScrubber"', self.index_html)
         self.assertIn('id="replaySpeedToggle"', self.index_html)
@@ -163,7 +163,7 @@ class TrackReplayStaticWiringTests(unittest.TestCase):
 
     def test_dashboard_js_wires_replay(self):
         self.assertIn("replayDriverSelect: document.getElementById('replayDriverSelect')", self.dashboard_js)
-        self.assertIn("replayLapSelect: document.getElementById('replayLapSelect')", self.dashboard_js)
+        self.assertIn("replayTimeline: document.getElementById('replayTimeline')", self.dashboard_js)
         self.assertIn("replayMapContent: document.getElementById('replayMapContent')", self.dashboard_js)
         self.assertIn("function setupReplaySection", self.dashboard_js)
         self.assertIn("function maybeAutoLoadReplay", self.dashboard_js)

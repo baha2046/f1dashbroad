@@ -1,9 +1,17 @@
-// ===== Track Position Replay (location data on the circuit map) =====
-// Single-lap replay: a reference driver + lap defines the time window and the
-// whole field's positions are animated over it (see doc/2026-07-04-track-replay-design.md).
+// ===== Session Replay (location data on the circuit map) =====
+// Lap-window replay on a session timeline: the reference driver's laps define
+// per-lap time windows, the whole field's positions animate over them, and
+// playback auto-advances across laps (see
+// doc/2026-07-05-session-replay-tab-design.md and the original single-lap
+// design in doc/2026-07-04-track-replay-design.md).
 
 // Hide a car when the gap between its bracketing samples exceeds this (garage/retirement)
 const REPLAY_SAMPLE_GAP_SECONDS = 4;
+// Start prefetching the next lap's payload this many seconds before the window ends
+const REPLAY_PREFETCH_LEAD_SECONDS = 15;
+// Cap a timeline segment's rendered width at this multiple of the median lap
+// window so out-laps / red-flag gaps don't dwarf flying laps
+const REPLAY_TIMELINE_WIDTH_CAP = 3;
 
 function resetReplay() {
     if (state.replay && state.replay.rafId !== null) {
@@ -11,6 +19,7 @@ function resetReplay() {
     }
     state.replay = createReplayState();
     state.replayCache = {};
+    replayFetchPromises = {};
 
     if (DOM.replayPlayBtn) {
         DOM.replayPlayBtn.disabled = true;
@@ -23,8 +32,8 @@ function resetReplay() {
     if (DOM.replayTimeLabel) {
         DOM.replayTimeLabel.textContent = '0.0s / 0.0s';
     }
-    if (DOM.replayLapSelect) {
-        DOM.replayLapSelect.innerHTML = '';
+    if (DOM.replayTimeline) {
+        DOM.replayTimeline.innerHTML = '';
     }
     renderReplayMessage('Select a session to replay track positions.');
 }
@@ -46,6 +55,7 @@ function setupReplaySection() {
 
     if (!Array.isArray(state.drivers) || state.drivers.length === 0) {
         DOM.replayDriverSelect.innerHTML = '';
+        if (DOM.replayTimeline) DOM.replayTimeline.innerHTML = '';
         renderReplayMessage('No drivers available for this session.');
         return;
     }
@@ -56,72 +66,280 @@ function setupReplaySection() {
         return `<option value="${d.driver_number}">${escapeHtml(label)} (#${d.driver_number})</option>`;
     }).join('');
 
-    renderReplayMessage('Replay loads when the Circuit Details tab is open.');
-    populateReplayLapSelect().then(() => maybeAutoLoadReplay());
+    renderReplayMessage('Replay loads when the Session Replay tab is open.');
+    setupReplayTimeline().then(() => maybeAutoLoadReplay());
 }
 
-async function populateReplayLapSelect() {
-    if (!DOM.replayLapSelect || !DOM.replayDriverSelect || !state.selectedSession) return;
+// Build the session timeline from the reference driver's laps; the fastest
+// lap is preselected as the starting point.
+async function setupReplayTimeline() {
+    if (!DOM.replayTimeline || !DOM.replayDriverSelect || !state.selectedSession) return;
 
     const driverNumber = Number(DOM.replayDriverSelect.value);
     if (!Number.isFinite(driverNumber)) return;
 
-    DOM.replayLapSelect.innerHTML = '<option value="">Loading laps...</option>';
+    state.replay.driverNumber = driverNumber;
+    state.replay.lapNumber = null;
+    state.replay.timeline = null;
+    DOM.replayTimeline.innerHTML = '<span class="replay-timeline-loading">Loading laps...</span>';
+
     const laps = await fetchDriverLaps(state.selectedSession.session_key, driverNumber);
 
     // The user may have changed driver while laps were loading
-    if (Number(DOM.replayDriverSelect.value) !== driverNumber) return;
+    if (state.replay.driverNumber !== driverNumber) return;
 
-    const selectable = (Array.isArray(laps) ? laps : []).filter(lap => lap && lap.date_start);
-    if (selectable.length === 0) {
-        DOM.replayLapSelect.innerHTML = '';
+    const timeline = buildReplayTimeline(laps);
+    if (!timeline) {
+        DOM.replayTimeline.innerHTML = '';
         renderReplayMessage('No laps with timing data recorded for this driver.');
         return;
     }
 
-    const fastest = selectable.reduce((best, lap) => {
-        if (!lap.lap_duration) return best;
-        return (!best || lap.lap_duration < best.lap_duration) ? lap : best;
-    }, null);
+    state.replay.timeline = timeline;
+    const fastest = timeline.segments.find(seg => seg.isFastest) || timeline.segments[0];
+    state.replay.lapNumber = fastest.lapNumber;
+    renderReplayTimeline();
+}
 
-    DOM.replayLapSelect.innerHTML = selectable.map(lap => {
-        const isFastest = fastest && lap.lap_number === fastest.lap_number;
-        const timeLabel = lap.lap_duration ? formatLapTime(lap.lap_duration) : 'no time';
-        return `<option value="${lap.lap_number}"${isFastest ? ' selected' : ''}>` +
-               `Lap ${lap.lap_number} — ${timeLabel}${isFastest ? ' ★' : ''}</option>`;
-    }).join('');
+// Frontend mirror of the backend's build_lap_telemetry_window: a lap's window
+// is lap_duration when > 0, else the gap to the next lap's later date_start.
+// Laps without a derivable window are excluded — the backend cannot serve them.
+function buildReplayTimeline(laps) {
+    const ordered = (Array.isArray(laps) ? laps : [])
+        .filter(lap => lap && lap.lap_number !== null && lap.lap_number !== undefined)
+        .sort((a, b) => Number(a.lap_number) - Number(b.lap_number));
+
+    const segments = [];
+    ordered.forEach((lap, index) => {
+        const start = lap.date_start ? new Date(lap.date_start).getTime() : NaN;
+        if (!Number.isFinite(start)) return;
+
+        const duration = Number(lap.lap_duration);
+        const hasTime = Number.isFinite(duration) && duration > 0;
+        let seconds = hasTime ? duration : null;
+        if (seconds === null) {
+            for (let j = index + 1; j < ordered.length; j++) {
+                const nextStart = ordered[j].date_start ? new Date(ordered[j].date_start).getTime() : NaN;
+                if (Number.isFinite(nextStart) && nextStart > start) {
+                    seconds = (nextStart - start) / 1000;
+                    break;
+                }
+            }
+        }
+        if (!Number.isFinite(seconds) || seconds <= 0) return;
+
+        segments.push({
+            lapNumber: Number(lap.lap_number),
+            seconds,
+            hasTime,
+            isFastest: false
+        });
+    });
+
+    if (segments.length === 0) return null;
+
+    let fastest = null;
+    segments.forEach(seg => {
+        if (seg.hasTime && (!fastest || seg.seconds < fastest.seconds)) fastest = seg;
+    });
+    if (fastest) fastest.isFastest = true;
+
+    // Display widths are capped so seeking stays precise on flying laps; the
+    // click-to-seek mapping uses each segment's real seconds, not its width.
+    const sortedSeconds = segments.map(seg => seg.seconds).sort((a, b) => a - b);
+    const median = sortedSeconds[Math.floor(sortedSeconds.length / 2)];
+    const widthCap = median * REPLAY_TIMELINE_WIDTH_CAP;
+
+    let displayTotal = 0;
+    segments.forEach(seg => {
+        seg.displayUnits = Math.min(seg.seconds, widthCap);
+        seg.displayStart = displayTotal;
+        displayTotal += seg.displayUnits;
+    });
+
+    return { segments, displayTotal };
+}
+
+function renderReplayTimeline() {
+    if (!DOM.replayTimeline) return;
+    const timeline = state.replay.timeline;
+    if (!timeline) {
+        DOM.replayTimeline.innerHTML = '';
+        return;
+    }
+
+    // Label roughly every Nth lap so long races stay readable
+    const labelStep = Math.max(1, Math.ceil(timeline.segments.length / 16));
+
+    DOM.replayTimeline.innerHTML = '';
+    const track = document.createElement('div');
+    track.className = 'replay-timeline-track';
+
+    timeline.segments.forEach((seg, index) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'replay-timeline-segment';
+        if (seg.isFastest) btn.classList.add('fastest');
+        if (seg.lapNumber === state.replay.lapNumber) btn.classList.add('active');
+        btn.dataset.lap = seg.lapNumber;
+        btn.style.flexGrow = String(seg.displayUnits);
+        const timeText = seg.hasTime ? ` — ${formatLapTime(seg.seconds)}` : '';
+        btn.title = `Lap ${seg.lapNumber}${timeText}${seg.isFastest ? ' ★' : ''}`;
+        btn.setAttribute('aria-label', btn.title);
+
+        if (index % labelStep === 0 || seg.isFastest) {
+            const label = document.createElement('span');
+            label.className = 'replay-timeline-label';
+            label.textContent = seg.lapNumber;
+            btn.appendChild(label);
+        }
+        track.appendChild(btn);
+    });
+
+    const playhead = document.createElement('div');
+    playhead.className = 'replay-timeline-playhead';
+    track.appendChild(playhead);
+
+    DOM.replayTimeline.appendChild(track);
+    updateReplayTimelinePlayhead();
+}
+
+function getTimelineSegment(lapNumber) {
+    const timeline = state.replay.timeline;
+    if (!timeline) return null;
+    return timeline.segments.find(seg => seg.lapNumber === lapNumber) || null;
+}
+
+function getNextTimelineSegment(lapNumber) {
+    const timeline = state.replay.timeline;
+    if (!timeline) return null;
+    const index = timeline.segments.findIndex(seg => seg.lapNumber === lapNumber);
+    return index >= 0 ? timeline.segments[index + 1] || null : null;
+}
+
+function updateReplayTimelineActive() {
+    if (!DOM.replayTimeline) return;
+    DOM.replayTimeline.querySelectorAll('.replay-timeline-segment').forEach(btn => {
+        btn.classList.toggle('active', Number(btn.dataset.lap) === state.replay.lapNumber);
+    });
+}
+
+function updateReplayTimelinePlayhead() {
+    if (!DOM.replayTimeline) return;
+    const playhead = DOM.replayTimeline.querySelector('.replay-timeline-playhead');
+    const timeline = state.replay.timeline;
+    if (!playhead) return;
+
+    const seg = getTimelineSegment(state.replay.lapNumber);
+    if (!timeline || timeline.displayTotal <= 0 || !seg) {
+        playhead.style.display = 'none';
+        return;
+    }
+
+    const windowSeconds = getReplayWindowSeconds() || seg.seconds;
+    const fraction = windowSeconds > 0 ? Math.max(0, Math.min(1, state.replay.t / windowSeconds)) : 0;
+    const left = (seg.displayStart + fraction * seg.displayUnits) / timeline.displayTotal;
+    playhead.style.display = '';
+    playhead.style.left = `${(left * 100).toFixed(3)}%`;
+}
+
+function onReplayTimelineClick(event) {
+    const btn = event.target.closest('.replay-timeline-segment');
+    if (!btn) return;
+    const seg = getTimelineSegment(Number(btn.dataset.lap));
+    if (!seg) return;
+
+    const rect = btn.getBoundingClientRect();
+    const fraction = rect.width > 0
+        ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+        : 0;
+    seekReplayToTimelineFraction(seg, fraction);
+}
+
+// Seek to a point inside a timeline segment (fraction of that lap's window);
+// playback state survives lap switches.
+function seekReplayToTimelineFraction(segment, fraction) {
+    const startT = segment.seconds * fraction;
+    if (segment.lapNumber === state.replay.lapNumber && state.replay.data) {
+        renderReplayFrame(Math.min(startT, getReplayWindowSeconds()));
+        return;
+    }
+
+    const resume = state.replay.playing;
+    stopReplayPlayback();
+    state.replay.lapNumber = segment.lapNumber;
+    updateReplayTimelineActive();
+    loadTrackReplay(state.replay.driverNumber, segment.lapNumber, { startT, resume });
 }
 
 // Session load lands on the Drivers tab; defer location fetches until the
-// Circuit Details tab is actually visible.
+// Session Replay tab is actually visible.
 function maybeAutoLoadReplay() {
-    if (state.currentTab !== 'circuit-view') return;
+    if (state.currentTab !== 'replay-view') return;
     loadSelectedReplay();
 }
 
 function loadSelectedReplay() {
-    if (!DOM.replayDriverSelect || !DOM.replayLapSelect || !state.selectedSession) return;
-    const driverNumber = Number(DOM.replayDriverSelect.value);
-    const lapNumber = Number(DOM.replayLapSelect.value);
-    if (!Number.isFinite(driverNumber) || !Number.isFinite(lapNumber) || DOM.replayLapSelect.value === '') return;
+    if (!state.selectedSession) return;
+    const { driverNumber, lapNumber } = state.replay;
+    if (!Number.isFinite(driverNumber) || !Number.isFinite(lapNumber)) return;
     loadTrackReplay(driverNumber, lapNumber);
 }
 
-async function loadTrackReplay(driverNumber, lapNumber) {
+// Fetch and memoize a lap's replay payload; null when the lap has no data.
+// In-flight requests are shared so a prefetch and a lap-advance load for the
+// same lap never hit the network twice.
+let replayFetchPromises = {};
+
+function fetchReplayPayload(sessionKey, driverNumber, lapNumber) {
+    const cacheKey = `${sessionKey}_${driverNumber}_${lapNumber}`;
+    if (state.replayCache[cacheKey]) return Promise.resolve(state.replayCache[cacheKey]);
+
+    if (!replayFetchPromises[cacheKey]) {
+        replayFetchPromises[cacheKey] = (async () => {
+            try {
+                const response = await customFetch(
+                    `/api/track_replay?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
+                );
+                if (!response.ok) return null;
+                const payload = await response.json();
+                if (!payload || !Array.isArray(payload.drivers) || payload.drivers.length === 0) return null;
+                state.replayCache[cacheKey] = payload;
+                return payload;
+            } finally {
+                delete replayFetchPromises[cacheKey];
+            }
+        })();
+    }
+    return replayFetchPromises[cacheKey];
+}
+
+async function loadTrackReplay(driverNumber, lapNumber, options = {}) {
     const sessionKey = state.selectedSession.session_key;
     const cacheKey = `${sessionKey}_${driverNumber}_${lapNumber}`;
 
     stopReplayPlayback();
-    if (state.replay.loadedKey === cacheKey && state.replay.data) return;
+    state.replay.driverNumber = Number(driverNumber);
+    state.replay.lapNumber = Number(lapNumber);
+
+    if (state.replay.loadedKey === cacheKey && state.replay.data) {
+        // Already showing this lap (e.g. tab re-entry): keep the position
+        // unless the caller asked for a specific one.
+        if (options.startT !== undefined) {
+            renderReplayFrame(Math.max(0, Math.min(Number(options.startT) || 0, getReplayWindowSeconds())));
+        }
+        if (options.resume) startReplayPlayback();
+        return;
+    }
 
     const isCurrentSelection = () => (
-        Number(DOM.replayDriverSelect && DOM.replayDriverSelect.value) === Number(driverNumber) &&
-        Number(DOM.replayLapSelect && DOM.replayLapSelect.value) === Number(lapNumber)
+        state.replay.driverNumber === Number(driverNumber) &&
+        state.replay.lapNumber === Number(lapNumber)
     );
 
     const cached = state.replayCache[cacheKey];
     if (cached) {
-        buildReplayScene(cached, cacheKey);
+        buildReplayScene(cached, cacheKey, options);
         return;
     }
 
@@ -130,22 +348,13 @@ async function loadTrackReplay(driverNumber, lapNumber) {
     if (DOM.replayScrubber) DOM.replayScrubber.disabled = true;
 
     try {
-        const response = await customFetch(
-            `/api/track_replay?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
-        );
+        const payload = await fetchReplayPayload(sessionKey, driverNumber, lapNumber);
         if (!isCurrentSelection()) return;
-        if (!response.ok) {
+        if (!payload) {
             renderReplayMessage('No track position data available for this lap.');
             return;
         }
-        const payload = await response.json();
-        if (!payload || !Array.isArray(payload.drivers) || payload.drivers.length === 0) {
-            renderReplayMessage('No track position data recorded for this lap.');
-            return;
-        }
-        state.replayCache[cacheKey] = payload;
-        if (!isCurrentSelection()) return;
-        buildReplayScene(payload, cacheKey);
+        buildReplayScene(payload, cacheKey, options);
     } catch (e) {
         console.error('Error loading track replay:', e);
         if (isCurrentSelection()) {
@@ -168,7 +377,7 @@ function buildReplayProjection(bounds, viewBoxSize, padding) {
     };
 }
 
-function buildReplayScene(payload, cacheKey) {
+function buildReplayScene(payload, cacheKey, options = {}) {
     if (!DOM.replayMapContent) return;
 
     stopReplayPlayback();
@@ -274,7 +483,11 @@ function buildReplayScene(payload, cacheKey) {
 
     if (DOM.replayPlayBtn) DOM.replayPlayBtn.disabled = false;
     if (DOM.replayScrubber) DOM.replayScrubber.disabled = false;
-    renderReplayFrame(0);
+    updateReplayTimelineActive();
+
+    const windowSeconds = Number(payload.window_seconds) || 0;
+    renderReplayFrame(Math.max(0, Math.min(Number(options.startT) || 0, windowSeconds)));
+    if (options.resume) startReplayPlayback();
 }
 
 // Interpolated [x, y] at time t, or null when t falls outside the series or in a data gap
@@ -337,8 +550,38 @@ function renderReplayFrame(t) {
         DOM.replayScrubber.value = Math.round((t / windowSeconds) * max);
     }
     if (DOM.replayTimeLabel) {
-        DOM.replayTimeLabel.textContent = `${t.toFixed(1)}s / ${windowSeconds.toFixed(1)}s`;
+        const lapPrefix = Number.isFinite(state.replay.lapNumber) ? `Lap ${state.replay.lapNumber} · ` : '';
+        DOM.replayTimeLabel.textContent = `${lapPrefix}${t.toFixed(1)}s / ${windowSeconds.toFixed(1)}s`;
     }
+    updateReplayTimelinePlayhead();
+}
+
+// Warm the cache for the next timeline lap so the lap handoff is seamless
+function prefetchNextReplayLap() {
+    if (!state.selectedSession) return;
+    const next = getNextTimelineSegment(state.replay.lapNumber);
+    if (!next) return;
+
+    fetchReplayPayload(state.selectedSession.session_key, state.replay.driverNumber, next.lapNumber)
+        .catch(e => console.error('Error prefetching replay lap:', e));
+}
+
+// Continuous playback: carry leftover time into the next timeline lap, or
+// stop at the end of the session.
+function advanceReplayToNextLap(leftover) {
+    const next = getNextTimelineSegment(state.replay.lapNumber);
+    if (!next) {
+        renderReplayFrame(getReplayWindowSeconds());
+        stopReplayPlayback();
+        return;
+    }
+
+    state.replay.lapNumber = next.lapNumber;
+    updateReplayTimelineActive();
+    loadTrackReplay(state.replay.driverNumber, next.lapNumber, {
+        startT: Math.max(0, leftover),
+        resume: true
+    });
 }
 
 function replayLoop(frameTs) {
@@ -351,15 +594,31 @@ function replayLoop(frameTs) {
     state.replay.lastFrameTs = frameTs;
 
     const windowSeconds = getReplayWindowSeconds();
-    let t = state.replay.t + dt * state.replay.speed;
+    const t = state.replay.t + dt * state.replay.speed;
+
+    if (windowSeconds - t <= REPLAY_PREFETCH_LEAD_SECONDS) {
+        prefetchNextReplayLap();
+    }
 
     if (t >= windowSeconds) {
-        renderReplayFrame(windowSeconds);
-        stopReplayPlayback();
+        advanceReplayToNextLap(t - windowSeconds);
         return;
     }
 
     renderReplayFrame(t);
+    state.replay.rafId = requestAnimationFrame(replayLoop);
+}
+
+function startReplayPlayback() {
+    if (!state.replay.data || state.replay.playing) return;
+
+    // Restarting from the end of the last timeline lap replays that lap
+    if (state.replay.t >= getReplayWindowSeconds() && !getNextTimelineSegment(state.replay.lapNumber)) {
+        state.replay.t = 0;
+    }
+    state.replay.playing = true;
+    state.replay.lastFrameTs = null;
+    setReplayPlayIcon(true);
     state.replay.rafId = requestAnimationFrame(replayLoop);
 }
 
@@ -370,14 +629,7 @@ function toggleReplayPlayback() {
         stopReplayPlayback();
         return;
     }
-
-    if (state.replay.t >= getReplayWindowSeconds()) {
-        state.replay.t = 0;
-    }
-    state.replay.playing = true;
-    state.replay.lastFrameTs = null;
-    setReplayPlayIcon(true);
-    state.replay.rafId = requestAnimationFrame(replayLoop);
+    startReplayPlayback();
 }
 
 function stopReplayPlayback() {
