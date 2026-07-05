@@ -671,6 +671,47 @@ def build_lap_telemetry_window(laps, lap_number):
         return None
     return None
 
+def build_race_lap_window(laps, lap_number):
+    """Return (start, end) datetimes for a race lap, or None when no usable window exists.
+
+    Race lap N opens when the first driver starts lap N (the race leader) and
+    closes when the first driver starts a later lap; the final lap closes at
+    the latest lap end across the field so every car reaches the flag. Only
+    meaningful for Race/Sprint sessions, where lap numbers are field-wide.
+    """
+    if not isinstance(laps, list):
+        return None
+    starts = {}
+    completed = set()  # lap numbers some driver has a recorded duration for
+    latest_end = None
+    for lap in laps:
+        if not isinstance(lap, dict) or lap.get("lap_number") is None:
+            continue
+        start = parse_iso_utc(lap.get("date_start"))
+        if start is None:
+            continue
+        number = lap["lap_number"]
+        if number not in starts or start < starts[number]:
+            starts[number] = start
+        duration = parse_float(lap.get("lap_duration"))
+        if duration is not None and duration > 0:
+            completed.add(number)
+            end = start + timedelta(seconds=duration)
+            if latest_end is None or end > latest_end:
+                latest_end = end
+    start = starts.get(lap_number)
+    if start is None:
+        return None
+    later_starts = [value for number, value in starts.items() if number > lap_number and value > start]
+    if later_starts:
+        return start, min(later_starts)
+    # Close the final lap only once someone has completed it: a live
+    # in-progress lap must not get a window from an unrelated earlier lap end
+    # (e.g. a stale many-laps-down entry), matching the per-driver 404.
+    if lap_number in completed and latest_end is not None and latest_end > start:
+        return start, latest_end
+    return None
+
 def downsample_telemetry(samples, max_points=TELEMETRY_MAX_POINTS):
     if len(samples) <= max_points:
         return samples, False
@@ -773,14 +814,19 @@ async def api_track_replay():
     session_key = parse_int_param(request.args.get("session_key"))
     if session_key is None:
         return invalid_param_response("session_key")
-    driver_number = parse_int_param(request.args.get("driver_number"))
-    if driver_number is None:
-        return invalid_param_response("driver_number")
+    # Full-race mode: omitting driver_number replays leader-based race-lap
+    # windows instead of one driver's laps (doc/2026-07-05-full-race-replay-design.md)
+    driver_number = None
+    if request.args.get("driver_number") is not None:
+        driver_number = parse_int_param(request.args.get("driver_number"))
+        if driver_number is None:
+            return invalid_param_response("driver_number")
     lap_number = parse_int_param(request.args.get("lap_number"))
     if lap_number is None:
         return invalid_param_response("lap_number")
 
-    cache_name = f"track_replay_{session_key}_{driver_number}_{lap_number}.json"
+    replay_scope = "race" if driver_number is None else driver_number
+    cache_name = f"track_replay_{session_key}_{replay_scope}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
     session = await asyncio.to_thread(get_session_info, session_key)
     ttl = None if is_historical(session) else 300
@@ -796,17 +842,30 @@ async def api_track_replay():
         if cached is not None:
             return jsonify(cached)
 
-        laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}&driver_number={driver_number}"
+        if driver_number is None:
+            laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}"
+            laps_cache_name = f"laps_{session_key}.json"
+        else:
+            laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}&driver_number={driver_number}"
+            laps_cache_name = f"laps_{session_key}_{driver_number}.json"
         laps = await get_cached_api(
             laps_url,
-            f"laps_{session_key}_{driver_number}.json",
+            laps_cache_name,
             session_key=session_key,
             api_key=api_key,
         )
-        window = build_lap_telemetry_window(laps, lap_number)
-        if window is None:
-            return jsonify({"error": "No replay window available for this lap"}), 404
-        lap, start, end = window
+        if driver_number is None:
+            window = build_race_lap_window(laps, lap_number)
+            if window is None:
+                return jsonify({"error": "No replay window available for this lap"}), 404
+            start, end = window
+            lap_duration = None
+        else:
+            window = build_lap_telemetry_window(laps, lap_number)
+            if window is None:
+                return jsonify({"error": "No replay window available for this lap"}), 404
+            lap, start, end = window
+            lap_duration = parse_float(lap.get("lap_duration"))
 
         # No driver filter: one query returns the whole field for the window
         url = (
@@ -854,7 +913,7 @@ async def api_track_replay():
             "session_key": session_key,
             "driver_number": driver_number,
             "lap_number": lap_number,
-            "lap_duration": parse_float(lap.get("lap_duration")),
+            "lap_duration": lap_duration,
             "window_seconds": round(window_seconds, 3),
             "downsampled": downsampled,
             "drivers": drivers,

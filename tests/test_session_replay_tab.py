@@ -134,5 +134,35 @@ class ReplayRaceControlTimelineTests(unittest.TestCase):
             self.assertIn(css_class, self.styles_css)
 
 
+class FullRaceReplayTests(unittest.TestCase):
+    """Driver-less full-race replay mode
+    (doc/2026-07-05-full-race-replay-design.md)."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
+
+    def test_js_defines_full_race_helpers(self):
+        for snippet in (
+            "const REPLAY_FULL_RACE",
+            "function replaySupportsFullRace",
+            "function buildFullRaceTimeline",
+            "function finalizeReplayTimeline",
+            "function fetchAllSessionLaps",
+            "function normalizeReplaySelection",
+            "function isValidReplaySelection",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_full_race_option_offered_for_race_sessions(self):
+        self.assertIn("Full race — whole field", self.dashboard_js)
+        self.assertIn("replaySupportsFullRace()", self.dashboard_js)
+
+    def test_full_race_requests_omit_driver_number(self):
+        # The backend switches to race-lap windows when driver_number is absent
+        self.assertIn("driverNumber === REPLAY_FULL_RACE ? ''", self.dashboard_js)
+
+
 if __name__ == "__main__":
     unittest.main()

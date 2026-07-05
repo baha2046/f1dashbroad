@@ -3,7 +3,9 @@
 // per-lap time windows, the whole field's positions animate over them, and
 // playback auto-advances across laps (see
 // doc/2026-07-05-session-replay-tab-design.md and the original single-lap
-// design in doc/2026-07-04-track-replay-design.md).
+// design in doc/2026-07-04-track-replay-design.md). Race/Sprint sessions add
+// a driver-less "Full race" mode whose windows follow the race leader
+// (doc/2026-07-05-full-race-replay-design.md).
 
 // Hide a car when the gap between its bracketing samples exceeds this (garage/retirement)
 const REPLAY_SAMPLE_GAP_SECONDS = 4;
@@ -12,6 +14,10 @@ const REPLAY_PREFETCH_LEAD_SECONDS = 15;
 // Cap a timeline segment's rendered width at this multiple of the median lap
 // window so out-laps / red-flag gaps don't dwarf flying laps
 const REPLAY_TIMELINE_WIDTH_CAP = 3;
+
+// Sentinel select value / state.replay.driverNumber for full-race mode:
+// the backend serves leader-based race-lap windows when driver_number is omitted
+const REPLAY_FULL_RACE = 'race';
 
 // Circuit-state precedence when periods overlap (e.g. sector yellows under SC)
 const REPLAY_STATE_PRIORITY = ['red', 'sc', 'vsc', 'yellow'];
@@ -169,6 +175,21 @@ function resetReplay() {
     updateReplayCircuitState();
 }
 
+// Full-race windows need field-wide lap numbering, which only Race/Sprint
+// sessions have (the same gate as pit annotations)
+function replaySupportsFullRace() {
+    return isPitAnnotationSession(state.selectedSession);
+}
+
+// A replay selection is either the full-race sentinel or a driver number
+function normalizeReplaySelection(value) {
+    return value === REPLAY_FULL_RACE ? REPLAY_FULL_RACE : Number(value);
+}
+
+function isValidReplaySelection(value) {
+    return value === REPLAY_FULL_RACE || Number.isFinite(value);
+}
+
 function setReplayPlayIcon(playing) {
     if (!DOM.replayPlayBtn) return;
     const icon = DOM.replayPlayBtn.querySelector('.material-icons-round');
@@ -196,25 +217,33 @@ function setupReplaySection() {
     }
 
     const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
-    DOM.replayDriverSelect.innerHTML = sortedDrivers.map(d => {
+    const options = sortedDrivers.map(d => {
         const label = d.full_name || d.broadcast_name || `Driver ${d.driver_number}`;
         return `<option value="${d.driver_number}">${escapeHtml(label)} (#${d.driver_number})</option>`;
-    }).join('');
+    });
+    // Full race is the default view for Race/Sprint: no driver to pick,
+    // playback starts from lap 1 of the whole field
+    if (replaySupportsFullRace()) {
+        options.unshift(`<option value="${REPLAY_FULL_RACE}">Full race — whole field</option>`);
+    }
+    DOM.replayDriverSelect.innerHTML = options.join('');
 
     renderReplayMessage('Replay loads when the Session Replay tab is open.');
     setupReplayTimeline().then(() => maybeAutoLoadReplay());
 }
 
 // Build the session timeline. The race-control timeline renders immediately
-// (circuit states need no driver); the reference driver's laps upgrade it to
-// seekable segments when they arrive, preselecting the fastest lap.
+// (circuit states need no driver); lap data upgrades it to seekable segments
+// when it arrives — the reference driver's laps preselecting the fastest lap,
+// or in full-race mode the leader's race laps starting from lap 1.
 async function setupReplayTimeline() {
     if (!DOM.replayTimeline || !DOM.replayDriverSelect || !state.selectedSession) return;
 
-    const driverNumber = Number(DOM.replayDriverSelect.value);
-    if (!Number.isFinite(driverNumber)) return;
+    const selection = normalizeReplaySelection(DOM.replayDriverSelect.value);
+    if (!isValidReplaySelection(selection)) return;
+    const isFullRace = selection === REPLAY_FULL_RACE;
 
-    state.replay.driverNumber = driverNumber;
+    state.replay.driverNumber = selection;
     state.replay.lapNumber = null;
     state.replay.timeline = buildRaceControlTimeline();
     if (state.replay.timeline) {
@@ -223,26 +252,30 @@ async function setupReplayTimeline() {
         DOM.replayTimeline.innerHTML = '<span class="replay-timeline-loading">Loading laps...</span>';
     }
 
-    const laps = await fetchDriverLaps(state.selectedSession.session_key, driverNumber);
+    const laps = isFullRace
+        ? await fetchAllSessionLaps(state.selectedSession.session_key)
+        : await fetchDriverLaps(state.selectedSession.session_key, selection);
 
-    // The user may have changed driver while laps were loading
-    if (state.replay.driverNumber !== driverNumber) return;
+    // The user may have changed the selection while laps were loading
+    if (state.replay.driverNumber !== selection) return;
 
-    const timeline = buildReplayTimeline(laps);
+    const timeline = isFullRace ? buildFullRaceTimeline(laps) : buildReplayTimeline(laps);
     if (!timeline) {
+        const subject = isFullRace ? 'this session' : 'this driver';
         // Keep the race-control timeline: states stay visible, playback needs laps
         if (state.replay.timeline) {
-            renderReplayMessage('No lap data for this driver — the timeline shows race control track states.');
+            renderReplayMessage(`No lap data for ${subject} — the timeline shows race control track states.`);
         } else {
             DOM.replayTimeline.innerHTML = '';
-            renderReplayMessage('No laps with timing data recorded for this driver.');
+            renderReplayMessage(`No laps with timing data recorded for ${subject}.`);
         }
         return;
     }
 
     state.replay.timeline = timeline;
-    const fastest = timeline.segments.find(seg => seg.isFastest) || timeline.segments[0];
-    state.replay.lapNumber = fastest.lapNumber;
+    // Full race replays from the start; a driver preselects their fastest lap
+    const initial = timeline.segments.find(seg => seg.isFastest) || timeline.segments[0];
+    state.replay.lapNumber = initial.lapNumber;
     renderReplayTimeline();
 }
 
@@ -353,8 +386,71 @@ function buildReplayTimeline(laps) {
     });
     if (fastest) fastest.isFastest = true;
 
-    // Display widths are capped so seeking stays precise on flying laps; the
-    // click-to-seek mapping uses each segment's real seconds, not its width.
+    return finalizeReplayTimeline(segments);
+}
+
+// Frontend mirror of the backend's build_race_lap_window: race lap N opens
+// when the first driver starts lap N (the race leader) and closes when the
+// first driver starts a later lap; the final lap closes at the latest lap end
+// across the field so every car reaches the flag. No fastest-lap star — a
+// window here is leader pace, not any single driver's lap time.
+function buildFullRaceTimeline(allLaps) {
+    const startsByLap = new Map();
+    const completedLaps = new Set(); // lap numbers some driver has a duration for
+    let latestEndMs = null;
+
+    (Array.isArray(allLaps) ? allLaps : []).forEach(lap => {
+        if (!lap || lap.lap_number === null || lap.lap_number === undefined) return;
+        const lapNumber = Number(lap.lap_number);
+        const start = lap.date_start ? new Date(lap.date_start).getTime() : NaN;
+        if (!Number.isFinite(lapNumber) || !Number.isFinite(start)) return;
+
+        const existing = startsByLap.get(lapNumber);
+        if (existing === undefined || start < existing) startsByLap.set(lapNumber, start);
+
+        const duration = Number(lap.lap_duration);
+        if (Number.isFinite(duration) && duration > 0) {
+            completedLaps.add(lapNumber);
+            const end = start + duration * 1000;
+            if (latestEndMs === null || end > latestEndMs) latestEndMs = end;
+        }
+    });
+
+    const ordered = [...startsByLap.entries()].sort((a, b) => a[0] - b[0]);
+    const segments = [];
+    ordered.forEach(([lapNumber, startMs], index) => {
+        let endMs = null;
+        for (let j = index + 1; j < ordered.length; j++) {
+            if (ordered[j][1] > startMs) {
+                endMs = ordered[j][1];
+                break;
+            }
+        }
+        // Final lap closes at the latest lap end only once someone completed
+        // it; a live in-progress lap gets no segment (mirrors the backend)
+        if (endMs === null && completedLaps.has(lapNumber) && latestEndMs !== null && latestEndMs > startMs) {
+            endMs = latestEndMs;
+        }
+        if (endMs === null) return;
+
+        segments.push({
+            lapNumber,
+            startMs,
+            endMs,
+            seconds: (endMs - startMs) / 1000,
+            hasTime: false,
+            isFastest: false
+        });
+    });
+
+    if (segments.length === 0) return null;
+    return finalizeReplayTimeline(segments);
+}
+
+// Shared timeline tail: capped display widths plus the race-control range/states.
+// Display widths are capped so seeking stays precise on flying laps; the
+// click-to-seek mapping uses each segment's real seconds, not its width.
+function finalizeReplayTimeline(segments) {
     const sortedSeconds = segments.map(seg => seg.seconds).sort((a, b) => a - b);
     const median = sortedSeconds[Math.floor(sortedSeconds.length / 2)];
     const widthCap = median * REPLAY_TIMELINE_WIDTH_CAP;
@@ -544,7 +640,7 @@ function maybeAutoLoadReplay() {
 function loadSelectedReplay() {
     if (!state.selectedSession) return;
     const { driverNumber, lapNumber } = state.replay;
-    if (!Number.isFinite(driverNumber) || !Number.isFinite(lapNumber)) return;
+    if (!isValidReplaySelection(driverNumber) || !Number.isFinite(lapNumber)) return;
     loadTrackReplay(driverNumber, lapNumber);
 }
 
@@ -560,8 +656,11 @@ function fetchReplayPayload(sessionKey, driverNumber, lapNumber) {
     if (!replayFetchPromises[cacheKey]) {
         replayFetchPromises[cacheKey] = (async () => {
             try {
+                // Full-race mode omits driver_number: the backend then derives
+                // leader-based race-lap windows instead of one driver's laps
+                const driverParam = driverNumber === REPLAY_FULL_RACE ? '' : `&driver_number=${driverNumber}`;
                 const response = await customFetch(
-                    `/api/track_replay?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
+                    `/api/track_replay?session_key=${sessionKey}${driverParam}&lap_number=${lapNumber}`
                 );
                 if (!response.ok) return null;
                 const payload = await response.json();
@@ -581,7 +680,7 @@ async function loadTrackReplay(driverNumber, lapNumber, options = {}) {
     const cacheKey = `${sessionKey}_${driverNumber}_${lapNumber}`;
 
     stopReplayPlayback();
-    state.replay.driverNumber = Number(driverNumber);
+    state.replay.driverNumber = normalizeReplaySelection(driverNumber);
     state.replay.lapNumber = Number(lapNumber);
 
     if (state.replay.loadedKey === cacheKey && state.replay.data) {
@@ -595,7 +694,7 @@ async function loadTrackReplay(driverNumber, lapNumber, options = {}) {
     }
 
     const isCurrentSelection = () => (
-        state.replay.driverNumber === Number(driverNumber) &&
+        state.replay.driverNumber === normalizeReplaySelection(driverNumber) &&
         state.replay.lapNumber === Number(lapNumber)
     );
 

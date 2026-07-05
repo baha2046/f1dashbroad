@@ -16,6 +16,14 @@ LAP_FIXTURES = [
     {"lap_number": 6, "date_start": "2026-05-24T13:04:30+00:00", "lap_duration": 89.5},
 ]
 
+# Leader (driver 1) and a backmarker (driver 44): race-lap windows follow driver 1
+RACE_LAP_FIXTURES = [
+    {"driver_number": 1, "lap_number": 5, "date_start": "2026-05-24T13:03:00+00:00", "lap_duration": 90.0},
+    {"driver_number": 1, "lap_number": 6, "date_start": "2026-05-24T13:04:30+00:00", "lap_duration": 89.5},
+    {"driver_number": 44, "lap_number": 5, "date_start": "2026-05-24T13:03:20+00:00", "lap_duration": 95.0},
+    {"driver_number": 44, "lap_number": 6, "date_start": "2026-05-24T13:04:55+00:00", "lap_duration": 96.0},
+]
+
 
 def location_sample(date, driver_number, x=100, y=200, z=5):
     return {"date": date, "driver_number": driver_number, "x": x, "y": y, "z": z}
@@ -137,6 +145,122 @@ class TrackReplayEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first.status_code, 200)
         cache_file = self.cache_dir / "track_replay_4242_1_5.json"
         self.assertTrue(cache_file.exists())
+
+        second = await self.request(fetch_mock)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(fetch_mock.await_count, 1)
+        self.assertEqual(await first.get_json(), await second.get_json())
+
+
+class BuildRaceLapWindowTests(unittest.TestCase):
+    """Full-race replay windows (doc/2026-07-05-full-race-replay-design.md)."""
+
+    def parse(self, value):
+        return dashboard_app.parse_iso_utc(value)
+
+    def test_mid_race_lap_spans_leader_start_to_next_race_lap_start(self):
+        window = dashboard_app.build_race_lap_window(RACE_LAP_FIXTURES, 5)
+        self.assertEqual(
+            window,
+            (self.parse("2026-05-24T13:03:00+00:00"), self.parse("2026-05-24T13:04:30+00:00")),
+        )
+
+    def test_final_lap_closes_at_latest_lap_end_across_field(self):
+        window = dashboard_app.build_race_lap_window(RACE_LAP_FIXTURES, 6)
+        # driver 44 crosses the line last: 13:04:55 + 96s
+        self.assertEqual(
+            window,
+            (self.parse("2026-05-24T13:04:30+00:00"), self.parse("2026-05-24T13:06:31+00:00")),
+        )
+
+    def test_unknown_lap_or_bad_input_returns_none(self):
+        self.assertIsNone(dashboard_app.build_race_lap_window(RACE_LAP_FIXTURES, 99))
+        self.assertIsNone(dashboard_app.build_race_lap_window(None, 5))
+        self.assertIsNone(dashboard_app.build_race_lap_window([{"lap_number": 5}], 5))
+
+    def test_final_lap_without_any_duration_returns_none(self):
+        laps = [{"driver_number": 1, "lap_number": 5, "date_start": "2026-05-24T13:03:00+00:00"}]
+        self.assertIsNone(dashboard_app.build_race_lap_window(laps, 5))
+
+    def test_live_in_progress_lap_ignores_stale_earlier_lap_ends(self):
+        # No one has completed lap 21 yet; a many-laps-down car's recorded lap
+        # end falls after lap 21 starts and must not close the window
+        laps = [
+            {"driver_number": 1, "lap_number": 20, "date_start": "2026-05-24T14:00:00+00:00", "lap_duration": 90.0},
+            {"driver_number": 1, "lap_number": 21, "date_start": "2026-05-24T14:01:30+00:00"},
+            {"driver_number": 44, "lap_number": 5, "date_start": "2026-05-24T14:01:00+00:00", "lap_duration": 200.0},
+        ]
+        self.assertIsNone(dashboard_app.build_race_lap_window(laps, 21))
+
+
+class TrackReplayFullRaceEndpointTests(unittest.IsolatedAsyncioTestCase):
+    """/api/track_replay without driver_number serves leader-based race laps."""
+
+    def setUp(self):
+        self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir.mkdir(parents=True)
+        (self.cache_dir / "laps_4242.json").write_text(
+            json.dumps(RACE_LAP_FIXTURES), encoding="utf-8"
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+
+    async def request(self, fetch_mock, lap_number=5):
+        with (
+            patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
+            patch.object(dashboard_app, "fetch_url", new=fetch_mock),
+        ):
+            client = dashboard_app.app.test_client()
+            return await client.get(
+                f"/api/track_replay?session_key=4242&lap_number={lap_number}"
+            )
+
+    async def test_queries_location_for_race_lap_window_without_driver(self):
+        fetch_mock = AsyncMock(return_value=[
+            location_sample("2026-05-24T13:03:00+00:00", 1, x=-3650, y=1193),
+            location_sample("2026-05-24T13:03:30+00:00", 44, x=500, y=-750),
+        ])
+        response = await self.request(fetch_mock)
+
+        self.assertEqual(response.status_code, 200)
+        url = fetch_mock.await_args.args[0]
+        self.assertIn("/location", url)
+        self.assertNotIn("driver_number", url)
+        self.assertIn("date>=2026-05-24T13:03:00", url)
+        self.assertIn("date<2026-05-24T13:04:30", url)
+
+        data = await response.get_json()
+        self.assertIsNone(data["driver_number"])
+        self.assertIsNone(data["lap_duration"])
+        self.assertEqual(data["lap_number"], 5)
+        self.assertEqual(data["window_seconds"], 90.0)
+        drivers = {d["driver_number"]: d["samples"] for d in data["drivers"]}
+        self.assertEqual(set(drivers), {1, 44})
+
+    async def test_final_race_lap_covers_the_whole_field_to_the_flag(self):
+        fetch_mock = AsyncMock(return_value=[])
+        response = await self.request(fetch_mock, lap_number=6)
+
+        self.assertEqual(response.status_code, 200)
+        url = fetch_mock.await_args.args[0]
+        self.assertIn("date>=2026-05-24T13:04:30", url)
+        self.assertIn("date<2026-05-24T13:06:31", url)  # backmarker's lap end
+        data = await response.get_json()
+        self.assertEqual(data["window_seconds"], 121.0)
+
+    async def test_unknown_race_lap_returns_404(self):
+        response = await self.request(AsyncMock(return_value=[]), lap_number=99)
+        self.assertEqual(response.status_code, 404)
+
+    async def test_full_race_payload_is_cached_under_race_scope(self):
+        fetch_mock = AsyncMock(return_value=[
+            location_sample("2026-05-24T13:03:10+00:00", 1),
+        ])
+        first = await self.request(fetch_mock)
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue((self.cache_dir / "track_replay_4242_race_5.json").exists())
 
         second = await self.request(fetch_mock)
         self.assertEqual(second.status_code, 200)

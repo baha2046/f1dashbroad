@@ -220,6 +220,26 @@ async function fetchDriverLaps(sessionKey, driverNumber) {
     return null;
 }
 
+// Fetch every driver's laps for the session (memoized on state.allSessionLaps;
+// selectSession already fills it for Race/Sprint sessions)
+async function fetchAllSessionLaps(sessionKey) {
+    if (Array.isArray(state.allSessionLaps)) return state.allSessionLaps;
+
+    try {
+        const response = await customFetch(`/api/laps?session_key=${sessionKey}`);
+        if (response.ok) {
+            const laps = await response.json();
+            if (Array.isArray(laps)) {
+                state.allSessionLaps = laps;
+                return laps;
+            }
+        }
+    } catch (e) {
+        console.error('Error fetching session laps:', e);
+    }
+    return null;
+}
+
 function isPitAnnotationSession(session) {
     if (!session) return false;
     const allowedTypes = new Set(['race', 'sprint']);

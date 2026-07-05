@@ -45,7 +45,7 @@ function createReplayState() {
     return {
         data: null,        // loaded /api/track_replay payload
         loadedKey: null,   // cache key of the loaded payload
-        driverNumber: null, // selected reference driver (source of truth for loads)
+        driverNumber: null, // selected reference driver, or REPLAY_FULL_RACE (source of truth for loads)
         lapNumber: null,   // selected timeline lap (source of truth for loads)
         timeline: null,    // { segments, displayTotal } built from the reference driver's laps
         playing: false,
