@@ -344,13 +344,17 @@ class ReplayRaceContextTests(unittest.TestCase):
                 }}
             ], timeline);
             const cases = [
+                isDriverInPitAtMs(windows, 1, Date.parse("2026-07-05T09:59:50Z")),
                 isDriverInPitAtMs(windows, 1, Date.parse("2026-07-05T10:00:06Z")),
+                isDriverInPitAtMs(windows, 1, Date.parse("2026-07-05T10:00:20Z")),
                 isDriverInPitAtMs(windows, 1, Date.parse("2026-07-05T10:00:36Z")),
                 isDriverInPitAtMs(windows, 44, Date.parse("2026-07-05T10:20:15Z"))
             ];
             console.log(JSON.stringify(cases));
         """)
-        self.assertEqual(self._run_node(script), [True, False, True])
+        # Pit `date` (10:00:10) is the pit-lane exit: the 20s lane transit plus
+        # 5s pad runs backwards from it, so the window is 09:59:45 - 10:00:15.
+        self.assertEqual(self._run_node(script), [True, True, False, False, True])
 
     def test_replay_view_has_phase2_context_surfaces(self):
         replay_view = extract_section(self.index_html, "replay-view")

@@ -124,10 +124,13 @@ function buildReplayPitWindows(pitStops, timeline) {
         let endMs = null;
 
         if (Number.isFinite(dateMs)) {
-            startMs = dateMs - padMs;
-            endMs = dateMs + (Number.isFinite(durationSeconds) && durationSeconds > 0
+            // OpenF1 pit `date` marks the pit-lane exit, so the lane transit
+            // (`pit_duration`) extends backwards from it.
+            const laneMs = Number.isFinite(durationSeconds) && durationSeconds > 0
                 ? durationSeconds * 1000
-                : padMs) + padMs;
+                : padMs;
+            startMs = dateMs - laneMs - padMs;
+            endMs = dateMs + padMs;
         } else if (Number.isFinite(lapNumber) && segmentsByLap.has(lapNumber)) {
             const segment = segmentsByLap.get(lapNumber);
             startMs = segment.startMs;
