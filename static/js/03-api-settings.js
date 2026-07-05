@@ -121,6 +121,9 @@ document.addEventListener('DOMContentLoaded', () => {
     DOM.openF1ApiKeyClearBtn = document.getElementById('openF1ApiKeyClearBtn');
 
     setupEventListeners();
+    if (typeof setupLapsChartAutoResize === 'function') {
+        setupLapsChartAutoResize();
+    }
     updateApiStatusBarUI();
     loadSessions(state.selectedYear, true);
 });
@@ -230,7 +233,11 @@ function setupEventListeners() {
     if (DOM.chartHideOutliers) {
         DOM.chartHideOutliers.addEventListener('change', () => {
             if (state.selectedDriverStats && state.laps[state.selectedDriverStats]) {
-                renderLapChart(state.laps[state.selectedDriverStats]);
+                if (typeof scheduleLapChartRender === 'function') {
+                    scheduleLapChartRender(state.laps[state.selectedDriverStats]);
+                } else {
+                    renderLapChart(state.laps[state.selectedDriverStats]);
+                }
             }
         });
     }
@@ -276,6 +283,9 @@ function setupEventListeners() {
 
             // Telemetry fetches are deferred until the Laps tab is actually visible
             if (targetTab === 'laps-view') {
+                if (typeof scheduleLapChartRender === 'function') {
+                    scheduleLapChartRender();
+                }
                 maybeAutoLoadTelemetry();
             }
 

@@ -312,10 +312,13 @@
                                 <div class="chart-section">
                                     <div class="chart-header">
                                         <h5>Lap Time Progression</h5>
-                                        <label class="chart-toggle-wrapper">
-                                            <input type="checkbox" id="chartHideOutliers" checked>
-                                            <span class="toggle-text">Filter Pit/Slow Laps</span>
-                                        </label>
+                                        <div class="chart-toggle-wrapper">
+                                            <label class="switch-label" for="chartHideOutliers">Filter Pit/Slow Laps</label>
+                                            <label class="switch">
+                                                <input type="checkbox" id="chartHideOutliers" checked aria-label="Filter Pit/Slow Laps">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
                                     </div>
                                     <div class="chart-container-wrapper glass">
                                         <div id="lapsChartContainer">
@@ -395,10 +398,13 @@
                                         <span class="material-icons-round" aria-hidden="true">zoom_out_map</span>
                                         Reset Zoom
                                     </button>
-                                    <label class="chart-toggle-wrapper">
-                                        <input type="checkbox" id="compareHideOutliers" checked>
-                                        <span class="toggle-text">Filter Pit/Slow Laps</span>
-                                    </label>
+                                    <div class="chart-toggle-wrapper">
+                                        <label class="switch-label" for="compareHideOutliers">Filter Pit/Slow Laps</label>
+                                        <label class="switch">
+                                            <input type="checkbox" id="compareHideOutliers" checked aria-label="Filter Pit/Slow Laps">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
 

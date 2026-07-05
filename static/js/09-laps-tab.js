@@ -1,5 +1,59 @@
 // Select driver and fetch laps & stint details to render analytics
 // Select driver and fetch laps & stint details to render analytics
+let lapsChartRenderFrame = null;
+let lapsChartResizeObserver = null;
+
+function getChartContainerWidth(container) {
+    if (!container) return 0;
+    const rectWidth = container.getBoundingClientRect ? container.getBoundingClientRect().width : 0;
+    return Math.floor(rectWidth || container.clientWidth || container.offsetWidth || 0);
+}
+
+function isChartContainerVisible(container) {
+    return !!(container && container.isConnected && container.getClientRects && container.getClientRects().length > 0);
+}
+
+function scheduleLapChartRender(laps = null, attempt = 0) {
+    const sourceLaps = laps || (state.selectedDriverStats !== null ? state.laps[state.selectedDriverStats] : null);
+    if (!sourceLaps || !DOM.lapsChartContainer) return;
+
+    if (lapsChartRenderFrame !== null) {
+        cancelAnimationFrame(lapsChartRenderFrame);
+    }
+
+    lapsChartRenderFrame = requestAnimationFrame(() => {
+        lapsChartRenderFrame = null;
+
+        const width = getChartContainerWidth(DOM.lapsChartContainer);
+        const canRender = state.currentTab === 'laps-view' && isChartContainerVisible(DOM.lapsChartContainer) && width > 0;
+        if (canRender) {
+            renderLapChart(sourceLaps);
+            return;
+        }
+
+        if (attempt < 5) {
+            scheduleLapChartRender(sourceLaps, attempt + 1);
+        }
+    });
+}
+
+function setupLapsChartAutoResize() {
+    if (!DOM.lapsChartContainer || lapsChartResizeObserver) return;
+
+    const rerender = () => {
+        if (state.currentTab === 'laps-view') {
+            scheduleLapChartRender();
+        }
+    };
+
+    if (typeof ResizeObserver === 'function') {
+        lapsChartResizeObserver = new ResizeObserver(rerender);
+        lapsChartResizeObserver.observe(DOM.lapsChartContainer);
+    } else {
+        window.addEventListener('resize', rerender);
+    }
+}
+
 async function selectDriverForStats(driverNumber) {
     state.selectedDriverStats = driverNumber;
     
@@ -177,14 +231,14 @@ async function selectDriverForStats(driverNumber) {
         // Render Stints Timeline
         renderStintsTimeline(driverNumber);
 
-        // Render Lap Timing Chart
-        renderLapChart(laps);
+        // Display dashboard
+        DOM.lapsData.style.display = 'block';
+
+        // Render Lap Timing Chart after the panel is visible and measurable.
+        scheduleLapChartRender(laps);
 
         // Populate the telemetry lap selector (fetches only when the tab is visible)
         setupTelemetrySection(laps);
-
-        // Display dashboard
-        DOM.lapsData.style.display = 'block';
     } catch (e) {
         console.error('Error rendering driver details:', e);
         loader.remove();
@@ -361,14 +415,22 @@ function extractSafetyCarPeriods(records) {
 // Render SVG Timing Chart
 function renderLapChart(laps) {
     if (!DOM.lapsChartContainer) return;
-    DOM.lapsChartContainer.innerHTML = '';
 
     // Filter laps with valid duration
     const validLaps = laps.filter(l => l.lap_duration && !isNaN(l.lap_duration));
     if (validLaps.length === 0) {
+        DOM.lapsChartContainer.innerHTML = '';
         DOM.lapsChartContainer.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:13px;">No lap times recorded to plot.</div>';
         return;
     }
+
+    const width = getChartContainerWidth(DOM.lapsChartContainer);
+    if (width <= 0) {
+        scheduleLapChartRender(laps);
+        return;
+    }
+
+    DOM.lapsChartContainer.innerHTML = '';
 
     // Determine outliers
     const durations = validLaps.map(l => l.lap_duration);
@@ -400,7 +462,6 @@ function renderLapChart(laps) {
     const maxXValue = qualifyingAxis ? qualifyingAxis.max : maxLap;
 
     // Chart margins and sizes
-    const width = DOM.lapsChartContainer.clientWidth || 800;
     const height = 320;
     const padding = { top: 20, right: 30, bottom: 30, left: 55 };
     
@@ -626,7 +687,7 @@ function renderLapChart(laps) {
         }
 
         // Hover interactions
-        circle.addEventListener("mouseenter", (e) => {
+        circle.addEventListener("mouseenter", () => {
             circle.classList.add("active");
             if (!isOutlier) {
                 circle.style.fill = `#${teamHex}`;
