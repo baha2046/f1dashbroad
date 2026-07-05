@@ -361,15 +361,15 @@ body {
 .session-card {
     display: grid;
     grid-template-columns: 46px minmax(0, 1fr);
-    align-items: center;
+    align-items: start;
     gap: 12px;
-    min-height: 96px;
+    min-height: 126px;
     background:
         linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
         rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border-color);
     border-radius: 12px;
-    padding: 14px 14px 14px 18px;
+    padding: 16px 16px 16px 18px;
     cursor: pointer;
     transition: var(--transition-normal);
     position: relative;
@@ -470,6 +470,64 @@ body {
 .badge-race { background: rgba(225, 6, 0, 0.15); color: #ff3c30; border: 1px solid rgba(225, 6, 0, 0.3); }
 .badge-quali { background: rgba(188, 59, 255, 0.15); color: #d06bff; border: 1px solid rgba(188, 59, 255, 0.3); }
 .badge-practice { background: rgba(0, 161, 232, 0.15); color: #4dc3ff; border: 1px solid rgba(0, 161, 232, 0.3); }
+
+/* Grouped Meeting Sessions */
+.meeting-sessions-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.session-pill {
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.session-pill:hover {
+    filter: brightness(1.2);
+    transform: translateY(-1px);
+}
+
+.session-pill.active {
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.15);
+}
+
+.session-pill.badge-race.active {
+    background: #ff3c30;
+    color: #0a0a0c;
+    border-color: #ff3c30;
+    box-shadow: 0 0 10px rgba(255, 60, 48, 0.4);
+}
+
+.session-pill.badge-quali.active {
+    background: #d06bff;
+    color: #0a0a0c;
+    border-color: #d06bff;
+    box-shadow: 0 0 10px rgba(208, 107, 255, 0.4);
+}
+
+.session-pill.badge-practice.active {
+    background: #4dc3ff;
+    color: #0a0a0c;
+    border-color: #4dc3ff;
+    box-shadow: 0 0 10px rgba(77, 195, 255, 0.4);
+}
+
+.session-pill.badge-cancelled.active {
+    background: var(--accent-red);
+    color: #0a0a0c;
+    border-color: var(--accent-red);
+    box-shadow: 0 0 10px rgba(255, 24, 1, 0.4);
+}
 
 .card-top-right {
     display: flex;

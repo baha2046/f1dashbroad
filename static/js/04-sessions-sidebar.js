@@ -184,7 +184,94 @@ function filterAndRenderSessions() {
     renderSessionsList();
 }
 
-// Render F1 sessions list
+// Helper: Format a list of sessions into a date range string
+function formatMeetingDateRange(sessions) {
+    if (!sessions || sessions.length === 0) return '';
+    
+    // Sort chronologically by start date
+    const sorted = [...sessions].sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+    const firstDate = new Date(sorted[0].date_start);
+    const lastDate = new Date(sorted[sorted.length - 1].date_start);
+    
+    if (isNaN(firstDate.getTime())) return '';
+    
+    const optionsMonth = { month: 'short' };
+    const optionsDay = { day: 'numeric' };
+    const optionsYear = { year: 'numeric' };
+    
+    const fMonth = firstDate.toLocaleDateString(undefined, optionsMonth);
+    const fDay = firstDate.toLocaleDateString(undefined, optionsDay);
+    const fYear = firstDate.getFullYear();
+    
+    if (isNaN(lastDate.getTime()) || firstDate.toDateString() === lastDate.toDateString()) {
+        return `${fMonth} ${fDay}`;
+    }
+    
+    const lMonth = lastDate.toLocaleDateString(undefined, optionsMonth);
+    const lDay = lastDate.toLocaleDateString(undefined, optionsDay);
+    const lYear = lastDate.getFullYear();
+    
+    if (fYear !== lYear) {
+        return `${fMonth} ${fDay}, ${fYear} - ${lMonth} ${lDay}, ${lYear}`;
+    }
+    if (fMonth !== lMonth) {
+        return `${fMonth} ${fDay} - ${lMonth} ${lDay}`;
+    }
+    return `${fMonth} ${fDay} - ${lDay}`;
+}
+
+// Helper: Get a short abbreviated name for a session
+function getSessionShortName(sessionName) {
+    if (!sessionName) return 'SES';
+    const name = sessionName.trim();
+    if (name === 'Practice 1') return 'FP1';
+    if (name === 'Practice 2') return 'FP2';
+    if (name === 'Practice 3') return 'FP3';
+    if (name === 'Sprint Qualifying') return 'SQ';
+    if (name === 'Sprint Shootout') return 'SS';
+    if (name === 'Sprint') return 'SPR';
+    if (name === 'Qualifying') return 'QL';
+    if (name === 'Race') return 'R';
+    return name.slice(0, 3).toUpperCase();
+}
+
+// Helper: Calculate overall meeting status based on its sessions
+function getMeetingStatus(sessions) {
+    let hasLive = false;
+    let hasUpcoming = false;
+    let hasPast = false;
+    let allCancelled = true;
+    
+    sessions.forEach(session => {
+        if (!session.is_cancelled) {
+            allCancelled = false;
+        }
+        const status = getLiveSessionStatus(session);
+        if (status.text === 'Live') {
+            hasLive = true;
+        } else if (status.text === 'Upcoming') {
+            hasUpcoming = true;
+        } else if (status.text === 'Past') {
+            hasPast = true;
+        }
+    });
+    
+    if (hasLive) {
+        return { text: 'Live', className: 'status-live' };
+    }
+    if (hasUpcoming) {
+        return { text: 'Upcoming', className: 'status-upcoming' };
+    }
+    if (hasPast) {
+        return { text: 'Past', className: 'status-past' };
+    }
+    if (allCancelled) {
+        return { text: 'Cancelled', className: 'status-cancelled' };
+    }
+    return { text: 'Past', className: 'status-past' };
+}
+
+// Render F1 sessions list (grouped by meeting_key)
 function renderSessionsList() {
     if (state.filteredSessions.length === 0) {
         DOM.sessionsList.innerHTML = `
@@ -196,66 +283,123 @@ function renderSessionsList() {
     }
 
     DOM.sessionsList.innerHTML = '';
+
+    // Group sessions by meeting_key
+    const meetingsMap = new Map();
     state.filteredSessions.forEach(session => {
-        const card = document.createElement('div');
-        const isCancelled = session.is_cancelled === true;
-        card.className = `session-card ${isCancelled ? 'cancelled' : ''} ${state.selectedSession && state.selectedSession.session_key === session.session_key ? 'active' : ''}`;
-        
-        let badgeClass = 'badge-practice';
-        let badgeText = session.session_name;
-        
-        if (isCancelled) {
-            badgeClass = 'badge-cancelled';
-            badgeText = 'Cancelled';
-        } else if (session.session_name.includes('Quali')) {
-            badgeClass = 'badge-quali';
-        } else if (session.session_name.includes('Race') || session.session_name.includes('Sprint')) {
-            badgeClass = 'badge-race';
+        const key = session.meeting_key;
+        if (!meetingsMap.has(key)) {
+            meetingsMap.set(key, {
+                meeting_key: key,
+                circuit_short_name: session.circuit_short_name,
+                location: session.location,
+                country_name: session.country_name,
+                country_code: session.country_code,
+                sessions: []
+            });
         }
+        meetingsMap.get(key).sessions.push(session);
+    });
 
-        // Determine status for badge
-        const status = getLiveSessionStatus(session);
+    const meetings = Array.from(meetingsMap.values());
 
-        const flagEmoji = COUNTRY_FLAGS[session.country_code] || '🏁';
-        const sessionDate = new Date(session.date_start).toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric'
+    meetings.forEach(meeting => {
+        const isMeetingActive = state.selectedSession && meeting.sessions.some(s => s.session_key === state.selectedSession.session_key);
+        const isAllCancelled = meeting.sessions.every(s => s.is_cancelled === true);
+        const meetingCard = document.createElement('div');
+        meetingCard.className = `session-card ${isAllCancelled ? 'cancelled' : ''} ${isMeetingActive ? 'active' : ''}`;
+
+        const flagEmoji = COUNTRY_FLAGS[meeting.country_code] || '🏁';
+        const placeName = [meeting.location, meeting.country_name].filter(Boolean).join(', ');
+        const grandPrixName = `${meeting.circuit_short_name} GP`;
+        const dateRangeText = formatMeetingDateRange(meeting.sessions);
+        const meetingStatus = getMeetingStatus(meeting.sessions);
+
+        let sessionsHtml = '';
+        meeting.sessions.forEach(session => {
+            const isSessionActive = state.selectedSession && state.selectedSession.session_key === session.session_key;
+            let pillClass = 'session-pill';
+            if (session.is_cancelled === true) {
+                pillClass += ' badge-cancelled';
+            } else if (session.session_name.includes('Quali')) {
+                pillClass += ' badge-quali';
+            } else if (session.session_name.includes('Race') || session.session_name.includes('Sprint')) {
+                pillClass += ' badge-race';
+            } else {
+                pillClass += ' badge-practice';
+            }
+            if (isSessionActive) {
+                pillClass += ' active';
+            }
+            const shortName = getSessionShortName(session.session_name);
+            sessionsHtml += `<button class="${pillClass}" data-session-key="${session.session_key}" title="${escapeHtml(session.session_name)}">${shortName}</button>`;
         });
-        const grandPrixName = `${session.circuit_short_name} GP`;
-        const placeName = [session.location, session.country_name].filter(Boolean).join(', ');
 
-        card.innerHTML = `
+        meetingCard.innerHTML = `
             <div class="session-flag-tile" aria-hidden="true">
-                <span class="loc-flag" style="${isCancelled ? 'filter: grayscale(1) opacity(0.6);' : ''}">${flagEmoji}</span>
+                <span class="loc-flag" style="${isAllCancelled ? 'filter: grayscale(1) opacity(0.6);' : ''}">${flagEmoji}</span>
             </div>
             <div class="session-card-main">
                 <div class="card-top">
-                    <span class="session-type-badge ${badgeClass}">${badgeText}</span>
-                    <div class="card-top-right">
-                        <span class="status-badge ${status.className}">${status.text}</span>
-                        <span class="session-date">${sessionDate}</span>
-                    </div>
+                    <span class="status-badge ${meetingStatus.className}">${meetingStatus.text}</span>
+                    <span class="session-date">${dateRangeText}</span>
                 </div>
                 <div class="session-gp">${grandPrixName}</div>
                 <div class="session-loc">
                     <span class="material-icons-round loc-pin" aria-hidden="true">place</span>
                     <span>${placeName}</span>
                 </div>
+                <div class="meeting-sessions-container">
+                    ${sessionsHtml}
+                </div>
             </div>
         `;
 
-        card.addEventListener('click', () => {
-            document.querySelectorAll('.session-card').forEach(c => c.classList.remove('active'));
-            card.classList.add('active');
-            selectSession(session);
+        meetingCard.addEventListener('click', (event) => {
+            const pill = event.target.closest('.session-pill');
+            if (pill) {
+                const sessionKey = parseInt(pill.dataset.sessionKey || pill.dataset.session_key);
+                const session = meeting.sessions.find(s => s.session_key === sessionKey);
+                if (session) {
+                    selectSession(session);
+                    document.querySelectorAll('.session-card').forEach(c => c.classList.remove('active'));
+                    meetingCard.classList.add('active');
+                    document.querySelectorAll('.session-pill').forEach(p => p.classList.remove('active'));
+                    pill.classList.add('active');
+                }
+                return;
+            }
+
+            // Clicked card body outside any pill
+            const alreadySelected = state.selectedSession && meeting.sessions.some(s => s.session_key === state.selectedSession.session_key);
+            if (alreadySelected) return;
+
+            // Pick primary session: Live > Race > latest chronological session
+            let targetSession = meeting.sessions.find(s => getLiveSessionStatus(s).text === 'Live');
+            if (!targetSession) {
+                targetSession = meeting.sessions.find(s => s.session_name === 'Race' || s.session_type === 'Race');
+            }
+            if (!targetSession) {
+                targetSession = meeting.sessions[meeting.sessions.length - 1];
+            }
+
+            if (targetSession) {
+                selectSession(targetSession);
+                document.querySelectorAll('.session-card').forEach(c => c.classList.remove('active'));
+                meetingCard.classList.add('active');
+                const pillToHighlight = meetingCard.querySelector(`.session-pill[data-session-key="${targetSession.session_key}"]`);
+                if (pillToHighlight) {
+                    document.querySelectorAll('.session-pill').forEach(p => p.classList.remove('active'));
+                    pillToHighlight.classList.add('active');
+                }
+            }
         });
 
-        DOM.sessionsList.appendChild(card);
+        DOM.sessionsList.appendChild(meetingCard);
 
-        // Scroll active card into view
-        if (state.selectedSession && state.selectedSession.session_key === session.session_key) {
+        if (isMeetingActive) {
             setTimeout(() => {
-                card.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+                meetingCard.scrollIntoView({ behavior: 'auto', block: 'nearest' });
             }, 50);
         }
     });
