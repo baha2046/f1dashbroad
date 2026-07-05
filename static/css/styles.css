@@ -766,6 +766,101 @@ body {
     font-weight: 600;
 }
 
+.weather-trends {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.weather-trend-card {
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+
+.weather-trend-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.weather-trend-head span {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.weather-trend-head strong {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.weather-sparkline {
+    display: block;
+    width: 100%;
+    height: 38px;
+    overflow: visible;
+}
+
+.weather-sparkline polyline {
+    stroke: var(--text-secondary);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.weather-sparkline-air polyline {
+    stroke: #ff7a66;
+}
+
+.weather-sparkline-track polyline {
+    stroke: #ffd166;
+}
+
+.weather-sparkline-wind polyline {
+    stroke: #7bdff2;
+}
+
+.weather-rain-markers {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(3px, 1fr);
+    align-items: end;
+    gap: 3px;
+    height: 38px;
+}
+
+.weather-rain-markers span {
+    display: block;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.weather-rain-markers span.wet {
+    height: 26px;
+    background: #4dc3ff;
+    box-shadow: 0 0 12px rgba(77, 195, 255, 0.22);
+}
+
+.weather-trend-card small,
+.weather-trend-empty {
+    display: block;
+    margin-top: 7px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 /* Tabs Navigation */
 .dashboard-tabs {
     display: flex;
@@ -2510,6 +2605,14 @@ body {
 @media (max-width: 600px) {
     .weather-grid {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .weather-trends {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .weather-trend-card {
+        padding: 11px 12px;
     }
 
     .stats-grid {

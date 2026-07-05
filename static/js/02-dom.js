@@ -23,6 +23,7 @@ const DOM = {
     weatherHumidity: document.getElementById('weatherHumidity'),
     weatherWind: document.getElementById('weatherWind'),
     weatherRainfall: document.getElementById('weatherRainfall'),
+    weatherTrendChart: document.getElementById('weatherTrendChart'),
     
     // Drivers Grid
     driverSearch: document.getElementById('driverSearch'),
@@ -128,4 +129,3 @@ const DOM = {
 };
 
 let compareInteractionContexts = [];
-

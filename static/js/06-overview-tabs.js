@@ -39,39 +39,158 @@ function renderSessionHeader() {
     }
 }
 
+function isFiniteWeatherValue(value) {
+    return value !== null && value !== undefined && Number.isFinite(Number(value));
+}
+
+function formatWeatherValue(value, unit, decimals) {
+    if (!isFiniteWeatherValue(value)) return `-- ${unit}`;
+    return `${Number(value).toFixed(decimals)} ${unit}`;
+}
+
+function buildWeatherTrendSeries(samples, limit = 24) {
+    const sorted = (Array.isArray(samples) ? samples : [])
+        .slice()
+        .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+    const recent = sorted.slice(-limit);
+    const latestSample = recent[recent.length - 1] || {};
+
+    const valueList = (field) => recent
+        .map(sample => sample[field])
+        .filter(isFiniteWeatherValue)
+        .map(Number);
+    const rainValues = recent.map(sample => Number(sample.rainfall) === 1 ? 1 : 0);
+
+    return {
+        air: {
+            label: 'Air',
+            unit: '°C',
+            className: 'air',
+            values: valueList('air_temperature'),
+        },
+        track: {
+            label: 'Track',
+            unit: '°C',
+            className: 'track',
+            values: valueList('track_temperature'),
+        },
+        wind: {
+            label: 'Wind',
+            unit: 'm/s',
+            className: 'wind',
+            values: valueList('wind_speed'),
+        },
+        rain: {
+            label: 'Rain',
+            unit: '',
+            className: 'rain',
+            values: rainValues,
+        },
+        latest: {
+            air: isFiniteWeatherValue(latestSample.air_temperature) ? Number(latestSample.air_temperature) : null,
+            track: isFiniteWeatherValue(latestSample.track_temperature) ? Number(latestSample.track_temperature) : null,
+            humidity: isFiniteWeatherValue(latestSample.humidity) ? Number(latestSample.humidity) : null,
+            wind: isFiniteWeatherValue(latestSample.wind_speed) ? Number(latestSample.wind_speed) : null,
+            rain: Number(latestSample.rainfall) === 1 ? 1 : 0,
+        },
+        sampleCount: recent.length,
+        rainDetected: rainValues.some(value => value === 1),
+    };
+}
+
+function buildWeatherSparklinePoints(values, width = 132, height = 38) {
+    const finiteValues = (values || []).filter(isFiniteWeatherValue).map(Number);
+    if (finiteValues.length === 0) return '';
+    if (finiteValues.length === 1) {
+        const y = height / 2;
+        return `0,${y.toFixed(1)} ${width},${y.toFixed(1)}`;
+    }
+
+    const min = Math.min(...finiteValues);
+    const max = Math.max(...finiteValues);
+    const range = max - min;
+    const step = width / (finiteValues.length - 1);
+
+    return finiteValues.map((value, index) => {
+        const normalized = range === 0 ? 0.5 : (value - min) / range;
+        const x = index * step;
+        const y = height - (normalized * (height - 6)) - 3;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+}
+
+function renderWeatherTrendCard(series, latestLabel) {
+    const points = buildWeatherSparklinePoints(series.values);
+    const min = series.values.length ? Math.min(...series.values) : null;
+    const max = series.values.length ? Math.max(...series.values) : null;
+    const rangeLabel = isFiniteWeatherValue(min) && isFiniteWeatherValue(max)
+        ? `${Number(min).toFixed(series.unit === 'm/s' ? 1 : 0)}-${Number(max).toFixed(series.unit === 'm/s' ? 1 : 0)}${series.unit}`
+        : 'No data';
+
+    if (series.className === 'rain') {
+        const markers = series.values.map(value => (
+            `<span class="${value === 1 ? 'wet' : ''}" aria-hidden="true"></span>`
+        )).join('');
+        return `
+            <div class="weather-trend-card weather-trend-rain">
+                <div class="weather-trend-head">
+                    <span>${series.label}</span>
+                    <strong>${latestLabel}</strong>
+                </div>
+                <div class="weather-rain-markers">${markers}</div>
+                <small>${series.values.some(value => value === 1) ? 'Rain in recent samples' : 'Dry recent samples'}</small>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="weather-trend-card">
+            <div class="weather-trend-head">
+                <span>${series.label}</span>
+                <strong>${latestLabel}</strong>
+            </div>
+            <svg class="weather-sparkline weather-sparkline-${series.className}" viewBox="0 0 132 38" role="img" aria-label="${series.label} recent trend">
+                <polyline points="${points}" fill="none" vector-effect="non-scaling-stroke"></polyline>
+            </svg>
+            <small>${rangeLabel}</small>
+        </div>
+    `;
+}
+
+function renderWeatherTrendChart(trends) {
+    if (!DOM.weatherTrendChart) return;
+    if (!trends || trends.sampleCount === 0) {
+        DOM.weatherTrendChart.innerHTML = '<div class="weather-trend-empty">No recent weather samples.</div>';
+        return;
+    }
+
+    DOM.weatherTrendChart.innerHTML = [
+        renderWeatherTrendCard(trends.air, formatWeatherValue(trends.latest.air, '°C', 1)),
+        renderWeatherTrendCard(trends.track, formatWeatherValue(trends.latest.track, '°C', 1)),
+        renderWeatherTrendCard(trends.wind, formatWeatherValue(trends.latest.wind, 'm/s', 1)),
+        renderWeatherTrendCard(trends.rain, trends.latest.rain === 1 ? 'Wet' : 'Dry'),
+    ].join('');
+}
+
 // Render Weather Widget
 function renderWeather() {
-    if (state.weather.length === 0) {
+    const trends = buildWeatherTrendSeries(state.weather);
+    if (trends.sampleCount === 0) {
         DOM.weatherAirTemp.textContent = '-- °C';
         DOM.weatherTrackTemp.textContent = '-- °C';
         DOM.weatherHumidity.textContent = '-- %';
         DOM.weatherWind.textContent = '-- m/s';
         DOM.weatherRainfall.style.display = 'none';
+        renderWeatherTrendChart(trends);
         return;
     }
 
-    let airSum = 0, trackSum = 0, humidSum = 0, windSum = 0;
-    let rainCount = 0;
-    
-    state.weather.forEach(w => {
-        airSum += w.air_temperature || 0;
-        trackSum += w.track_temperature || 0;
-        humidSum += w.humidity || 0;
-        windSum += w.wind_speed || 0;
-        if (w.rainfall === 1) rainCount++;
-    });
-
-    const total = state.weather.length;
-    DOM.weatherAirTemp.textContent = `${(airSum / total).toFixed(1)} °C`;
-    DOM.weatherTrackTemp.textContent = `${(trackSum / total).toFixed(1)} °C`;
-    DOM.weatherHumidity.textContent = `${(humidSum / total).toFixed(0)} %`;
-    DOM.weatherWind.textContent = `${(windSum / total).toFixed(1)} m/s`;
-    
-    if (rainCount > 0) {
-        DOM.weatherRainfall.style.display = 'flex';
-    } else {
-        DOM.weatherRainfall.style.display = 'none';
-    }
+    DOM.weatherAirTemp.textContent = formatWeatherValue(trends.latest.air, '°C', 1);
+    DOM.weatherTrackTemp.textContent = formatWeatherValue(trends.latest.track, '°C', 1);
+    DOM.weatherHumidity.textContent = formatWeatherValue(trends.latest.humidity, '%', 0);
+    DOM.weatherWind.textContent = formatWeatherValue(trends.latest.wind, 'm/s', 1);
+    DOM.weatherRainfall.style.display = trends.rainDetected ? 'flex' : 'none';
+    renderWeatherTrendChart(trends);
 }
 
 // Render Circuit Tab Details
@@ -955,4 +1074,3 @@ function renderRaceControlFeed() {
         `;
     }).join('');
 }
-
