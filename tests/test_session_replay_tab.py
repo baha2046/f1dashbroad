@@ -75,5 +75,64 @@ class SessionReplayTabStaticWiringTests(unittest.TestCase):
             self.assertIn(css_class, self.styles_css)
 
 
+class ReplayRaceControlTimelineTests(unittest.TestCase):
+    """Race-control-derived timeline + circuit state surfaces
+    (doc/2026-07-05-replay-race-control-timeline-design.md)."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
+        self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    def test_replay_view_has_state_chip(self):
+        replay_view = extract_section(self.index_html, "replay-view")
+        self.assertIsNotNone(replay_view, "replay-view section missing")
+        self.assertIn('id="replayStateChip"', replay_view)
+
+    def test_dom_map_wires_state_chip(self):
+        self.assertIn("replayStateChip: document.getElementById('replayStateChip')", self.dashboard_js)
+
+    def test_js_defines_circuit_state_helpers(self):
+        for snippet in (
+            "function extractCircuitStatePeriods",
+            "function buildRaceControlTimeline",
+            "function stateBandsForRange",
+            "function circuitStateAt",
+            "function updateReplayCircuitState",
+            "function refreshReplayCircuitStates",
+            "function getReplayAbsoluteMs",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_js_parses_grounded_race_control_signals(self):
+        # Signal strings observed in real OpenF1 race_control payloads
+        for signal in (
+            "SAFETY CAR DEPLOYED",
+            "VSC DEPLOYED",
+            "RED FLAG",
+            "DOUBLE YELLOW",
+            "CHEQUERED",
+        ):
+            self.assertIn(signal, self.dashboard_js)
+
+    def test_live_refresh_recomputes_circuit_states(self):
+        self.assertIn("refreshReplayCircuitStates();", self.dashboard_js)
+
+    def test_styles_contain_state_classes(self):
+        for css_class in (
+            ".replay-timeline-state",
+            ".replay-timeline-base",
+            ".replay-timeline-chequered",
+            ".replay-state-chip",
+            "state-yellow",
+            "state-sc",
+            "state-vsc",
+            "state-red",
+            'data-circuit-state',
+        ):
+            self.assertIn(css_class, self.styles_css)
+
+
 if __name__ == "__main__":
     unittest.main()

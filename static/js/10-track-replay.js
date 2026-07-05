@@ -13,6 +13,136 @@ const REPLAY_PREFETCH_LEAD_SECONDS = 15;
 // window so out-laps / red-flag gaps don't dwarf flying laps
 const REPLAY_TIMELINE_WIDTH_CAP = 3;
 
+// Circuit-state precedence when periods overlap (e.g. sector yellows under SC)
+const REPLAY_STATE_PRIORITY = ['red', 'sc', 'vsc', 'yellow'];
+
+const REPLAY_STATE_LABELS = {
+    green: 'Green',
+    yellow: 'Yellow',
+    sc: 'Safety Car',
+    vsc: 'Virtual SC',
+    red: 'Red Flag',
+    chequered: 'Finished'
+};
+
+const REPLAY_PERIOD_LABELS = {
+    yellow: 'Yellow flag',
+    sc: 'Safety car',
+    vsc: 'Virtual safety car',
+    red: 'Red flag'
+};
+
+// Merge overlapping yellow spans into union bands so a burst of sector
+// yellows renders as one strip instead of a stack of near-duplicates.
+function mergeYellowPeriods(periods) {
+    const yellows = periods.filter(p => p.type === 'yellow').sort((a, b) => a.startMs - b.startMs);
+    const others = periods.filter(p => p.type !== 'yellow');
+
+    const merged = [];
+    yellows.forEach(period => {
+        const last = merged[merged.length - 1];
+        if (last && period.startMs <= last.endMs) {
+            last.endMs = Math.max(last.endMs, period.endMs);
+        } else {
+            merged.push({ ...period, label: REPLAY_PERIOD_LABELS.yellow });
+        }
+    });
+
+    return others.concat(merged).sort((a, b) => a.startMs - b.startMs);
+}
+
+// Parse circuit-state periods (red / SC / VSC / yellows) and the chequered
+// flag out of race control messages. Message shapes are grounded in real
+// OpenF1 payloads (doc/2026-07-05-replay-race-control-timeline-design.md):
+// races signal red as "RED FLAG - RACE SUSPENDED" with flag=None, SC/VSC end
+// with a track-scope CLEAR ("TRACK CLEAR"), quali reds end at the GREEN
+// pit-exit reopen.
+function extractCircuitStatePeriods(records) {
+    const sorted = (Array.isArray(records) ? records : [])
+        .map(record => ({ record, ms: record && record.date ? new Date(record.date).getTime() : NaN }))
+        .filter(item => Number.isFinite(item.ms))
+        .sort((a, b) => a.ms - b.ms);
+
+    const periods = [];
+    let chequeredMs = null;
+    let red = null;            // startMs of an open red flag
+    let car = null;            // { type: 'sc'|'vsc', startMs } of an open (V)SC
+    const yellows = new Map(); // 'track' | sector number string -> startMs
+
+    const closeYellows = (endMs) => {
+        yellows.forEach(startMs => {
+            periods.push({ type: 'yellow', startMs, endMs, label: REPLAY_PERIOD_LABELS.yellow });
+        });
+        yellows.clear();
+    };
+    const closeCar = (endMs) => {
+        if (car === null) return;
+        periods.push({ type: car.type, startMs: car.startMs, endMs, label: REPLAY_PERIOD_LABELS[car.type] });
+        car = null;
+    };
+    const closeRed = (endMs) => {
+        if (red === null) return;
+        periods.push({ type: 'red', startMs: red, endMs, label: REPLAY_PERIOD_LABELS.red });
+        red = null;
+    };
+
+    sorted.forEach(({ record, ms }) => {
+        const message = (record.message || '').toUpperCase();
+        const flag = (record.flag || '').toUpperCase();
+        const scope = (record.scope || '').toUpperCase();
+        const sector = record.sector !== null && record.sector !== undefined ? String(record.sector) : null;
+
+        if (flag === 'CHEQUERED') {
+            if (chequeredMs === null) chequeredMs = ms;
+            return;
+        }
+        // startsWith: steward notes like "INCIDENT ... - RED FLAG INFRINGEMENT"
+        // mention the red flag without raising one
+        if (flag === 'RED' || message.startsWith('RED FLAG')) {
+            closeYellows(ms);
+            closeCar(ms);
+            if (red === null) red = ms;
+            return;
+        }
+        if (message.includes('SAFETY CAR DEPLOYED') && !message.includes('VIRTUAL')) {
+            closeCar(ms);
+            car = { type: 'sc', startMs: ms };
+            return;
+        }
+        if (message.includes('VSC DEPLOYED') || message.includes('VIRTUAL SAFETY CAR DEPLOYED')) {
+            closeCar(ms);
+            car = { type: 'vsc', startMs: ms };
+            return;
+        }
+        if (flag === 'YELLOW' || flag === 'DOUBLE YELLOW') {
+            const key = scope === 'SECTOR' && sector !== null ? sector : 'track';
+            if (!yellows.has(key)) yellows.set(key, ms);
+            return;
+        }
+        if (flag === 'CLEAR' || flag === 'GREEN') {
+            if (scope === 'SECTOR' && sector !== null) {
+                if (yellows.has(sector)) {
+                    periods.push({ type: 'yellow', startMs: yellows.get(sector), endMs: ms, label: REPLAY_PERIOD_LABELS.yellow });
+                    yellows.delete(sector);
+                }
+                return;
+            }
+            // Track-scope GREEN / "TRACK CLEAR" ends every open period
+            closeYellows(ms);
+            closeCar(ms);
+            closeRed(ms);
+        }
+    });
+
+    // Anything still open (live session, feed gap) runs to the timeline edge;
+    // the renderer clamps Infinity to the visible range.
+    closeYellows(Infinity);
+    closeCar(Infinity);
+    closeRed(Infinity);
+
+    return { periods: mergeYellowPeriods(periods), chequeredMs };
+}
+
 function resetReplay() {
     if (state.replay && state.replay.rafId !== null) {
         cancelAnimationFrame(state.replay.rafId);
@@ -36,6 +166,7 @@ function resetReplay() {
         DOM.replayTimeline.innerHTML = '';
     }
     renderReplayMessage('Select a session to replay track positions.');
+    updateReplayCircuitState();
 }
 
 function setReplayPlayIcon(playing) {
@@ -55,8 +186,12 @@ function setupReplaySection() {
 
     if (!Array.isArray(state.drivers) || state.drivers.length === 0) {
         DOM.replayDriverSelect.innerHTML = '';
-        if (DOM.replayTimeline) DOM.replayTimeline.innerHTML = '';
-        renderReplayMessage('No drivers available for this session.');
+        // No drivers, but race control can still describe the session
+        state.replay.timeline = buildRaceControlTimeline();
+        renderReplayTimeline();
+        renderReplayMessage(state.replay.timeline
+            ? 'No drivers available — the timeline shows race control track states.'
+            : 'No drivers available for this session.');
         return;
     }
 
@@ -70,8 +205,9 @@ function setupReplaySection() {
     setupReplayTimeline().then(() => maybeAutoLoadReplay());
 }
 
-// Build the session timeline from the reference driver's laps; the fastest
-// lap is preselected as the starting point.
+// Build the session timeline. The race-control timeline renders immediately
+// (circuit states need no driver); the reference driver's laps upgrade it to
+// seekable segments when they arrive, preselecting the fastest lap.
 async function setupReplayTimeline() {
     if (!DOM.replayTimeline || !DOM.replayDriverSelect || !state.selectedSession) return;
 
@@ -80,8 +216,12 @@ async function setupReplayTimeline() {
 
     state.replay.driverNumber = driverNumber;
     state.replay.lapNumber = null;
-    state.replay.timeline = null;
-    DOM.replayTimeline.innerHTML = '<span class="replay-timeline-loading">Loading laps...</span>';
+    state.replay.timeline = buildRaceControlTimeline();
+    if (state.replay.timeline) {
+        renderReplayTimeline();
+    } else {
+        DOM.replayTimeline.innerHTML = '<span class="replay-timeline-loading">Loading laps...</span>';
+    }
 
     const laps = await fetchDriverLaps(state.selectedSession.session_key, driverNumber);
 
@@ -90,8 +230,13 @@ async function setupReplayTimeline() {
 
     const timeline = buildReplayTimeline(laps);
     if (!timeline) {
-        DOM.replayTimeline.innerHTML = '';
-        renderReplayMessage('No laps with timing data recorded for this driver.');
+        // Keep the race-control timeline: states stay visible, playback needs laps
+        if (state.replay.timeline) {
+            renderReplayMessage('No lap data for this driver — the timeline shows race control track states.');
+        } else {
+            DOM.replayTimeline.innerHTML = '';
+            renderReplayMessage('No laps with timing data recorded for this driver.');
+        }
         return;
     }
 
@@ -99,6 +244,68 @@ async function setupReplayTimeline() {
     const fastest = timeline.segments.find(seg => seg.isFastest) || timeline.segments[0];
     state.replay.lapNumber = fastest.lapNumber;
     renderReplayTimeline();
+}
+
+// Absolute session-time range covered by race control (and the session's own
+// start/end), independent of any driver's laps.
+function getRaceControlRangeMs() {
+    let min = null;
+    let max = null;
+    (Array.isArray(state.raceControl) ? state.raceControl : []).forEach(record => {
+        if (!record || !record.date) return;
+        const ms = new Date(record.date).getTime();
+        if (!Number.isFinite(ms)) return;
+        if (min === null || ms < min) min = ms;
+        if (max === null || ms > max) max = ms;
+    });
+
+    const session = state.selectedSession || {};
+    const sessionStart = session.date_start ? new Date(session.date_start).getTime() : NaN;
+    const sessionEnd = session.date_end ? new Date(session.date_end).getTime() : NaN;
+    if (Number.isFinite(sessionStart)) min = min === null ? sessionStart : Math.min(min, sessionStart);
+    if (Number.isFinite(sessionEnd)) max = max === null ? sessionEnd : Math.max(max, sessionEnd);
+
+    if (min === null || max === null || max <= min) return null;
+    return { rangeStartMs: min, rangeEndMs: max };
+}
+
+// Driver-less timeline: a session-time bar derived from race control (and the
+// session start/end) carrying only the circuit-state bands. Rendered before
+// lap data arrives and kept when no usable laps exist.
+function buildRaceControlTimeline() {
+    const range = getRaceControlRangeMs();
+    if (!range) return null;
+    return {
+        segments: [],
+        displayTotal: 0,
+        rangeStartMs: range.rangeStartMs,
+        rangeEndMs: range.rangeEndMs,
+        states: extractCircuitStatePeriods(state.raceControl)
+    };
+}
+
+// Clip circuit-state periods to [startMs, endMs] and express them as
+// fractions of that span, for a container that covers exactly that range.
+function stateBandsForRange(states, startMs, endMs) {
+    if (!states || !Array.isArray(states.periods)) return [];
+    const span = endMs - startMs;
+    if (!(span > 0)) return [];
+
+    const bands = [];
+    states.periods.forEach(period => {
+        const clampedStart = Math.max(period.startMs, startMs);
+        const clampedEnd = Math.min(period.endMs, endMs);
+        if (clampedEnd <= clampedStart) return;
+        bands.push({
+            type: period.type,
+            label: period.label,
+            startMs: clampedStart,
+            endMs: clampedEnd,
+            leftFrac: (clampedStart - startMs) / span,
+            widthFrac: (clampedEnd - clampedStart) / span
+        });
+    });
+    return bands;
 }
 
 // Frontend mirror of the backend's build_lap_telemetry_window: a lap's window
@@ -130,6 +337,8 @@ function buildReplayTimeline(laps) {
 
         segments.push({
             lapNumber: Number(lap.lap_number),
+            startMs: start,
+            endMs: start + seconds * 1000,
             seconds,
             hasTime,
             isFastest: false
@@ -157,7 +366,37 @@ function buildReplayTimeline(laps) {
         displayTotal += seg.displayUnits;
     });
 
-    return { segments, displayTotal };
+    const range = getRaceControlRangeMs();
+    return {
+        segments,
+        displayTotal,
+        rangeStartMs: range ? Math.min(segments[0].startMs, range.rangeStartMs) : segments[0].startMs,
+        rangeEndMs: range ? Math.max(segments[segments.length - 1].endMs, range.rangeEndMs) : segments[segments.length - 1].endMs,
+        states: extractCircuitStatePeriods(state.raceControl)
+    };
+}
+
+// Append circuit-state strips (and the chequered marker) for the slice of
+// session time a container covers. Strips are positioned as fractions of the
+// container itself, so the flex gap between lap segments cannot misalign them.
+function appendReplayStateBands(container, timeline, startMs, endMs) {
+    stateBandsForRange(timeline.states, startMs, endMs).forEach(band => {
+        const strip = document.createElement('span');
+        strip.className = `replay-timeline-state state-${band.type}`;
+        strip.style.left = `${(band.leftFrac * 100).toFixed(2)}%`;
+        strip.style.width = `${(band.widthFrac * 100).toFixed(2)}%`;
+        strip.title = `${band.label} · ${formatRaceControlTime(new Date(band.startMs))}–${formatRaceControlTime(new Date(band.endMs))}`;
+        container.appendChild(strip);
+    });
+
+    const chequeredMs = timeline.states ? timeline.states.chequeredMs : null;
+    if (chequeredMs !== null && chequeredMs >= startMs && chequeredMs <= endMs && endMs > startMs) {
+        const marker = document.createElement('span');
+        marker.className = 'replay-timeline-chequered';
+        marker.style.left = `${(((chequeredMs - startMs) / (endMs - startMs)) * 100).toFixed(2)}%`;
+        marker.title = `Chequered flag · ${formatRaceControlTime(new Date(chequeredMs))}`;
+        container.appendChild(marker);
+    }
 }
 
 function renderReplayTimeline() {
@@ -193,8 +432,31 @@ function renderReplayTimeline() {
             label.textContent = seg.lapNumber;
             btn.appendChild(label);
         }
+        appendReplayStateBands(btn, timeline, seg.startMs, seg.endMs);
         track.appendChild(btn);
     });
+
+    // No lap segments: one session-spanning bar carrying the race-control
+    // bands, bracketed by the session start/end clock times.
+    if (timeline.segments.length === 0) {
+        const base = document.createElement('div');
+        base.className = 'replay-timeline-base';
+        appendReplayStateBands(base, timeline, timeline.rangeStartMs, timeline.rangeEndMs);
+
+        const startLabel = document.createElement('span');
+        startLabel.className = 'replay-timeline-label';
+        startLabel.textContent = formatRaceControlTime(new Date(timeline.rangeStartMs));
+        base.appendChild(startLabel);
+
+        const endLabel = document.createElement('span');
+        endLabel.className = 'replay-timeline-label';
+        endLabel.style.left = 'auto';
+        endLabel.style.right = '4px';
+        endLabel.textContent = formatRaceControlTime(new Date(timeline.rangeEndMs));
+        base.appendChild(endLabel);
+
+        track.appendChild(base);
+    }
 
     const playhead = document.createElement('div');
     playhead.className = 'replay-timeline-playhead';
@@ -531,6 +793,71 @@ function getReplayWindowSeconds() {
     return data ? Number(data.window_seconds) || 0 : 0;
 }
 
+// Absolute session time (ms) of a replay offset: the backend replay window
+// starts at the active lap's date_start, which is the segment's startMs.
+function getReplayAbsoluteMs(t) {
+    const seg = getTimelineSegment(state.replay.lapNumber);
+    if (!seg || !Number.isFinite(seg.startMs)) return null;
+    return seg.startMs + t * 1000;
+}
+
+// Circuit state at an absolute session time, respecting overlap precedence;
+// 'green' when nothing is active, 'chequered' once the flag has fallen.
+function circuitStateAt(states, ms) {
+    if (!states || ms === null || !Number.isFinite(ms)) return null;
+
+    const active = new Set();
+    (states.periods || []).forEach(period => {
+        if (ms >= period.startMs && ms < period.endMs) active.add(period.type);
+    });
+    for (const type of REPLAY_STATE_PRIORITY) {
+        if (active.has(type)) return type;
+    }
+    if (states.chequeredMs !== null && ms >= states.chequeredMs) return 'chequered';
+    return 'green';
+}
+
+// Reflect the circuit state at the playhead on the chip and the track tint
+function updateReplayCircuitState() {
+    const timeline = state.replay.timeline;
+    const ms = state.replay.data ? getReplayAbsoluteMs(state.replay.t) : null;
+    const stateType = timeline ? circuitStateAt(timeline.states, ms) : null;
+
+    if (DOM.replayStateChip) {
+        DOM.replayStateChip.hidden = !stateType;
+        DOM.replayStateChip.textContent = stateType ? (REPLAY_STATE_LABELS[stateType] || stateType) : '';
+        DOM.replayStateChip.className = stateType ? `replay-state-chip state-${stateType}` : 'replay-state-chip';
+    }
+    if (DOM.replayMapContent) {
+        if (stateType) {
+            DOM.replayMapContent.dataset.circuitState = stateType;
+        } else {
+            delete DOM.replayMapContent.dataset.circuitState;
+        }
+    }
+}
+
+// Live mode refreshed state.raceControl: recompute the bands and re-render
+// the timeline without disturbing playback.
+function refreshReplayCircuitStates() {
+    const timeline = state.replay.timeline;
+    if (!timeline) return;
+
+    timeline.states = extractCircuitStatePeriods(state.raceControl);
+    const range = getRaceControlRangeMs();
+    if (range) {
+        if (timeline.segments.length === 0) {
+            timeline.rangeStartMs = range.rangeStartMs;
+            timeline.rangeEndMs = range.rangeEndMs;
+        } else {
+            timeline.rangeStartMs = Math.min(timeline.rangeStartMs, range.rangeStartMs);
+            timeline.rangeEndMs = Math.max(timeline.rangeEndMs, range.rangeEndMs);
+        }
+    }
+    renderReplayTimeline();
+    updateReplayCircuitState();
+}
+
 function renderReplayFrame(t) {
     state.replay.t = t;
     const windowSeconds = getReplayWindowSeconds();
@@ -554,6 +881,7 @@ function renderReplayFrame(t) {
         DOM.replayTimeLabel.textContent = `${lapPrefix}${t.toFixed(1)}s / ${windowSeconds.toFixed(1)}s`;
     }
     updateReplayTimelinePlayhead();
+    updateReplayCircuitState();
 }
 
 // Warm the cache for the next timeline lap so the lap handoff is seamless

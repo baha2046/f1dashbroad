@@ -3871,6 +3871,112 @@ body {
     width: 2px;
 }
 
+/* Race-control circuit states on the timeline: yellow / SC / VSC / red bands
+   along the bottom of each lap segment, plus a chequered-flag marker */
+.replay-timeline-state {
+    border-radius: 2px;
+    bottom: 0;
+    height: 6px;
+    min-width: 2px;
+    pointer-events: none;
+    position: absolute;
+}
+
+.replay-timeline-state.state-yellow { background: rgba(255, 214, 0, 0.85); }
+.replay-timeline-state.state-sc { background: rgba(255, 138, 0, 0.9); }
+.replay-timeline-state.state-vsc {
+    background: repeating-linear-gradient(135deg,
+        rgba(255, 138, 0, 0.9) 0 4px,
+        rgba(255, 138, 0, 0.35) 4px 8px);
+}
+.replay-timeline-state.state-red { background: rgba(255, 24, 1, 0.85); }
+
+.replay-timeline-chequered {
+    background: repeating-linear-gradient(180deg, #f3f3f7 0 3px, #060609 3px 6px);
+    bottom: 0;
+    margin-left: -1px;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    width: 3px;
+}
+
+/* Driver-less fallback: one session-spanning bar carrying the state bands */
+.replay-timeline-base {
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: 4px;
+    flex-grow: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+.replay-timeline-base .replay-timeline-state {
+    border-radius: 0;
+    height: 100%;
+    opacity: 0.55;
+}
+
+.replay-timeline-base .replay-timeline-label {
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+/* Circuit state chip next to the replay time label */
+.replay-state-chip {
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    padding: 3px 10px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.replay-state-chip.state-green {
+    background: rgba(46, 204, 113, 0.16);
+    border-color: rgba(46, 204, 113, 0.4);
+    color: #2ecc71;
+}
+
+.replay-state-chip.state-yellow {
+    background: rgba(255, 214, 0, 0.14);
+    border-color: rgba(255, 214, 0, 0.4);
+    color: #ffd600;
+}
+
+.replay-state-chip.state-sc,
+.replay-state-chip.state-vsc {
+    background: rgba(255, 138, 0, 0.14);
+    border-color: rgba(255, 138, 0, 0.4);
+    color: #ff8a00;
+}
+
+.replay-state-chip.state-red {
+    background: rgba(255, 24, 1, 0.16);
+    border-color: rgba(255, 24, 1, 0.45);
+    color: #ff5a4a;
+}
+
+.replay-state-chip.state-chequered {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+/* Track outline tint follows the circuit state during playback */
+.replay-map-content[data-circuit-state="yellow"] .replay-track-path {
+    stroke: rgba(255, 214, 0, 0.4);
+}
+
+.replay-map-content[data-circuit-state="sc"] .replay-track-path,
+.replay-map-content[data-circuit-state="vsc"] .replay-track-path {
+    stroke: rgba(255, 138, 0, 0.42);
+}
+
+.replay-map-content[data-circuit-state="red"] .replay-track-path {
+    stroke: rgba(255, 24, 1, 0.4);
+}
+
 .replay-map-content {
     align-items: center;
     display: flex;

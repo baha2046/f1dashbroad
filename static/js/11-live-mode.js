@@ -118,6 +118,7 @@ async function refreshLiveData() {
             const raceControl = await raceControlRes.json();
             state.raceControl = Array.isArray(raceControl) ? raceControl : [];
             renderRaceControlFeed();
+            refreshReplayCircuitStates();
         }
 
         state.live.lastUpdated = new Date();

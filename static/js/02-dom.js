@@ -95,6 +95,7 @@ const DOM = {
     replayPlayBtn: document.getElementById('replayPlayBtn'),
     replayScrubber: document.getElementById('replayScrubber'),
     replayTimeLabel: document.getElementById('replayTimeLabel'),
+    replayStateChip: document.getElementById('replayStateChip'),
     replaySpeedToggle: document.getElementById('replaySpeedToggle'),
     replayMapContent: document.getElementById('replayMapContent'),
     
