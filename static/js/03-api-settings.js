@@ -177,6 +177,26 @@ function setupEventListeners() {
         });
     }
 
+    // Show Team Radio Toggle
+    if (DOM.showTeamRadio) {
+        DOM.showTeamRadio.addEventListener('change', () => {
+            renderRaceControlFeed();
+        });
+    }
+
+    // Team radio play buttons: the feed re-renders freely, so delegate;
+    // the replay ticker button is persistent and wired directly.
+    if (DOM.raceControlFeed) {
+        DOM.raceControlFeed.addEventListener('click', (e) => {
+            onTeamRadioPlayClick(e);
+        });
+    }
+    if (DOM.replayTeamRadioPlayBtn) {
+        DOM.replayTeamRadioPlayBtn.addEventListener('click', (e) => {
+            onTeamRadioPlayClick(e);
+        });
+    }
+
     // Championship Progression: Drivers / Constructors toggle
     if (DOM.progressionDriversBtn) {
         DOM.progressionDriversBtn.addEventListener('click', () => {

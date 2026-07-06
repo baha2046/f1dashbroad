@@ -778,6 +778,81 @@ function updateReplayTelemetryStrip(force = false) {
     }
 }
 
+// ===== Team radio ticker =====
+// Shows the latest radio clip at-or-before the playhead (within a freshness
+// window): the reference driver's radio in driver mode, any driver's in
+// full-race mode. Playback is manual — the ticker's play button drives the
+// shared team radio player (autoplay policies make synced auto-play
+// unreliable).
+const REPLAY_TEAM_RADIO_MAX_AGE_MS = 120000;
+
+function latestReplayTeamRadioAt(radioIndex, ms, driverNumber = null) {
+    if (!(radioIndex instanceof Map) || !Number.isFinite(ms)) return null;
+
+    if (driverNumber !== null) {
+        return valueAtMs(radioIndex.get(Number(driverNumber)), ms, REPLAY_TEAM_RADIO_MAX_AGE_MS);
+    }
+
+    let latest = null;
+    radioIndex.forEach(records => {
+        const record = valueAtMs(records, ms, REPLAY_TEAM_RADIO_MAX_AGE_MS);
+        if (record && (!latest || record.dateMs > latest.dateMs)) latest = record;
+    });
+    return latest;
+}
+
+function clearReplayTeamRadioTicker() {
+    if (DOM.replayTeamRadioTicker) {
+        DOM.replayTeamRadioTicker.hidden = true;
+    }
+    if (DOM.replayTeamRadioPlayBtn) {
+        DOM.replayTeamRadioPlayBtn.dataset.radioUrl = '';
+    }
+    if (DOM.replayTeamRadioMeta) {
+        DOM.replayTeamRadioMeta.textContent = '';
+    }
+}
+
+function updateReplayTeamRadioTicker(force = false) {
+    if (!DOM.replayTeamRadioTicker || !DOM.replayTeamRadioPlayBtn || !DOM.replayTeamRadioMeta) return;
+
+    if (!state.replay.data || !Array.isArray(state.teamRadio) || state.teamRadio.length === 0) {
+        if (!DOM.replayTeamRadioTicker.hidden) clearReplayTeamRadioTicker();
+        return;
+    }
+
+    const now = getReplayContextNowMs();
+    if (!force && state.replay.lastTeamRadioTickMs && now - state.replay.lastTeamRadioTickMs < REPLAY_CONTEXT_TICK_MS) {
+        return;
+    }
+    state.replay.lastTeamRadioTickMs = now;
+
+    const absoluteMs = getReplayAbsoluteMs(state.replay.t);
+    if (!Number.isFinite(absoluteMs)) {
+        clearReplayTeamRadioTicker();
+        return;
+    }
+
+    const radioIndex = state.replay.teamRadioIndex || buildDriverDateIndex(state.teamRadio);
+    state.replay.teamRadioIndex = radioIndex;
+
+    const referenceDriver = state.replay.driverNumber === REPLAY_FULL_RACE
+        ? null
+        : Number(state.replay.driverNumber);
+    const record = latestReplayTeamRadioAt(radioIndex, absoluteMs, referenceDriver);
+    if (!record || !isPlayableTeamRadioUrl(record.recording_url)) {
+        clearReplayTeamRadioTicker();
+        return;
+    }
+
+    DOM.replayTeamRadioTicker.hidden = false;
+    if (DOM.replayTeamRadioPlayBtn.dataset.radioUrl !== record.recording_url) {
+        DOM.replayTeamRadioPlayBtn.dataset.radioUrl = record.recording_url;
+        DOM.replayTeamRadioMeta.textContent = `${formatRaceControlTime(record.date)} - ${getReplayDriverCode(record.driverNumber)}`;
+        syncTeamRadioPlayingButtons();
+    }
+}
+
 function appendReplayPitMarkers(container, segment) {
     if (!container || !segment || state.replay.driverNumber === REPLAY_FULL_RACE) return;
     if (state.replay.driverNumber !== REPLAY_FULL_RACE) {

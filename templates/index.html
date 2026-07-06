@@ -588,12 +588,21 @@
                                 <h3>Race Control</h3>
                                 <p id="raceControlSummary">Session messages and incident notices</p>
                             </div>
-                            <div class="race-control-toggle">
-                                <label class="switch-label" for="showBlueFlags">Show Blue Flags</label>
-                                <label class="switch">
-                                    <input type="checkbox" id="showBlueFlags" checked aria-label="Show Blue Flag Messages">
-                                    <span class="slider"></span>
-                                </label>
+                            <div class="race-control-toggles">
+                                <div class="race-control-toggle">
+                                    <label class="switch-label" for="showTeamRadio">Show Team Radio</label>
+                                    <label class="switch">
+                                        <input type="checkbox" id="showTeamRadio" checked aria-label="Show Team Radio Messages">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="race-control-toggle">
+                                    <label class="switch-label" for="showBlueFlags">Show Blue Flags</label>
+                                    <label class="switch">
+                                        <input type="checkbox" id="showBlueFlags" checked aria-label="Show Blue Flag Messages">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
                         <div class="race-control-feed glass" id="raceControlFeed">
@@ -656,6 +665,13 @@
                                     <div class="replay-race-control-ticker" id="replayRaceControlTicker" aria-live="polite" hidden>
                                         <span class="replay-race-control-time" id="replayRaceControlTickerType">Race Control</span>
                                         <span class="replay-race-control-message" id="replayRaceControlTickerMessage"></span>
+                                    </div>
+                                    <div class="replay-team-radio-ticker" id="replayTeamRadioTicker" aria-live="polite" hidden>
+                                        <button type="button" class="team-radio-play-btn" id="replayTeamRadioPlayBtn" aria-label="Play team radio clip">
+                                            <span class="material-icons-round">play_arrow</span>
+                                        </button>
+                                        <span class="replay-team-radio-label">Team Radio</span>
+                                        <span class="replay-team-radio-meta" id="replayTeamRadioMeta"></span>
                                     </div>
                                 </div>
                                 <aside class="replay-race-context" id="replayRaceContext" aria-label="Replay running order" hidden>

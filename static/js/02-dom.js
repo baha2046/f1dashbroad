@@ -111,6 +111,9 @@ const DOM = {
     replayRaceControlTicker: document.getElementById('replayRaceControlTicker'),
     replayRaceControlTickerType: document.getElementById('replayRaceControlTickerType'),
     replayRaceControlTickerMessage: document.getElementById('replayRaceControlTickerMessage'),
+    replayTeamRadioTicker: document.getElementById('replayTeamRadioTicker'),
+    replayTeamRadioPlayBtn: document.getElementById('replayTeamRadioPlayBtn'),
+    replayTeamRadioMeta: document.getElementById('replayTeamRadioMeta'),
     
     // Results
     resultsTableHeadRow: document.getElementById('resultsTableHeadRow'),
@@ -134,6 +137,7 @@ const DOM = {
     raceControlEmptyState: document.getElementById('raceControlEmptyState'),
     raceControlSummary: document.getElementById('raceControlSummary'),
     showBlueFlags: document.getElementById('showBlueFlags'),
+    showTeamRadio: document.getElementById('showTeamRadio'),
     
     // Tabs
     tabButtons: document.querySelectorAll('.tab-btn'),

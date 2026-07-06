@@ -12,6 +12,7 @@ const state = {
     seasonProgression: null,
     progressionView: 'drivers',
     raceControl: [],
+    teamRadio: [],
     pitStops: [],
     position: [],
     positionByLap: {},
@@ -64,6 +65,8 @@ function createReplayState() {
         intervalIndex: null,
         stintIndex: null,
         pitWindows: null,
+        teamRadioIndex: null,   // driver_number -> date-sorted team radio records
+        lastTeamRadioTickMs: 0,
         highlightedDriverNumber: null,
         intervalsSessionKey: null,
         intervalsLoading: null

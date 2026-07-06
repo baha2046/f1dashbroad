@@ -585,6 +585,7 @@ OPENF1_SESSION_ENDPOINTS = {
     "intervals": "intervals",
     "results": "session_result",
     "race_control": "race_control",
+    "team_radio": "team_radio",
 }
 
 def _make_session_endpoint(route_name, openf1_endpoint):

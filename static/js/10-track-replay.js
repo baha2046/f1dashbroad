@@ -172,6 +172,7 @@ function resetReplay() {
     resetReplaySpeedToggle();
     clearReplayRaceContext();
     clearReplayTelemetryStrip();
+    clearReplayTeamRadioTicker();
     if (DOM.replayTimeline) {
         DOM.replayTimeline.innerHTML = '';
     }
@@ -1002,6 +1003,7 @@ function renderReplayFrame(t) {
     updateReplayCircuitState();
     updateReplayRaceContext();
     updateReplayTelemetryStrip();
+    updateReplayTeamRadioTicker();
 }
 
 // Warm the cache for the next timeline lap so the lap handoff is seamless

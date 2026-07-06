@@ -8,6 +8,7 @@ async function selectSession(session) {
     state.results = [];
     state.raceStandings = null;
     state.raceControl = [];
+    state.teamRadio = [];
     state.pitStops = [];
     state.position = [];
     state.positionByLap = {};
@@ -49,13 +50,14 @@ async function selectSession(session) {
         const progressionRequest = isRaceStandingsSession(session) && (!state.seasonProgression || state.seasonProgression.season !== progressionYear)
             ? customFetch(`/api/season_progression?year=${encodeURIComponent(progressionYear)}`)
             : Promise.resolve(null);
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, teamRadioRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}`),
             customFetch(`/api/weather?session_key=${session.session_key}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
             customFetch(`/api/stints?session_key=${session.session_key}`),
             customFetch(`/api/results?session_key=${session.session_key}`),
             customFetch(`/api/race_control?session_key=${session.session_key}`),
+            customFetch(`/api/team_radio?session_key=${session.session_key}`),
             pitStopsRequest,
             lapsRequest,
             positionRequest,
@@ -85,6 +87,11 @@ async function selectSession(session) {
 
         if (raceControlRes.ok) {
             state.raceControl = await raceControlRes.json();
+        }
+
+        if (teamRadioRes.ok) {
+            const teamRadio = await teamRadioRes.json();
+            state.teamRadio = Array.isArray(teamRadio) ? teamRadio : [];
         }
 
         if (pitStopsRes && pitStopsRes.ok) {

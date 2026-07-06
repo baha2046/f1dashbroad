@@ -893,6 +893,98 @@ function renderChampionshipProgressionChart() {
     container.appendChild(svg);
 }
 
+// ===== Team radio playback =====
+// One shared Audio element serves every play button (Race Control feed and
+// the Session Replay ticker) so only a single clip plays at a time.
+let teamRadioAudio = null;
+let teamRadioUrl = null;
+
+function isTeamRadioPlaying() {
+    return !!(teamRadioAudio && !teamRadioAudio.paused && !teamRadioAudio.ended);
+}
+
+function getPlayingTeamRadioUrl() {
+    return isTeamRadioPlaying() ? teamRadioUrl : null;
+}
+
+function isPlayableTeamRadioUrl(url) {
+    return /^https?:\/\//i.test(String(url || ''));
+}
+
+function formatTeamRadioClock(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return null;
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function getTeamRadioAudio() {
+    if (!teamRadioAudio) {
+        teamRadioAudio = new Audio();
+        teamRadioAudio.preload = 'none';
+        teamRadioAudio.addEventListener('timeupdate', updateTeamRadioClipTime);
+        ['play', 'pause', 'ended', 'error'].forEach(eventName => {
+            teamRadioAudio.addEventListener(eventName, syncTeamRadioPlayingButtons);
+        });
+    }
+    return teamRadioAudio;
+}
+
+// Play/pause toggle for one clip URL; a different URL switches the player over.
+function toggleTeamRadioClip(url) {
+    if (!isPlayableTeamRadioUrl(url)) return;
+
+    const audio = getTeamRadioAudio();
+    if (teamRadioUrl === url) {
+        if (isTeamRadioPlaying()) {
+            audio.pause();
+            return;
+        }
+        if (audio.ended) audio.currentTime = 0;
+    } else {
+        teamRadioUrl = url;
+        audio.src = url;
+    }
+    audio.play().catch(error => {
+        console.error('Team radio playback failed:', error);
+        syncTeamRadioPlayingButtons();
+    });
+}
+
+// Re-apply the playing state to whatever buttons currently exist for the
+// active clip: the feed re-renders freely (live refresh, toggles) while the
+// audio keeps playing.
+function syncTeamRadioPlayingButtons() {
+    const playingUrl = getPlayingTeamRadioUrl();
+    document.querySelectorAll('.team-radio-play-btn').forEach(btn => {
+        const active = !!playingUrl && btn.dataset.radioUrl === playingUrl;
+        btn.classList.toggle('playing', active);
+        const icon = btn.querySelector('.material-icons-round');
+        if (icon) icon.textContent = active ? 'pause' : 'play_arrow';
+    });
+    updateTeamRadioClipTime();
+}
+
+function updateTeamRadioClipTime() {
+    if (!teamRadioAudio) return;
+    const elapsed = formatTeamRadioClock(teamRadioAudio.currentTime);
+    const total = formatTeamRadioClock(teamRadioAudio.duration);
+    const text = elapsed && total ? `${elapsed} / ${total}` : elapsed;
+    if (!text) return;
+    document.querySelectorAll('.team-radio-play-btn.playing').forEach(btn => {
+        const player = btn.closest('.team-radio-player');
+        const label = player ? player.querySelector('.team-radio-clip-time') : null;
+        if (label) label.textContent = text;
+    });
+}
+
+function onTeamRadioPlayClick(event) {
+    const btn = event && event.target ? event.target.closest('.team-radio-play-btn') : null;
+    if (!btn) return;
+    event.preventDefault();
+    toggleTeamRadioClip(btn.dataset ? btn.dataset.radioUrl : btn.getAttribute('data-radio-url'));
+}
+
 function getRaceControlType(item) {
     const message = (item.message || '').toUpperCase();
     const category = item.category || 'Other';
@@ -931,29 +1023,149 @@ function formatDriversInMessage(messageText) {
     });
 }
 
+// Field-wide lap in progress at ms: the highest lap number any driver has
+// started (mirrors race-control lap_number semantics, which follow the race
+// leader). Needs state.allSessionLaps, so Race/Sprint sessions only.
+function deriveTeamRadioLapAtMs(ms) {
+    if (!Array.isArray(state.allSessionLaps) || !Number.isFinite(ms)) return null;
+
+    let best = null;
+    state.allSessionLaps.forEach(lap => {
+        if (!lap || lap.date_start === null || lap.date_start === undefined) return;
+        const lapNumber = Number(lap.lap_number);
+        const startMs = new Date(lap.date_start).getTime();
+        if (!Number.isFinite(lapNumber) || !Number.isFinite(startMs) || startMs > ms) return;
+        if (best === null || lapNumber > best) best = lapNumber;
+    });
+    return best;
+}
+
+// Merge race control messages and team radio clips into one entry list
+// sorted by date descending (newest first, like the feed renders).
+function buildRaceControlFeedEntries(showBlueFlags, showTeamRadio) {
+    const entries = [];
+
+    (Array.isArray(state.raceControl) ? state.raceControl : []).forEach(item => {
+        if (!item) return;
+        if (!showBlueFlags && getRaceControlType(item) === 'BLUE') return;
+        entries.push({
+            kind: 'message',
+            date: item.date || '',
+            lap: (item.lap_number !== null && item.lap_number !== undefined) ? item.lap_number : null,
+            item
+        });
+    });
+
+    if (showTeamRadio) {
+        (Array.isArray(state.teamRadio) ? state.teamRadio : []).forEach(item => {
+            if (!item || !isPlayableTeamRadioUrl(item.recording_url)) return;
+            const dateMs = item.date ? new Date(item.date).getTime() : NaN;
+            entries.push({
+                kind: 'radio',
+                date: item.date || '',
+                lap: deriveTeamRadioLapAtMs(dateMs),
+                item
+            });
+        });
+    }
+
+    return entries.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function renderTeamRadioFeedItem(item) {
+    const driverNumber = Number(item.driver_number);
+    const driver = Number.isFinite(driverNumber)
+        ? state.drivers.find(d => Number(d.driver_number) === driverNumber)
+        : null;
+
+    let driverLabel = '';
+    let driverPill = '';
+    if (driver) {
+        const teamHex = getDriverTeamHex(driver);
+        driverLabel = `${driver.first_name || ''} ${driver.last_name || driver.broadcast_name || ''}`.trim();
+        driverPill = `<span class="race-control-meta-pill has-driver"><span class="driver-pill-dot" style="background: #${teamHex};"></span>${escapeHtml(driverLabel)}</span>`;
+    } else if (Number.isFinite(driverNumber)) {
+        driverLabel = `Car ${driverNumber}`;
+        driverPill = `<span class="race-control-meta-pill">${escapeHtml(driverLabel)}</span>`;
+    }
+
+    return `
+        <article class="race-control-item team-radio-item">
+            <div class="race-control-time">${escapeHtml(formatRaceControlTime(item.date))}</div>
+            <div class="race-control-main">
+                <div class="race-control-row">
+                    <span class="race-control-type race-control-type-team-radio">Team Radio</span>
+                    <div class="race-control-meta">${driverPill}</div>
+                </div>
+                <div class="team-radio-player">
+                    <button type="button" class="team-radio-play-btn" data-radio-url="${escapeHtml(item.recording_url)}" aria-label="${escapeHtml(`Play team radio${driverLabel ? ` from ${driverLabel}` : ''}`)}">
+                        <span class="material-icons-round">play_arrow</span>
+                    </button>
+                    <span class="team-radio-clip-time">Radio message</span>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function renderRaceControlMessageItem(item) {
+    const typeLabel = getRaceControlType(item);
+    const typeClass = getRaceControlClass(typeLabel);
+    const driver = item.driver_number ? state.drivers.find(d => d.driver_number === item.driver_number) : null;
+
+    let driverLabel = '';
+    let driverColorBar = '';
+    let driverPillClass = '';
+
+    if (driver) {
+        const teamHex = getDriverTeamHex(driver);
+        driverLabel = `${driver.first_name || ''} ${driver.last_name || driver.broadcast_name || ''}`.trim();
+        driverColorBar = `<span class="driver-pill-dot" style="background: #${teamHex};"></span>`;
+        driverPillClass = 'has-driver';
+    } else if (item.driver_number) {
+        driverLabel = `Car ${item.driver_number}`;
+    }
+
+    const metaItems = [
+        driverLabel ? `<span class="race-control-meta-pill ${driverPillClass}">${driverColorBar}${escapeHtml(driverLabel)}</span>` : '',
+        item.scope ? `<span class="race-control-meta-pill">${escapeHtml(item.scope)}</span>` : '',
+        item.sector !== null && item.sector !== undefined ? `<span class="race-control-meta-pill">Sector ${escapeHtml(item.sector)}</span>` : ''
+    ].filter(Boolean);
+
+    const parsedMessage = formatDriversInMessage(item.message || 'Race control notice');
+
+    return `
+        <article class="race-control-item">
+            <div class="race-control-time">${escapeHtml(formatRaceControlTime(item.date))}</div>
+            <div class="race-control-main">
+                <div class="race-control-row">
+                    <span class="race-control-type ${typeClass}">${escapeHtml(typeLabel)}</span>
+                    <div class="race-control-meta">
+                        ${metaItems.join('')}
+                    </div>
+                </div>
+                <p class="race-control-message">${parsedMessage}</p>
+            </div>
+        </article>
+    `;
+}
+
 function renderRaceControlFeed() {
     if (!DOM.raceControlFeed || !DOM.raceControlEmptyState) return;
 
-    if (!state.raceControl || state.raceControl.length === 0) {
-        DOM.raceControlFeed.style.display = 'none';
-        DOM.raceControlEmptyState.style.display = 'flex';
-        if (DOM.raceControlSummary) {
-            DOM.raceControlSummary.textContent = 'No session messages recorded';
-        }
-        return;
-    }
-
     const showBlueFlags = DOM.showBlueFlags ? DOM.showBlueFlags.checked : true;
-    let filteredMessages = [...state.raceControl];
-    if (!showBlueFlags) {
-        filteredMessages = filteredMessages.filter(item => getRaceControlType(item) !== 'BLUE');
-    }
+    const showTeamRadio = DOM.showTeamRadio ? DOM.showTeamRadio.checked : true;
+    const entries = buildRaceControlFeedEntries(showBlueFlags, showTeamRadio);
 
-    if (filteredMessages.length === 0) {
+    if (entries.length === 0) {
+        const hasAnySource = (Array.isArray(state.raceControl) && state.raceControl.length > 0) ||
+            (Array.isArray(state.teamRadio) && state.teamRadio.length > 0);
         DOM.raceControlFeed.style.display = 'none';
         DOM.raceControlEmptyState.style.display = 'flex';
         if (DOM.raceControlSummary) {
-            DOM.raceControlSummary.textContent = 'No session messages recorded (excluding blue flags)';
+            DOM.raceControlSummary.textContent = hasAnySource
+                ? 'No session messages recorded (all filtered out)'
+                : 'No session messages recorded';
         }
         return;
     }
@@ -961,32 +1173,37 @@ function renderRaceControlFeed() {
     DOM.raceControlEmptyState.style.display = 'none';
     DOM.raceControlFeed.style.display = 'flex';
 
-    const sortedMessages = filteredMessages.sort((a, b) => {
-        return (b.date || '').localeCompare(a.date || '');
-    });
-
     if (DOM.raceControlSummary) {
-        const incidentCount = sortedMessages.filter(item => {
-            const msg = (item.message || '').toUpperCase();
+        const messageEntries = entries.filter(entry => entry.kind === 'message');
+        const radioCount = entries.length - messageEntries.length;
+        const incidentCount = messageEntries.filter(entry => {
+            const msg = (entry.item.message || '').toUpperCase();
             return msg.includes('INCIDENT') || msg.includes('PENALTY') || msg.includes('INVESTIGAT');
         }).length;
-        DOM.raceControlSummary.textContent = `${sortedMessages.length} messages, ${incidentCount} incident updates`;
+        const radioText = radioCount > 0 ? `, ${radioCount} radio clips` : '';
+        DOM.raceControlSummary.textContent = `${messageEntries.length} messages, ${incidentCount} incident updates${radioText}`;
     }
 
-    // Group contiguous messages by lap
+    // Group contiguous entries by lap
     const groups = [];
     let currentGroup = null;
 
-    sortedMessages.forEach((item) => {
-        const lap = (item.lap_number !== null && item.lap_number !== undefined) ? item.lap_number : null;
-        if (!currentGroup || currentGroup.lap !== lap) {
+    entries.forEach((entry) => {
+        // Radio clips without a derivable lap (practice/quali have no
+        // field-wide laps) stay with the surrounding group instead of
+        // splitting it into bogus "General Notices" slivers.
+        if (entry.kind === 'radio' && entry.lap === null && currentGroup) {
+            currentGroup.messages.push(entry);
+            return;
+        }
+        if (!currentGroup || currentGroup.lap !== entry.lap) {
             currentGroup = {
-                lap: lap,
+                lap: entry.lap,
                 messages: []
             };
             groups.push(currentGroup);
         }
-        currentGroup.messages.push(item);
+        currentGroup.messages.push(entry);
     });
 
     DOM.raceControlFeed.innerHTML = groups.map(group => {
@@ -1000,47 +1217,11 @@ function renderRaceControlFeed() {
             groupClass = 'race-control-group-lap';
         }
 
-        const messagesHtml = group.messages.map(item => {
-            const typeLabel = getRaceControlType(item);
-            const typeClass = getRaceControlClass(typeLabel);
-            const driver = item.driver_number ? state.drivers.find(d => d.driver_number === item.driver_number) : null;
-            
-            let driverLabel = '';
-            let driverColorBar = '';
-            let driverPillClass = '';
-            
-            if (driver) {
-                const teamHex = getDriverTeamHex(driver);
-                driverLabel = `${driver.first_name || ''} ${driver.last_name || driver.broadcast_name || ''}`.trim();
-                driverColorBar = `<span class="driver-pill-dot" style="background: #${teamHex};"></span>`;
-                driverPillClass = 'has-driver';
-            } else if (item.driver_number) {
-                driverLabel = `Car ${item.driver_number}`;
-            }
-
-            const metaItems = [
-                driverLabel ? `<span class="race-control-meta-pill ${driverPillClass}">${driverColorBar}${escapeHtml(driverLabel)}</span>` : '',
-                item.scope ? `<span class="race-control-meta-pill">${escapeHtml(item.scope)}</span>` : '',
-                item.sector !== null && item.sector !== undefined ? `<span class="race-control-meta-pill">Sector ${escapeHtml(item.sector)}</span>` : ''
-            ].filter(Boolean);
-
-            const parsedMessage = formatDriversInMessage(item.message || 'Race control notice');
-
-            return `
-                <article class="race-control-item">
-                    <div class="race-control-time">${escapeHtml(formatRaceControlTime(item.date))}</div>
-                    <div class="race-control-main">
-                        <div class="race-control-row">
-                            <span class="race-control-type ${typeClass}">${escapeHtml(typeLabel)}</span>
-                            <div class="race-control-meta">
-                                ${metaItems.join('')}
-                            </div>
-                        </div>
-                        <p class="race-control-message">${parsedMessage}</p>
-                    </div>
-                </article>
-            `;
-        }).join('');
+        const messagesHtml = group.messages.map(entry => (
+            entry.kind === 'radio'
+                ? renderTeamRadioFeedItem(entry.item)
+                : renderRaceControlMessageItem(entry.item)
+        )).join('');
 
         return `
             <div class="race-control-group">
@@ -1053,4 +1234,7 @@ function renderRaceControlFeed() {
             </div>
         `;
     }).join('');
+
+    // Restore the playing state on the re-rendered buttons
+    syncTeamRadioPlayingButtons();
 }
