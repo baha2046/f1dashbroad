@@ -3183,6 +3183,13 @@ body {
     gap: 16px;
 }
 
+.race-control-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
+}
+
 .race-control-toggle {
     display: flex;
     align-items: center;
@@ -3303,6 +3310,12 @@ body {
     color: #d06bff;
 }
 
+.race-control-type-team-radio {
+    background: rgba(255, 159, 10, 0.12);
+    border-color: rgba(255, 159, 10, 0.28);
+    color: #ff9f0a;
+}
+
 .race-control-meta {
     display: flex;
     flex-wrap: wrap;
@@ -3327,6 +3340,52 @@ body {
     font-size: 13px;
     line-height: 1.45;
     overflow-wrap: anywhere;
+}
+
+/* Team radio feed items: compact play button + clip time */
+.team-radio-player {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.team-radio-play-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.team-radio-play-btn .material-icons-round {
+    font-size: 18px;
+}
+
+.team-radio-play-btn:hover {
+    background: rgba(255, 159, 10, 0.15);
+    border-color: rgba(255, 159, 10, 0.4);
+    color: #ff9f0a;
+}
+
+.team-radio-play-btn.playing {
+    background: rgba(255, 159, 10, 0.2);
+    border-color: rgba(255, 159, 10, 0.6);
+    color: #ff9f0a;
+}
+
+.team-radio-clip-time {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Warning Alert Banner */
@@ -4537,6 +4596,42 @@ body {
     font-size: 12px;
     font-weight: 700;
     line-height: 1.35;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Team radio ticker: latest clip at the playhead, played on demand */
+.replay-team-radio-ticker {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+    display: flex;
+    gap: 10px;
+    min-height: 34px;
+    padding: 7px 10px;
+}
+
+.replay-team-radio-ticker[hidden] {
+    display: none;
+}
+
+.replay-team-radio-label {
+    color: var(--text-muted);
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.replay-team-radio-meta {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
