@@ -78,6 +78,77 @@ class SessionReplayTabStaticWiringTests(unittest.TestCase):
             self.assertIn(css_class, self.styles_css)
 
 
+class ReplayKeyboardShortcutTests(unittest.TestCase):
+    """Phase 3 replay interaction polish
+    (doc/2026-07-05-session-replay-review-and-enhancement-plan.md)."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.dashboard_js = read_dashboard_js(self.root)
+
+    def _extract_function(self, function_name):
+        marker = f"function {function_name}"
+        start = self.dashboard_js.find(marker)
+        self.assertNotEqual(start, -1, f"{function_name} is missing from dashboard JS")
+
+        body_start = self.dashboard_js.find("{", start)
+        self.assertNotEqual(body_start, -1, f"{function_name} has no function body")
+
+        depth = 0
+        for index in range(body_start, len(self.dashboard_js)):
+            char = self.dashboard_js[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.dashboard_js[start:index + 1]
+
+        self.fail(f"{function_name} body was not closed")
+
+    def test_keyboard_shortcut_handler_is_wired_on_document(self):
+        self.assertIn("document.addEventListener('keydown', onReplayKeyboardShortcut);", self.dashboard_js)
+
+    def test_keyboard_shortcuts_are_gated_to_replay_tab_and_non_form_focus(self):
+        body = self._extract_function("onReplayKeyboardShortcut")
+        self.assertIn("state.currentTab !== 'replay-view'", body)
+        self.assertIn("isReplayKeyboardShortcutTarget(event.target)", body)
+        self.assertIn("event.preventDefault();", body)
+
+        focus_guard = self._extract_function("isReplayKeyboardShortcutTarget")
+        for tag_name in ("INPUT", "SELECT", "TEXTAREA"):
+            self.assertIn(tag_name, focus_guard)
+        self.assertIn("isContentEditable", focus_guard)
+
+    def test_keyboard_shortcuts_map_expected_replay_actions(self):
+        body = self._extract_function("onReplayKeyboardShortcut")
+        for snippet in (
+            "event.code === 'Space'",
+            "toggleReplayPlayback();",
+            "event.key === 'ArrowLeft'",
+            "seekReplayBySeconds(-REPLAY_KEYBOARD_SEEK_SECONDS);",
+            "event.key === 'ArrowRight'",
+            "seekReplayBySeconds(REPLAY_KEYBOARD_SEEK_SECONDS);",
+            "event.key === 'ArrowUp'",
+            "selectAdjacentReplayLap(-1);",
+            "event.key === 'ArrowDown'",
+            "selectAdjacentReplayLap(1);",
+        ):
+            self.assertIn(snippet, body)
+
+    def test_keyboard_seek_uses_timeline_boundary_machinery(self):
+        for snippet in (
+            "const REPLAY_KEYBOARD_SEEK_SECONDS = 5",
+            "function getPreviousTimelineSegment",
+            "function seekReplayBySeconds",
+            "advanceReplayToNextLap(leftover);",
+            "seekReplayToTimelineFraction",
+            "renderReplayFrame(Math.max(0, Math.min(targetT, windowSeconds)));",
+            "function selectAdjacentReplayLap",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+
 class ReplayRaceControlTimelineTests(unittest.TestCase):
     """Race-control-derived timeline + circuit state surfaces
     (doc/2026-07-05-replay-race-control-timeline-design.md)."""

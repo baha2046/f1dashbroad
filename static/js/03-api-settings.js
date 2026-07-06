@@ -238,6 +238,7 @@ function setupEventListeners() {
             state.replay.speed = Number(btn.dataset.speed) || 1;
         });
     }
+    document.addEventListener('keydown', onReplayKeyboardShortcut);
 
     // Chart Outlier Toggle
     if (DOM.chartHideOutliers) {

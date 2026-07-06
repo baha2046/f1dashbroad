@@ -14,6 +14,7 @@ const REPLAY_PREFETCH_LEAD_SECONDS = 15;
 // Cap a timeline segment's rendered width at this multiple of the median lap
 // window so out-laps / red-flag gaps don't dwarf flying laps
 const REPLAY_TIMELINE_WIDTH_CAP = 3;
+const REPLAY_KEYBOARD_SEEK_SECONDS = 5;
 
 // Sentinel select value / state.replay.driverNumber for full-race mode:
 // the backend serves leader-based race-lap windows when driver_number is omitted
@@ -582,6 +583,13 @@ function getNextTimelineSegment(lapNumber) {
     return index >= 0 ? timeline.segments[index + 1] || null : null;
 }
 
+function getPreviousTimelineSegment(lapNumber) {
+    const timeline = state.replay.timeline;
+    if (!timeline) return null;
+    const index = timeline.segments.findIndex(seg => seg.lapNumber === lapNumber);
+    return index > 0 ? timeline.segments[index - 1] || null : null;
+}
+
 function updateReplayTimelineActive() {
     if (!DOM.replayTimeline) return;
     DOM.replayTimeline.querySelectorAll('.replay-timeline-segment').forEach(btn => {
@@ -1084,4 +1092,101 @@ function scrubReplayToFraction(fraction) {
     const windowSeconds = getReplayWindowSeconds();
     const clamped = Math.max(0, Math.min(1, Number(fraction) || 0));
     renderReplayFrame(clamped * windowSeconds);
+}
+
+function seekReplayBySeconds(deltaSeconds) {
+    if (!state.replay.data) return;
+    const delta = Number(deltaSeconds);
+    if (!Number.isFinite(delta) || delta === 0) return;
+
+    const windowSeconds = getReplayWindowSeconds();
+    if (!(windowSeconds > 0)) return;
+
+    const targetT = state.replay.t + delta;
+    if (targetT >= 0 && targetT <= windowSeconds) {
+        renderReplayFrame(Math.max(0, Math.min(targetT, windowSeconds)));
+        return;
+    }
+
+    if (targetT > windowSeconds) {
+        const leftover = targetT - windowSeconds;
+        const next = getNextTimelineSegment(state.replay.lapNumber);
+        if (!next) {
+            renderReplayFrame(windowSeconds);
+            stopReplayPlayback();
+            return;
+        }
+        if (state.replay.playing) {
+            advanceReplayToNextLap(leftover);
+            return;
+        }
+        const fraction = next.seconds > 0 ? leftover / next.seconds : 0;
+        seekReplayToTimelineFraction(next, fraction);
+        return;
+    }
+
+    const previous = getPreviousTimelineSegment(state.replay.lapNumber);
+    if (!previous) {
+        renderReplayFrame(0);
+        return;
+    }
+    const previousT = Math.max(0, previous.seconds + targetT);
+    const fraction = previous.seconds > 0 ? previousT / previous.seconds : 0;
+    seekReplayToTimelineFraction(previous, fraction);
+}
+
+function selectAdjacentReplayLap(direction) {
+    const timeline = state.replay.timeline;
+    const segments = timeline && Array.isArray(timeline.segments) ? timeline.segments : [];
+    if (segments.length === 0) return;
+
+    const currentIndex = segments.findIndex(seg => seg.lapNumber === state.replay.lapNumber);
+    if (currentIndex < 0) return;
+
+    const targetIndex = currentIndex + (direction < 0 ? -1 : 1);
+    if (targetIndex < 0 || targetIndex >= segments.length) return;
+
+    seekReplayToTimelineFraction(segments[targetIndex], 0);
+}
+
+function isReplayKeyboardShortcutTarget(target) {
+    if (!target) return false;
+    const tagName = String(target.tagName || '').toUpperCase();
+    return (
+        tagName === 'INPUT' ||
+        tagName === 'SELECT' ||
+        tagName === 'TEXTAREA' ||
+        target.isContentEditable
+    );
+}
+
+function onReplayKeyboardShortcut(event) {
+    if (state.currentTab !== 'replay-view') return;
+    if (isReplayKeyboardShortcutTarget(event.target)) return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') {
+        event.preventDefault();
+        toggleReplayPlayback();
+        return;
+    }
+    if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        seekReplayBySeconds(-REPLAY_KEYBOARD_SEEK_SECONDS);
+        return;
+    }
+    if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        seekReplayBySeconds(REPLAY_KEYBOARD_SEEK_SECONDS);
+        return;
+    }
+    if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectAdjacentReplayLap(-1);
+        return;
+    }
+    if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        selectAdjacentReplayLap(1);
+    }
 }
