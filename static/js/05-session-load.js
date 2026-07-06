@@ -9,6 +9,7 @@ async function selectSession(session) {
     state.raceStandings = null;
     state.raceControl = [];
     state.teamRadio = [];
+    stopTeamRadioPlayback();
     state.pitStops = [];
     state.position = [];
     state.positionByLap = {};

@@ -930,6 +930,14 @@ function getTeamRadioAudio() {
     return teamRadioAudio;
 }
 
+// Stop playback outright (session switches: the clip no longer belongs to
+// anything on screen).
+function stopTeamRadioPlayback() {
+    if (!teamRadioAudio) return;
+    teamRadioAudio.pause();
+    teamRadioUrl = null;
+}
+
 // Play/pause toggle for one clip URL; a different URL switches the player over.
 function toggleTeamRadioClip(url) {
     if (!isPlayableTeamRadioUrl(url)) return;

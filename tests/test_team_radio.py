@@ -89,6 +89,10 @@ class TeamRadioStaticWiringTests(unittest.TestCase):
         self.assertIn("function onTeamRadioPlayClick", self.dashboard_js)
         self.assertIn("team-radio-play-btn", self.dashboard_js)
 
+    def test_session_switch_stops_playback(self):
+        self.assertIn("function stopTeamRadioPlayback", self.dashboard_js)
+        self.assertIn("stopTeamRadioPlayback();", self.dashboard_js)
+
     def test_race_control_feed_merges_team_radio_entries(self):
         self.assertIn("function buildRaceControlFeedEntries", self.dashboard_js)
         self.assertIn("function renderTeamRadioFeedItem", self.dashboard_js)
