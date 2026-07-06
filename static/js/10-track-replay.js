@@ -171,6 +171,7 @@ function resetReplay() {
     }
     resetReplaySpeedToggle();
     clearReplayRaceContext();
+    clearReplayTelemetryStrip();
     if (DOM.replayTimeline) {
         DOM.replayTimeline.innerHTML = '';
     }
@@ -863,6 +864,7 @@ function buildReplayScene(payload, cacheKey, options = {}) {
     if (DOM.replayPlayBtn) DOM.replayPlayBtn.disabled = false;
     if (DOM.replayScrubber) DOM.replayScrubber.disabled = false;
     updateReplayTimelineActive();
+    ensureReplayTelemetryLoaded();
 
     const windowSeconds = Number(payload.window_seconds) || 0;
     renderReplayFrame(Math.max(0, Math.min(Number(options.startT) || 0, windowSeconds)));
@@ -999,6 +1001,7 @@ function renderReplayFrame(t) {
     updateReplayTimelinePlayhead();
     updateReplayCircuitState();
     updateReplayRaceContext();
+    updateReplayTelemetryStrip();
 }
 
 // Warm the cache for the next timeline lap so the lap handoff is seamless
@@ -1009,6 +1012,10 @@ function prefetchNextReplayLap() {
 
     fetchReplayPayload(state.selectedSession.session_key, state.replay.driverNumber, next.lapNumber)
         .catch(e => console.error('Error prefetching replay lap:', e));
+    // Warm the telemetry strip for the lap handoff too (driver mode only)
+    if (state.replay.driverNumber !== REPLAY_FULL_RACE) {
+        fetchReplayTelemetryPayload(state.selectedSession.session_key, state.replay.driverNumber, next.lapNumber);
+    }
 }
 
 // Continuous playback: carry leftover time into the next timeline lap, or

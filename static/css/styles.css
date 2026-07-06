@@ -4297,6 +4297,37 @@ body {
     border-color: rgba(255, 255, 255, 0.32);
 }
 
+/* Position-change flash: green for places gained, red for places lost */
+.replay-tower-row.flash-up {
+    animation: replay-row-flash-up 1.2s ease-out;
+}
+
+.replay-tower-row.flash-down {
+    animation: replay-row-flash-down 1.2s ease-out;
+}
+
+@keyframes replay-row-flash-up {
+    0% {
+        background-color: rgba(48, 209, 88, 0.38);
+        border-color: rgba(48, 209, 88, 0.6);
+    }
+    100% {
+        background-color: rgba(255, 255, 255, 0.055);
+        border-color: rgba(255, 255, 255, 0.07);
+    }
+}
+
+@keyframes replay-row-flash-down {
+    0% {
+        background-color: rgba(255, 69, 58, 0.34);
+        border-color: rgba(255, 69, 58, 0.55);
+    }
+    100% {
+        background-color: rgba(255, 255, 255, 0.055);
+        border-color: rgba(255, 255, 255, 0.07);
+    }
+}
+
 .replay-tower-pos,
 .replay-tower-driver,
 .replay-tower-tyre,
@@ -4409,6 +4440,72 @@ body {
     pointer-events: none;
     position: absolute;
     width: 14px;
+}
+
+.replay-telemetry-strip {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+    display: flex;
+    gap: 16px;
+    min-height: 34px;
+    padding: 7px 10px;
+}
+
+.replay-telemetry-strip[hidden] {
+    display: none;
+}
+
+.replay-telemetry-driver {
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+}
+
+.replay-telemetry-item {
+    align-items: baseline;
+    display: inline-flex;
+    gap: 5px;
+}
+
+.replay-telemetry-value {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+}
+
+.replay-telemetry-speed {
+    min-width: 34px;
+    text-align: right;
+}
+
+.replay-telemetry-unit {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.replay-telemetry-drs {
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.6px;
+    margin-left: auto;
+    padding: 2px 8px;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.replay-telemetry-drs.active {
+    background: rgba(48, 209, 88, 0.16);
+    border-color: rgba(48, 209, 88, 0.55);
+    color: #30d158;
 }
 
 .replay-race-control-ticker {

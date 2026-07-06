@@ -562,5 +562,192 @@ class ReplayRaceContextTests(unittest.TestCase):
         self.assertNotIn("setupReplayTimeline(", body)
 
 
+class ReplayDeferredEnhancementTests(unittest.TestCase):
+    """Formerly-deferred plan items implemented 2026-07-06: row-flash
+    position-change animation and the reference-driver telemetry strip
+    (doc/2026-07-05-session-replay-review-and-enhancement-plan.md)."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
+        self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    def _extract_function(self, function_name):
+        marker = f"function {function_name}"
+        start = self.dashboard_js.find(marker)
+        self.assertNotEqual(start, -1, f"{function_name} is missing from dashboard JS")
+
+        # Skip the parameter list first: default params like `options = {}`
+        # would otherwise terminate the brace scan immediately
+        params_start = self.dashboard_js.find("(", start)
+        self.assertNotEqual(params_start, -1, f"{function_name} has no parameter list")
+        paren_depth = 0
+        params_end = -1
+        for index in range(params_start, len(self.dashboard_js)):
+            char = self.dashboard_js[index]
+            if char == "(":
+                paren_depth += 1
+            elif char == ")":
+                paren_depth -= 1
+                if paren_depth == 0:
+                    params_end = index
+                    break
+        self.assertNotEqual(params_end, -1, f"{function_name} parameter list was not closed")
+
+        body_start = self.dashboard_js.find("{", params_end)
+        self.assertNotEqual(body_start, -1, f"{function_name} has no function body")
+
+        depth = 0
+        for index in range(body_start, len(self.dashboard_js)):
+            char = self.dashboard_js[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.dashboard_js[start:index + 1]
+
+        self.fail(f"{function_name} body was not closed")
+
+    def _run_node(self, script):
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+        return json.loads(completed.stdout)
+
+    def test_replay_view_has_telemetry_strip_surfaces(self):
+        replay_view = extract_section(self.index_html, "replay-view")
+        self.assertIsNotNone(replay_view, "replay-view section missing")
+        for element_id in (
+            'id="replayTelemetryStrip"',
+            'id="replayTelemetryDriver"',
+            'id="replayTelemetrySpeed"',
+            'id="replayTelemetryGear"',
+            'id="replayTelemetryDrs"',
+        ):
+            self.assertIn(element_id, replay_view)
+
+    def test_dom_map_wires_telemetry_strip_nodes(self):
+        for snippet in (
+            "replayTelemetryStrip: document.getElementById('replayTelemetryStrip')",
+            "replayTelemetryDriver: document.getElementById('replayTelemetryDriver')",
+            "replayTelemetrySpeed: document.getElementById('replayTelemetrySpeed')",
+            "replayTelemetryGear: document.getElementById('replayTelemetryGear')",
+            "replayTelemetryDrs: document.getElementById('replayTelemetryDrs')",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_js_defines_deferred_enhancement_helpers(self):
+        for snippet in (
+            "const REPLAY_ROW_FLASH_MAX_JUMP_MS = 5000",
+            "const REPLAY_TELEMETRY_MAX_GAP_SECONDS = 4",
+            "function replayPositionFlashClass",
+            "function applyReplayRowFlash",
+            "function replayTelemetryAtT",
+            "function formatReplayGear",
+            "function fetchReplayTelemetryPayload",
+            "function ensureReplayTelemetryLoaded",
+            "function updateReplayTelemetryStrip",
+            "function clearReplayTelemetryStrip",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_row_flash_is_jump_guarded_and_tied_to_context_tick(self):
+        body = self._extract_function("updateReplayRaceContext")
+        self.assertIn("REPLAY_ROW_FLASH_MAX_JUMP_MS", body)
+        self.assertIn("applyReplayRowFlash(", body)
+        self.assertIn("lastContextAbsMs", body)
+
+    def test_telemetry_strip_updates_from_frame_loop_and_scene_load(self):
+        frame_body = self._extract_function("renderReplayFrame")
+        self.assertIn("updateReplayTelemetryStrip();", frame_body)
+
+        scene_body = self._extract_function("buildReplayScene")
+        self.assertIn("ensureReplayTelemetryLoaded();", scene_body)
+
+        prefetch_body = self._extract_function("prefetchNextReplayLap")
+        self.assertIn("fetchReplayTelemetryPayload(", prefetch_body)
+
+    def test_telemetry_strip_is_hidden_in_full_race_mode(self):
+        body = self._extract_function("updateReplayTelemetryStrip")
+        self.assertIn("REPLAY_FULL_RACE", body)
+        self.assertIn("hidden = true", body)
+
+    def test_telemetry_fetch_reuses_laps_tab_cache(self):
+        body = self._extract_function("fetchReplayTelemetryPayload")
+        self.assertIn("state.telemetryCache[cacheKey]", body)
+        self.assertIn("/api/car_telemetry?session_key=", body)
+
+    def test_styles_contain_deferred_enhancement_classes(self):
+        for css_class in (
+            ".replay-tower-row.flash-up",
+            ".replay-tower-row.flash-down",
+            "@keyframes replay-row-flash-up",
+            "@keyframes replay-row-flash-down",
+            ".replay-telemetry-strip",
+            ".replay-telemetry-drs.active",
+        ):
+            self.assertIn(css_class, self.styles_css)
+
+    def test_position_flash_class_maps_gains_and_losses(self):
+        helper = self._extract_function("replayPositionFlashClass")
+        script = textwrap.dedent(f"""
+            {helper}
+
+            console.log(JSON.stringify([
+                replayPositionFlashClass(5, 3),
+                replayPositionFlashClass(3, 5),
+                replayPositionFlashClass(4, 4),
+                replayPositionFlashClass(undefined, 4),
+                replayPositionFlashClass(4, null)
+            ]));
+        """)
+        self.assertEqual(
+            self._run_node(script),
+            ["flash-up", "flash-down", None, None, None],
+        )
+
+    def test_telemetry_lookup_picks_latest_sample_and_rejects_gaps(self):
+        helper = self._extract_function("replayTelemetryAtT")
+        script = textwrap.dedent(f"""
+            const REPLAY_TELEMETRY_MAX_GAP_SECONDS = 4;
+            {helper}
+
+            const samples = [
+                {{ t: 0.5, speed: 280, gear: 7, drs: 12 }},
+                {{ t: 1.0, speed: 300, gear: 8, drs: 12 }},
+                {{ t: 10.0, speed: 120, gear: 3, drs: 1 }}
+            ];
+            console.log(JSON.stringify([
+                replayTelemetryAtT(samples, 1.2) && replayTelemetryAtT(samples, 1.2).speed,
+                replayTelemetryAtT(samples, 8.0),
+                replayTelemetryAtT(samples, 0.1) && replayTelemetryAtT(samples, 0.1).speed,
+                replayTelemetryAtT([{{ t: 9.0, speed: 200 }}], 0),
+                replayTelemetryAtT([], 1.0)
+            ]));
+        """)
+        self.assertEqual(self._run_node(script), [300, None, 280, None, None])
+
+    def test_gear_formatter_handles_neutral_and_missing(self):
+        helper = self._extract_function("formatReplayGear")
+        script = textwrap.dedent(f"""
+            {helper}
+
+            console.log(JSON.stringify([
+                formatReplayGear(7),
+                formatReplayGear(0),
+                formatReplayGear(null),
+                formatReplayGear("3")
+            ]));
+        """)
+        self.assertEqual(self._run_node(script), ["7", "N", "—", "3"])
+
+
 if __name__ == "__main__":
     unittest.main()

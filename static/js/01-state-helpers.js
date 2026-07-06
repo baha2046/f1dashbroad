@@ -55,7 +55,11 @@ function createReplayState() {
         lastFrameTs: null,
         carNodes: {},      // driver_number -> { group, samples } for the built SVG
         lastContextTickMs: 0,
+        lastContextAbsMs: null, // playhead position at the previous context tick (row-flash jump guard)
         contextRows: {},
+        telemetrySamples: null, // reference driver's car_data samples for the loaded lap window
+        telemetryKey: null,     // replay cache key the telemetry samples belong to
+        lastTelemetryTickMs: 0,
         positionIndex: null,
         intervalIndex: null,
         stintIndex: null,

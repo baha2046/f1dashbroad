@@ -3,6 +3,11 @@
 const REPLAY_CONTEXT_TICK_MS = 250;
 const REPLAY_INTERVAL_MAX_AGE_MS = 20000;
 const REPLAY_PIT_WINDOW_PAD_SECONDS = 5;
+// Suppress row flashes when the playhead jumped more than this between ticks
+// (seeks, lap switches) so a scrub doesn't fire a flash storm
+const REPLAY_ROW_FLASH_MAX_JUMP_MS = 5000;
+// Telemetry-strip readouts go blank when the nearest sample is older than this
+const REPLAY_TELEMETRY_MAX_GAP_SECONDS = 4;
 const REPLAY_TYRE_COMPOUND_LABELS = {
     SOFT: 'S',
     MEDIUM: 'M',
@@ -205,6 +210,56 @@ function formatReplayTyreCompound(compound) {
     };
 }
 
+// 'flash-up' when a driver gained places since the previous tick,
+// 'flash-down' when they lost places, null otherwise
+function replayPositionFlashClass(previousPosition, currentPosition) {
+    // Explicit null/undefined checks: Number(null) is 0, which would read as P0
+    if (previousPosition === null || previousPosition === undefined) return null;
+    if (currentPosition === null || currentPosition === undefined) return null;
+
+    const previous = Number(previousPosition);
+    const current = Number(currentPosition);
+    if (!Number.isFinite(previous) || !Number.isFinite(current) || previous === current) return null;
+    return current < previous ? 'flash-up' : 'flash-down';
+}
+
+function applyReplayRowFlash(rowElement, flashClass) {
+    if (!rowElement || !flashClass) return;
+    rowElement.classList.remove('flash-up', 'flash-down');
+    void rowElement.offsetWidth; // restart the animation when re-flashing mid-animation
+    rowElement.classList.add(flashClass);
+}
+
+// Latest telemetry sample at-or-before t (seconds within the lap window);
+// null in data gaps. Mirrors interpolateReplaySample's leading-edge snap.
+function replayTelemetryAtT(samples, t, maxGapSeconds = REPLAY_TELEMETRY_MAX_GAP_SECONDS) {
+    if (!Array.isArray(samples) || samples.length === 0 || !Number.isFinite(t)) return null;
+
+    const first = samples[0];
+    if (t < first.t) {
+        return (first.t - t) <= maxGapSeconds ? first : null;
+    }
+
+    let lo = 0;
+    let hi = samples.length - 1;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (samples[mid].t <= t) lo = mid;
+        else hi = mid - 1;
+    }
+
+    const sample = samples[lo];
+    return (t - sample.t) <= maxGapSeconds ? sample : null;
+}
+
+function formatReplayGear(gear) {
+    // Missing readings show as an em dash; Number(null) would masquerade as neutral
+    if (gear === null || gear === undefined || gear === '') return '—';
+    const value = Number(gear);
+    if (!Number.isFinite(value)) return '—';
+    return value <= 0 ? 'N' : String(value);
+}
+
 function normalizeReplayDriverSet(driverNumbers) {
     if (driverNumbers instanceof Set) {
         return new Set([...driverNumbers].map(Number).filter(Number.isFinite));
@@ -316,6 +371,7 @@ function clearReplayRaceContext() {
         state.replay.pitWindows = null;
         state.replay.highlightedDriverNumber = null;
         state.replay.lastContextTickMs = 0;
+        state.replay.lastContextAbsMs = null;
     }
 }
 
@@ -434,6 +490,11 @@ function ensureReplayTowerRow(driverNumber) {
     const row = document.createElement('div');
     row.className = 'replay-tower-row';
     row.dataset.driverNumber = String(driverNumber);
+    row.addEventListener('animationend', (event) => {
+        if (String(event.animationName).startsWith('replay-row-flash')) {
+            row.classList.remove('flash-up', 'flash-down');
+        }
+    });
 
     const pos = document.createElement('span');
     pos.className = 'replay-tower-pos';
@@ -543,6 +604,11 @@ function updateReplayRaceContext(force = false) {
         return;
     }
 
+    const previousAbsoluteMs = state.replay.lastContextAbsMs;
+    state.replay.lastContextAbsMs = absoluteMs;
+    const allowRowFlash = Number.isFinite(previousAbsoluteMs) &&
+        Math.abs(absoluteMs - previousAbsoluteMs) <= REPLAY_ROW_FLASH_MAX_JUMP_MS;
+
     const positionIndex = state.replay.positionIndex || buildDriverDateIndex(state.position);
     const intervalIndex = state.replay.intervalIndex || buildDriverDateIndex(state.intervals);
     const stintIndex = state.replay.stintIndex || buildReplayStintIndex(state.stints);
@@ -567,6 +633,14 @@ function updateReplayRaceContext(force = false) {
     order.forEach((raceRow, index) => {
         const row = ensureReplayTowerRow(raceRow.driverNumber);
         if (!row) return;
+
+        // Flash only rows that were already on screen with a known position:
+        // rows appearing (tab entry, un-hide) must not fire a bogus flash
+        const wasVisible = !row.row.hidden;
+        if (allowRowFlash && wasVisible) {
+            applyReplayRowFlash(row.row, replayPositionFlashClass(row.lastPosition, raceRow.position));
+        }
+        row.lastPosition = raceRow.position;
 
         const driver = getReplayDriver(raceRow.driverNumber);
         const intervalRecord = valueAtMs(intervalIndex.get(raceRow.driverNumber), absoluteMs, REPLAY_INTERVAL_MAX_AGE_MS);
@@ -599,6 +673,109 @@ function updateReplayRaceContext(force = false) {
         row.row.hidden = !activeDrivers.has(driverNumber);
     });
     applyReplayHighlight();
+}
+
+// ===== Reference-driver telemetry strip (speed / gear / DRS) =====
+// Driver mode only: the reference driver's car_data shares the replay's lap
+// window (both come from build_lap_telemetry_window), so sample.t aligns with
+// state.replay.t directly. Full-race mode has no reference driver — hidden.
+
+let replayTelemetryFetchPromises = {};
+
+function clearReplayTelemetryStrip() {
+    replayTelemetryFetchPromises = {};
+    if (DOM.replayTelemetryStrip) {
+        DOM.replayTelemetryStrip.hidden = true;
+    }
+}
+
+// Fetch and memoize a lap's car telemetry; shares state.telemetryCache (and
+// its key format) with the Laps tab so neither fetches what the other has.
+function fetchReplayTelemetryPayload(sessionKey, driverNumber, lapNumber) {
+    const cacheKey = `${sessionKey}_${driverNumber}_${lapNumber}`;
+    if (state.telemetryCache[cacheKey]) return Promise.resolve(state.telemetryCache[cacheKey]);
+
+    if (!replayTelemetryFetchPromises[cacheKey]) {
+        replayTelemetryFetchPromises[cacheKey] = (async () => {
+            try {
+                const response = await customFetch(
+                    `/api/car_telemetry?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
+                );
+                if (!response.ok) return null;
+                const payload = await response.json();
+                if (!payload || !Array.isArray(payload.telemetry) || payload.telemetry.length === 0) return null;
+                state.telemetryCache[cacheKey] = payload;
+                return payload;
+            } catch (error) {
+                console.error('Error fetching replay telemetry:', error);
+                return null;
+            } finally {
+                delete replayTelemetryFetchPromises[cacheKey];
+            }
+        })();
+    }
+    return replayTelemetryFetchPromises[cacheKey];
+}
+
+async function ensureReplayTelemetryLoaded() {
+    updateReplayTelemetryStrip(true); // hide immediately while the mode/lap has no samples
+    if (!state.selectedSession) return;
+
+    const driverNumber = state.replay.driverNumber;
+    const lapNumber = state.replay.lapNumber;
+    if (driverNumber === REPLAY_FULL_RACE || !Number.isFinite(Number(driverNumber)) || !Number.isFinite(lapNumber)) return;
+
+    const sessionKey = state.selectedSession.session_key;
+    const cacheKey = `${sessionKey}_${driverNumber}_${lapNumber}`;
+    const payload = await fetchReplayTelemetryPayload(sessionKey, driverNumber, lapNumber);
+
+    // The user may have moved on while telemetry was loading
+    if (!state.selectedSession || state.selectedSession.session_key !== sessionKey) return;
+    if (state.replay.loadedKey !== cacheKey) return;
+
+    state.replay.telemetrySamples = payload ? payload.telemetry : null;
+    state.replay.telemetryKey = payload ? cacheKey : null;
+    updateReplayTelemetryStrip(true);
+}
+
+function updateReplayTelemetryStrip(force = false) {
+    if (!DOM.replayTelemetryStrip) return;
+
+    const available = (
+        state.replay.driverNumber !== REPLAY_FULL_RACE &&
+        state.replay.data &&
+        state.replay.telemetryKey === state.replay.loadedKey &&
+        Array.isArray(state.replay.telemetrySamples) &&
+        state.replay.telemetrySamples.length > 0
+    );
+    if (!available) {
+        if (!DOM.replayTelemetryStrip.hidden) DOM.replayTelemetryStrip.hidden = true;
+        return;
+    }
+
+    const now = getReplayContextNowMs();
+    if (!force && state.replay.lastTelemetryTickMs && now - state.replay.lastTelemetryTickMs < REPLAY_CONTEXT_TICK_MS) {
+        return;
+    }
+    state.replay.lastTelemetryTickMs = now;
+
+    const sample = replayTelemetryAtT(state.replay.telemetrySamples, state.replay.t);
+    const speed = sample ? Number(sample.speed) : NaN;
+    const drsActive = !!(sample && typeof isTelemetryDrsActive === 'function' && isTelemetryDrsActive(sample.drs));
+
+    DOM.replayTelemetryStrip.hidden = false;
+    if (DOM.replayTelemetryDriver) {
+        DOM.replayTelemetryDriver.textContent = getReplayDriverCode(state.replay.driverNumber);
+    }
+    if (DOM.replayTelemetrySpeed) {
+        DOM.replayTelemetrySpeed.textContent = Number.isFinite(speed) ? String(Math.round(speed)) : '—';
+    }
+    if (DOM.replayTelemetryGear) {
+        DOM.replayTelemetryGear.textContent = formatReplayGear(sample && sample.gear);
+    }
+    if (DOM.replayTelemetryDrs) {
+        DOM.replayTelemetryDrs.classList.toggle('active', drsActive);
+    }
 }
 
 function appendReplayPitMarkers(container, segment) {

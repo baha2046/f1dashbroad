@@ -119,9 +119,31 @@ boundaries via the existing `advanceReplayToNextLap`/seek machinery,
 ### Explicitly deferred (cross-review: low value or duplicative)
 
 - 8x speed — state sync legibility suffers before it adds value.
-- Reference-driver telemetry strip (speed/gear/DRS) — duplicates the
-  Telemetry tab for one driver; whole-field context wins.
-- Row-flash position-change animation.
+- ~~Reference-driver telemetry strip (speed/gear/DRS)~~ — implemented
+  2026-07-06 by request (see Phase 4).
+- ~~Row-flash position-change animation~~ — implemented 2026-07-06 by
+  request (see Phase 4).
+
+### Phase 4 — Deferred items implemented later (2026-07-06)
+
+**4.1 Row-flash position-change animation.** Tower rows flash green when a
+driver gains places and red when they lose places, compared per ~4Hz
+context tick. Guards against churn: flashes are suppressed when the
+playhead jumped more than `REPLAY_ROW_FLASH_MAX_JUMP_MS` (5s) of session
+time between ticks (seeks, lap switches, scrubs) and for rows that were
+hidden or had no known previous position. Pure helper:
+`replayPositionFlashClass(previous, current)`.
+
+**4.2 Reference-driver telemetry strip.** Speed / gear / DRS readout under
+the map, driver mode only (full-race mode has no reference driver — the
+strip stays hidden). `/api/car_telemetry` shares the replay's lap window
+(both derive from `build_lap_telemetry_window`), so sample `t` aligns with
+`state.replay.t` directly; payloads share `state.telemetryCache` (and its
+key format) with the Laps tab. Readouts tick at the same throttled ~4Hz as
+the tower; the next lap's telemetry is prefetched alongside the replay
+payload. Blank ("—") readouts when the nearest sample is older than
+`REPLAY_TELEMETRY_MAX_GAP_SECONDS` (4s). Pure helpers:
+`replayTelemetryAtT(samples, t, maxGapSeconds)`, `formatReplayGear(gear)`.
 
 ## 3. Implementation notes
 
