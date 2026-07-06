@@ -1163,7 +1163,7 @@ body {
 /* Laps & Stints Layout */
 .laps-layout {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 24px;
     align-items: flex-start;
     padding-bottom: 156px;
@@ -1281,6 +1281,7 @@ body {
 .laps-content {
     padding: 28px;
     min-height: 400px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
 }
@@ -1457,6 +1458,7 @@ body {
 .laps-table-wrapper {
     max-height: 320px;
     overflow-y: auto;
+    overflow-x: auto;
     border: 1px solid var(--border-color);
     border-radius: 12px;
 }
@@ -1880,7 +1882,7 @@ body {
 /* Compare Tab */
 .compare-layout {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 24px;
     align-items: flex-start;
     padding-bottom: 156px;
@@ -1994,6 +1996,7 @@ body {
 
 .compare-content {
     min-height: 500px;
+    min-width: 0;
     padding: 24px;
 }
 
@@ -2602,15 +2605,15 @@ body {
 
 @media (max-width: 1140px) {
     .laps-layout {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .compare-layout {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
-    
+
     .circuit-layout {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .laps-driver-bar {
@@ -2620,9 +2623,8 @@ body {
     .compare-sidebar {
         max-height: 132px;
     }
-    
-    .driver-pills,
-    .compare-driver-pills {
+
+    .driver-pills {
         flex-direction: row;
         flex-wrap: wrap;
     }
@@ -2690,6 +2692,61 @@ body {
 }
 
 @media (max-width: 600px) {
+    .main-content {
+        padding: 16px;
+    }
+
+    /* Single-row, horizontally scrollable tab bar */
+    .dashboard-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .dashboard-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tab-btn {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    /* Prevent iOS Safari from zooming in when focusing form fields */
+    input[type="text"],
+    input[type="password"],
+    select {
+        font-size: 16px;
+    }
+
+    .laps-content {
+        padding: 18px 14px;
+    }
+
+    .compare-content {
+        padding: 18px 14px;
+    }
+
+    .laps-table th, .laps-table td {
+        padding: 10px;
+    }
+
+    .drivers-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .drivers-search-wrapper {
+        width: 100%;
+    }
+
+    .laps-layout,
+    .compare-layout {
+        padding-bottom: 172px;
+    }
+
     .weather-grid {
         grid-template-columns: 1fr 1fr;
     }
@@ -2726,7 +2783,9 @@ body {
     .compare-sidebar {
         align-items: stretch;
         gap: 10px;
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
+        left: 16px;
+        right: 16px;
         max-height: 156px;
         padding: 12px 14px;
     }
@@ -4491,7 +4550,7 @@ body {
 
     .replay-tower-body {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     }
 }
 

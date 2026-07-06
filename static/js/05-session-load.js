@@ -152,7 +152,12 @@ async function selectSession(session) {
         // Hide empty state and show dashboard content
         DOM.emptyState.style.display = 'none';
         DOM.dashboardContent.style.display = 'flex';
-        
+
+        // On narrow screens the sidebar stacks above the dashboard, so bring the content into view
+        if (window.matchMedia('(max-width: 900px)').matches) {
+            DOM.dashboardContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
         // Auto-select first driver for lap stats view if available
         if (state.drivers && state.drivers.length > 0) {
             const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));

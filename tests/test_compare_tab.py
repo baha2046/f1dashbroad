@@ -80,7 +80,7 @@ class CompareTabStaticWiringTests(unittest.TestCase):
         pills_rule = self._css_rule(".compare-driver-pills")
         pill_rule = self._css_rule(".compare-driver-pill")
 
-        self.assertIn("grid-template-columns: 1fr;", layout_rule)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", layout_rule)
         self.assertIn("padding-bottom: 156px;", layout_rule)
         self.assertNotIn("260px 1fr", layout_rule)
 

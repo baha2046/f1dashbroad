@@ -28,7 +28,7 @@ class LapsDriverBottomBarTests(unittest.TestCase):
         pill_rule = self._css_rule(".driver-pill")
         mobile_rule = self._css_rule("@media (max-width: 600px)")
 
-        self.assertIn("grid-template-columns: 1fr;", layout_rule)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", layout_rule)
         self.assertIn("padding-bottom: 156px;", layout_rule)
         self.assertNotIn("240px 1fr", layout_rule)
 
