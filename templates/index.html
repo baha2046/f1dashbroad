@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>F1 Data Dashboard</title>
-    <meta name="description" content="A modern, dark-themed Formula 1 data dashboard displaying sessions, weather, and driver data utilizing the OpenF1 API.">
+    <meta name="description" content="A modern, dark-themed Formula 1 data dashboard displaying sessions, weather, telemetry, and driver data from Formula 1 Livetiming.">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -74,43 +74,27 @@
                 </div>
             </nav>
             
-            <!-- API Key Settings Section -->
+            <!-- Data Source Status -->
             <div class="sidebar-footer">
                 <div class="api-status-bar" id="apiStatusBar">
-                    <span class="material-icons-round status-icon">vpn_key</span>
-                    <span class="status-text" id="apiStatusText">API Status: Free</span>
-                    <span class="material-icons-round toggle-icon" id="apiSettingsArrow">expand_less</span>
-                </div>
-                <div class="api-settings-panel" id="apiSettingsPanel" style="display: none;">
-                    <p class="api-settings-desc">During live sessions, access to OpenF1 is restricted. Enter an API key to bypass restrictions.</p>
-                    <div class="api-key-input-wrapper">
-                        <input type="password" id="openF1ApiKeyInput" placeholder="Paste your API key here..." aria-label="OpenF1 API Key">
-                        <button class="primary-btn" id="openF1ApiKeySaveBtn">Save</button>
-                    </div>
-                    <div class="api-settings-actions">
-                        <a href="https://buy.stripe.com/eVqcN41BPekP0iIalBcEw02" target="_blank" class="sponsor-link">
-                            <span class="material-icons-round">favorite</span> Get API Key
-                        </a>
-                        <button class="text-btn" id="openF1ApiKeyClearBtn" style="display: none;">Clear Key</button>
-                    </div>
+                    <span class="material-icons-round status-icon">settings_input_antenna</span>
+                    <span class="status-text" id="apiStatusText">Data Source: F1 Livetiming</span>
                 </div>
             </div>
         </aside>
 
         <!-- Main Content Area -->
         <main class="main-content">
-            <!-- Warning Banner for Live Session Restriction -->
+            <!-- Warning Banner for upstream data service issues -->
             <div class="alert-banner" id="liveRestrictionBanner" style="display: none;">
                 <div class="alert-banner-content">
                     <span class="material-icons-round alert-icon">warning</span>
                     <div class="alert-text">
-                        <strong>Live Session Restriction:</strong>
-                        <span id="liveRestrictionMessage">OpenF1 access is restricted to authenticated users during live races.</span>
+                        <strong>Data Service Notice:</strong>
+                        <span id="liveRestrictionMessage">F1 Livetiming data is temporarily unavailable.</span>
                     </div>
                 </div>
                 <div class="alert-actions">
-                    <a href="https://buy.stripe.com/eVqcN41BPekP0iIalBcEw02" target="_blank" class="alert-btn sponsor-btn">Get API Key</a>
-                    <button class="alert-btn secondary-btn" id="liveRestrictionEnterKeyBtn">Enter API Key</button>
                     <button class="alert-close" id="liveRestrictionCloseBtn" aria-label="Close warning banner">&times;</button>
                 </div>
             </div>

@@ -8,6 +8,7 @@ async function selectSession(session) {
     state.results = [];
     state.raceStandings = null;
     state.raceControl = [];
+    state.sessionStatusSeries = [];
     state.teamRadio = [];
     stopTeamRadioPlayback();
     state.pitStops = [];
@@ -51,13 +52,14 @@ async function selectSession(session) {
         const progressionRequest = isRaceStandingsSession(session) && (!state.seasonProgression || state.seasonProgression.season !== progressionYear)
             ? customFetch(`/api/season_progression?year=${encodeURIComponent(progressionYear)}`)
             : Promise.resolve(null);
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, teamRadioRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
+        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, sessionStatusRes, teamRadioRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}`),
             customFetch(`/api/weather?session_key=${session.session_key}`),
-            customFetch(`/api/meetings?meeting_key=${session.meeting_key}`),
+            customFetch(`/api/meetings?meeting_key=${session.meeting_key}&year=${encodeURIComponent(session.year || state.selectedYear)}`),
             customFetch(`/api/stints?session_key=${session.session_key}`),
             customFetch(`/api/results?session_key=${session.session_key}`),
             customFetch(`/api/race_control?session_key=${session.session_key}`),
+            customFetch(`/api/session_status?session_key=${session.session_key}`),
             customFetch(`/api/team_radio?session_key=${session.session_key}`),
             pitStopsRequest,
             lapsRequest,
@@ -88,6 +90,11 @@ async function selectSession(session) {
 
         if (raceControlRes.ok) {
             state.raceControl = await raceControlRes.json();
+        }
+
+        if (sessionStatusRes.ok) {
+            const statusSeries = await sessionStatusRes.json();
+            state.sessionStatusSeries = Array.isArray(statusSeries) ? statusSeries : [];
         }
 
         if (teamRadioRes.ok) {

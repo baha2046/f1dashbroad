@@ -1,27 +1,9 @@
-// Wrap standard fetch to include X-OpenF1-Key header and catch 403 live restrictions
+// Wrap standard fetch so upstream data-service errors can surface consistently.
 async function customFetch(url, options = {}) {
-    const apiKey = localStorage.getItem('openf1_api_key');
-    if (apiKey) {
-        options.headers = {
-            ...options.headers,
-            'X-OpenF1-Key': apiKey
-        };
-    }
-    
     try {
         const response = await fetch(url, options);
 
-        if (response.status === 403 || response.status === 401) {
-            try {
-                const clone = response.clone();
-                const errData = await clone.json();
-                if (errData && errData.error === 'live_session_restriction') {
-                    showLiveRestrictionBanner(errData.detail || 'Access restricted during live F1 session.');
-                }
-            } catch (e) {
-                console.error('Error parsing restriction details:', e);
-            }
-        } else if (response.status === 502 || response.status === 503) {
+        if (response.status === 502 || response.status === 503) {
             try {
                 const clone = response.clone();
                 const errData = await clone.json();
@@ -57,68 +39,23 @@ function hideLiveRestrictionBanner() {
     }
 }
 
-function toggleApiSettingsPanel() {
-    if (!DOM.apiSettingsPanel) return;
-    const isHidden = DOM.apiSettingsPanel.style.display === 'none';
-    DOM.apiSettingsPanel.style.display = isHidden ? 'flex' : 'none';
-    
-    if (DOM.apiStatusBar) {
-        DOM.apiStatusBar.classList.toggle('open', isHidden);
-    }
-}
-
 function updateApiStatusBarUI() {
-    const apiKey = localStorage.getItem('openf1_api_key');
     if (DOM.apiStatusText) {
-        DOM.apiStatusText.textContent = apiKey ? 'API Status: Active Key' : 'API Status: Free';
+        DOM.apiStatusText.textContent = 'Data Source: F1 Livetiming';
     }
     if (DOM.apiStatusBar) {
-        DOM.apiStatusBar.classList.toggle('active', !!apiKey);
-    }
-    if (DOM.openF1ApiKeyInput) {
-        DOM.openF1ApiKeyInput.value = apiKey || '';
-    }
-    if (DOM.openF1ApiKeyClearBtn) {
-        DOM.openF1ApiKeyClearBtn.style.display = apiKey ? 'inline-block' : 'none';
+        DOM.apiStatusBar.classList.add('active');
     }
 }
-
-function saveApiKey() {
-    if (!DOM.openF1ApiKeyInput) return;
-    const key = DOM.openF1ApiKeyInput.value.trim();
-    if (key) {
-        localStorage.setItem('openf1_api_key', key);
-        updateApiStatusBarUI();
-        hideLiveRestrictionBanner();
-        loadSessions(state.selectedYear, true);
-    }
-}
-
-function clearApiKey() {
-    localStorage.removeItem('openf1_api_key');
-    updateApiStatusBarUI();
-    loadSessions(state.selectedYear, true);
-}
-
-// Global scope bindings for inline calls
-window.toggleApiSettingsPanel = toggleApiSettingsPanel;
-window.saveApiKey = saveApiKey;
-window.clearApiKey = clearApiKey;
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
     // Select elements that were dynamically added to the index.html
     DOM.liveRestrictionBanner = document.getElementById('liveRestrictionBanner');
     DOM.liveRestrictionMessage = document.getElementById('liveRestrictionMessage');
-    DOM.liveRestrictionEnterKeyBtn = document.getElementById('liveRestrictionEnterKeyBtn');
     DOM.liveRestrictionCloseBtn = document.getElementById('liveRestrictionCloseBtn');
     DOM.apiStatusBar = document.getElementById('apiStatusBar');
     DOM.apiStatusText = document.getElementById('apiStatusText');
-    DOM.apiSettingsArrow = document.getElementById('apiSettingsArrow');
-    DOM.apiSettingsPanel = document.getElementById('apiSettingsPanel');
-    DOM.openF1ApiKeyInput = document.getElementById('openF1ApiKeyInput');
-    DOM.openF1ApiKeySaveBtn = document.getElementById('openF1ApiKeySaveBtn');
-    DOM.openF1ApiKeyClearBtn = document.getElementById('openF1ApiKeyClearBtn');
 
     setupEventListeners();
     if (typeof setupLapsChartAutoResize === 'function') {
@@ -327,33 +264,6 @@ function setupEventListeners() {
         });
     });
 
-    // API Settings Toggle Click
-    if (DOM.apiStatusBar) {
-        DOM.apiStatusBar.addEventListener('click', toggleApiSettingsPanel);
-    }
-    
-    // Save Key Click
-    if (DOM.openF1ApiKeySaveBtn) {
-        DOM.openF1ApiKeySaveBtn.addEventListener('click', saveApiKey);
-    }
-    
-    // Clear Key Click
-    if (DOM.openF1ApiKeyClearBtn) {
-        DOM.openF1ApiKeyClearBtn.addEventListener('click', clearApiKey);
-    }
-    
-    // Banner Enter Key Click
-    if (DOM.liveRestrictionEnterKeyBtn) {
-        DOM.liveRestrictionEnterKeyBtn.addEventListener('click', () => {
-            if (DOM.apiSettingsPanel && DOM.apiSettingsPanel.style.display === 'none') {
-                toggleApiSettingsPanel();
-            }
-            if (DOM.openF1ApiKeyInput) {
-                DOM.openF1ApiKeyInput.focus();
-            }
-        });
-    }
-    
     // Banner Close Click
     if (DOM.liveRestrictionCloseBtn) {
         DOM.liveRestrictionCloseBtn.addEventListener('click', hideLiveRestrictionBanner);

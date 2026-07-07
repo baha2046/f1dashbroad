@@ -15,7 +15,7 @@ graph TD
     Apache -->|ProxyPass http://127.0.0.1:5300| Hypercorn[Hypercorn ASGI Server]
     Hypercorn -->|Runs App| Quart[Quart App app.py]
     Quart -->|Write/Read JSON| CacheDir[data_cache/]
-    Quart -->|Fetch API Data| OpenF1[OpenF1 / F1API Dev]
+    Quart -->|Fetch API Data| Livetiming[F1 Livetiming / F1API Dev]
 ```
 
 ---
@@ -271,3 +271,5 @@ When deploying code updates:
    ```bash
    rm -f /var/www/f1-app/data_cache/*
    ```
+
+> **Note:** When upgrading from an OpenF1-based build to the F1 Livetiming build, clearing `data_cache/` is **required**, not optional. Cached sessions, meetings, laps, telemetry and replay files from the old build use different session keys and timestamps, and files for completed sessions never expire on their own.

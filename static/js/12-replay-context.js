@@ -129,7 +129,7 @@ function buildReplayPitWindows(pitStops, timeline) {
         let endMs = null;
 
         if (Number.isFinite(dateMs)) {
-            // OpenF1 pit `date` marks the pit-lane exit, so the lane transit
+            // The compatibility pit `date` marks the pit-lane exit, so the lane transit
             // (`pit_duration`) extends backwards from it.
             const laneMs = Number.isFinite(durationSeconds) && durationSeconds > 0
                 ? durationSeconds * 1000
@@ -470,9 +470,45 @@ async function ensureReplayAllSessionLapsLoaded() {
     return null;
 }
 
+function hasReplayGapValue(value) {
+    return value !== null && value !== undefined && value !== '';
+}
+
+function replayGapValueAtMs(records, ms, maxAgeMs = null) {
+    const current = valueAtMs(records, ms, maxAgeMs);
+    if (current && hasReplayGapValue(current.gap_to_leader)) return current.gap_to_leader;
+    if (!Array.isArray(records) || !Number.isFinite(ms)) return null;
+
+    for (let index = records.length - 1; index >= 0; index--) {
+        const record = records[index];
+        const dateMs = Number(record && record.dateMs);
+        if (!Number.isFinite(dateMs) || dateMs > ms) continue;
+        if (hasReplayGapValue(record.gap_to_leader)) return record.gap_to_leader;
+    }
+    return null;
+}
+
+function isReplayDriverRetiredAtMs(driverNumber, ms, positionRecords) {
+    const result = (Array.isArray(state.results) ? state.results : [])
+        .find(item => Number(item && item.driver_number) === Number(driverNumber));
+    if (!result) return false;
+
+    const status = String(result.status || '').trim().toUpperCase();
+    const retired = result.dnf === true ||
+        status === 'RETIRED' ||
+        status === 'DNF' ||
+        status === 'DID NOT FINISH';
+    if (!retired) return false;
+
+    if (Array.isArray(positionRecords) && Number.isFinite(ms)) {
+        return !positionRecords.some(record => Number(record && record.dateMs) > ms);
+    }
+    return true;
+}
+
 function formatReplayGap(value, isLeader) {
     if (isLeader) return 'Leader';
-    if (value === null || value === undefined || value === '') return '\u2014';
+    if (!hasReplayGapValue(value)) return '';
     if (typeof value === 'number' && Number.isFinite(value)) return `+${value.toFixed(3)}s`;
     return String(value);
 }
@@ -643,18 +679,20 @@ function updateReplayRaceContext(force = false) {
         row.lastPosition = raceRow.position;
 
         const driver = getReplayDriver(raceRow.driverNumber);
-        const intervalRecord = valueAtMs(intervalIndex.get(raceRow.driverNumber), absoluteMs, REPLAY_INTERVAL_MAX_AGE_MS);
+        const intervalRecords = intervalIndex.get(raceRow.driverNumber);
+        const positionRecords = positionIndex.get(raceRow.driverNumber);
+        const gapValue = replayGapValueAtMs(intervalRecords, absoluteMs, REPLAY_INTERVAL_MAX_AGE_MS);
         const lapRecord = deriveDriverLapAt(state.allSessionLaps, absoluteMs, raceRow.driverNumber);
         const stint = lapRecord ? stintForDriverLap(stintIndex, raceRow.driverNumber, lapRecord.lapNumber) : null;
         const tyre = formatReplayTyreCompound(stint && stint.compound);
         const inPit = isDriverInPitAtMs(pitWindows, raceRow.driverNumber, absoluteMs);
-        const visible = isReplayCarVisible(raceRow.driverNumber);
+        const retired = isReplayDriverRetiredAtMs(raceRow.driverNumber, absoluteMs, positionRecords);
         const isLeader = index === 0;
         const teamHex = getDriverTeamHex(driver);
 
         row.row.hidden = false;
         row.row.style.order = String(index);
-        row.row.classList.toggle('out', !visible && !inPit);
+        row.row.classList.toggle('out', retired && !inPit);
         row.row.classList.toggle('in-pit', inPit);
         row.color.style.background = `#${teamHex}`;
         row.pos.textContent = String(raceRow.position);
@@ -662,11 +700,11 @@ function updateReplayRaceContext(force = false) {
         row.tyre.textContent = tyre ? tyre.label : '';
         row.tyre.title = tyre ? tyre.title : '';
         row.tyre.className = tyre ? `replay-tower-tyre ${tyre.className}` : 'replay-tower-tyre';
-        row.status.textContent = inPit ? 'PIT' : (!visible ? 'OUT' : '');
+        row.status.textContent = inPit ? 'PIT' : (retired ? 'OUT' : '');
         row.status.className = inPit ? 'replay-tower-status replay-tower-pit' : 'replay-tower-status';
-        row.gap.textContent = (!visible && !inPit)
+        row.gap.textContent = retired
             ? '\u2014'
-            : formatReplayGap(intervalRecord && intervalRecord.gap_to_leader, isLeader);
+            : formatReplayGap(gapValue, isLeader);
     });
 
     Object.entries(state.replay.contextRows || {}).forEach(([driverNumber, row]) => {

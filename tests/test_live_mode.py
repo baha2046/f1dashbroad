@@ -25,6 +25,7 @@ def session_fixture(session_key=4242, start_offset_hours=-1, end_offset_hours=1,
         "session_type": "Race",
         "date_start": (now + timedelta(hours=start_offset_hours)).isoformat(),
         "date_end": (now + timedelta(hours=end_offset_hours)).isoformat(),
+        "path": "2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/",
         "is_cancelled": False,
     }
     session.update(extra)
@@ -36,6 +37,7 @@ class IntervalsEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         self.cache_dir.mkdir(parents=True)
+        dashboard_app._stream_start_cache.clear()
 
     def tearDown(self):
         shutil.rmtree(self.cache_dir, ignore_errors=True)
@@ -64,20 +66,32 @@ class IntervalsEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(await response.get_json(), sample_intervals)
 
-    async def test_cache_miss_fetches_openf1_intervals_endpoint(self):
+    async def test_cache_miss_fetches_livetiming_intervals_feed(self):
+        year = dashboard_app.current_season_year()
+        (self.cache_dir / f"sessions_{year}.json").write_text(
+            json.dumps([session_fixture()]), encoding="utf-8"
+        )
         fetch_mock = AsyncMock(return_value=[])
         with (
             patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
-            patch.object(dashboard_app, "fetch_url", new=fetch_mock),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=fetch_mock),
         ):
             client = dashboard_app.app.test_client()
             response = await client.get("/api/intervals?session_key=4242")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(fetch_mock.await_count, 1)
-        url = fetch_mock.await_args.args[0]
-        self.assertIn("https://api.openf1.org/v1/intervals", url)
-        self.assertIn("session_key=4242", url)
+        # The route fetches the Heartbeat anchor plus the TimingData feed
+        self.assertEqual(fetch_mock.await_count, 2)
+        fetch_mock.assert_any_await(
+            "2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/",
+            "Heartbeat",
+            stream=True,
+        )
+        fetch_mock.assert_any_await(
+            "2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/",
+            "TimingData",
+            stream=True,
+        )
 
 
 class IsSessionLiveTests(unittest.TestCase):
@@ -117,6 +131,7 @@ class LiveTtlTests(unittest.IsolatedAsyncioTestCase):
         self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         self.cache_dir.mkdir(parents=True)
+        dashboard_app._stream_start_cache.clear()
 
     def tearDown(self):
         shutil.rmtree(self.cache_dir, ignore_errors=True)
@@ -136,7 +151,7 @@ class LiveTtlTests(unittest.IsolatedAsyncioTestCase):
     async def request_position(self, fetch_mock):
         with (
             patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
-            patch.object(dashboard_app, "fetch_url", new=fetch_mock),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=fetch_mock),
         ):
             client = dashboard_app.app.test_client()
             return await client.get("/api/position?session_key=4242")
@@ -146,13 +161,15 @@ class LiveTtlTests(unittest.IsolatedAsyncioTestCase):
         self.seed_session(session_fixture())
         self.seed_stale_position_cache(age_seconds=60)
 
-        fresh = [{"driver_number": 1, "position": 2}]
-        fetch_mock = AsyncMock(return_value=fresh)
+        fetch_mock = AsyncMock(return_value=[
+            ("00:00:30.000", {"Lines": {"1": {"Position": "2"}}})
+        ])
         response = await self.request_position(fetch_mock)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(fetch_mock.await_count, 1)
-        self.assertEqual(await response.get_json(), fresh)
+        # Heartbeat anchor + TimingData feed
+        self.assertEqual(fetch_mock.await_count, 2)
+        self.assertEqual((await response.get_json())[0]["position"], 2)
 
     async def test_non_live_session_keeps_serving_cache_within_default_ttl(self):
         self.seed_session(session_fixture(start_offset_hours=24, end_offset_hours=26))

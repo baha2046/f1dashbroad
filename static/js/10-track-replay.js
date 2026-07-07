@@ -60,7 +60,7 @@ function mergeYellowPeriods(periods) {
 
 // Parse circuit-state periods (red / SC / VSC / yellows) and the chequered
 // flag out of race control messages. Message shapes are grounded in real
-// OpenF1 payloads (doc/2026-07-05-replay-race-control-timeline-design.md):
+// F1 Livetiming-compatible payloads (doc/2026-07-05-replay-race-control-timeline-design.md):
 // races signal red as "RED FLAG - RACE SUSPENDED" with flag=None, SC/VSC end
 // with a track-scope CLEAR ("TRACK CLEAR"), quali reds end at the GREEN
 // pit-exit reopen.
@@ -148,6 +148,80 @@ function extractCircuitStatePeriods(records) {
     closeRed(Infinity);
 
     return { periods: mergeYellowPeriods(periods), chequeredMs };
+}
+
+// SessionData StatusSeries track-status values mapped to replay band types.
+// TrackStatus is a single track-wide state machine: each value replaces the
+// previous one, and the *Ending values keep the same band open until AllClear.
+const REPLAY_TRACK_STATUS_TYPES = {
+    'YELLOW': 'yellow',
+    'SCDEPLOYED': 'sc',
+    'SCENDING': 'sc',
+    'VSCDEPLOYED': 'vsc',
+    'VSCENDING': 'vsc',
+    'RED': 'red'
+};
+
+// Build circuit-state periods from /api/session_status rows (Livetiming
+// SessionData StatusSeries) — authoritative track-status transitions with UTC
+// timestamps, unlike the text heuristics over race control messages above.
+function extractCircuitStatePeriodsFromStatus(rows) {
+    const sorted = (Array.isArray(rows) ? rows : [])
+        .map(row => ({ row, ms: row && row.date ? new Date(row.date).getTime() : NaN }))
+        .filter(item => Number.isFinite(item.ms))
+        .sort((a, b) => a.ms - b.ms);
+
+    const periods = [];
+    let open = null; // { type, startMs } of the current non-green track state
+    let chequeredMs = null;
+    let started = false;
+
+    const closeOpen = (endMs) => {
+        if (!open) return;
+        periods.push({ type: open.type, startMs: open.startMs, endMs, label: REPLAY_PERIOD_LABELS[open.type] });
+        open = null;
+    };
+
+    sorted.forEach(({ row, ms }) => {
+        const sessionStatus = (row.session_status || '').toUpperCase();
+        if (sessionStatus) {
+            if (sessionStatus === 'STARTED') started = true;
+            // The chequered flag is the first Finished after the green light
+            // (Finalised covers feeds that never emit Finished)
+            if (started && chequeredMs === null && (sessionStatus === 'FINISHED' || sessionStatus === 'FINALISED')) {
+                chequeredMs = ms;
+            }
+            return;
+        }
+
+        const trackStatus = (row.track_status || '').toUpperCase();
+        if (!trackStatus) return;
+        const type = REPLAY_TRACK_STATUS_TYPES[trackStatus];
+        if (!type) {
+            // AllClear (or any unmapped green-ish status) ends the open period
+            closeOpen(ms);
+            return;
+        }
+        if (open && open.type === type) return; // e.g. SCDeployed → SCEnding stays one band
+        closeOpen(ms);
+        open = { type, startMs: ms };
+    });
+
+    // A state still open at feed end (live session) runs to the timeline edge
+    closeOpen(Infinity);
+
+    return { periods: mergeYellowPeriods(periods), chequeredMs };
+}
+
+// Circuit-state source for the replay: prefer the authoritative SessionData
+// StatusSeries, fall back to race-control message parsing when a session has
+// no usable status feed.
+function getReplayCircuitStates() {
+    const fromStatus = extractCircuitStatePeriodsFromStatus(state.sessionStatusSeries);
+    if (fromStatus.periods.length > 0 || fromStatus.chequeredMs !== null) {
+        return fromStatus;
+    }
+    return extractCircuitStatePeriods(state.raceControl);
 }
 
 function resetReplay() {
@@ -287,18 +361,20 @@ async function setupReplayTimeline() {
     updateReplayRaceContext(true);
 }
 
-// Absolute session-time range covered by race control (and the session's own
-// start/end), independent of any driver's laps.
+// Absolute session-time range covered by race control and the status series
+// (and the session's own start/end), independent of any driver's laps.
 function getRaceControlRangeMs() {
     let min = null;
     let max = null;
-    (Array.isArray(state.raceControl) ? state.raceControl : []).forEach(record => {
+    const trackDates = (records) => (Array.isArray(records) ? records : []).forEach(record => {
         if (!record || !record.date) return;
         const ms = new Date(record.date).getTime();
         if (!Number.isFinite(ms)) return;
         if (min === null || ms < min) min = ms;
         if (max === null || ms > max) max = ms;
     });
+    trackDates(state.raceControl);
+    trackDates(state.sessionStatusSeries);
 
     const session = state.selectedSession || {};
     const sessionStart = session.date_start ? new Date(session.date_start).getTime() : NaN;
@@ -321,7 +397,7 @@ function buildRaceControlTimeline() {
         displayTotal: 0,
         rangeStartMs: range.rangeStartMs,
         rangeEndMs: range.rangeEndMs,
-        states: extractCircuitStatePeriods(state.raceControl)
+        states: getReplayCircuitStates()
     };
 }
 
@@ -476,7 +552,7 @@ function finalizeReplayTimeline(segments) {
         displayTotal,
         rangeStartMs: range ? Math.min(segments[0].startMs, range.rangeStartMs) : segments[0].startMs,
         rangeEndMs: range ? Math.max(segments[segments.length - 1].endMs, range.rangeEndMs) : segments[segments.length - 1].endMs,
-        states: extractCircuitStatePeriods(state.raceControl)
+        states: getReplayCircuitStates()
     };
 }
 
@@ -963,7 +1039,7 @@ function refreshReplayCircuitStates() {
     const timeline = state.replay.timeline;
     if (!timeline) return;
 
-    timeline.states = extractCircuitStatePeriods(state.raceControl);
+    timeline.states = getReplayCircuitStates();
     const range = getRaceControlRangeMs();
     if (range) {
         if (timeline.segments.length === 0) {

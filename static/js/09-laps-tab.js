@@ -754,7 +754,7 @@ function renderLapChart(laps) {
 
 // ===== Lap Telemetry (car_data deep-dive) =====
 
-// OpenF1 drs values reported while the flap is open
+// Livetiming-compatible DRS values reported while the flap is open
 const TELEMETRY_DRS_ACTIVE_VALUES = new Set([10, 12, 14]);
 
 function isTelemetryDrsActive(value) {
@@ -1189,7 +1189,7 @@ function showDashboardLoading() {
     DOM.emptyState.innerHTML = `
         <div class="spinner"></div>
         <h2 style="margin-top:16px;">Loading Session Details...</h2>
-        <p>Fetching driver, lap, weather, and stint data from OpenF1...</p>
+        <p>Fetching driver, lap, weather, and stint data from F1 Livetiming...</p>
     `;
     DOM.dashboardContent.style.display = 'none';
 }

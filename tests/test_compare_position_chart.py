@@ -60,7 +60,10 @@ class ComparePositionChartStaticWiringTests(unittest.TestCase):
     def test_backend_has_cached_position_proxy(self):
         rules = {rule.rule for rule in dashboard_app.app.url_map.iter_rules()}
         self.assertIn("/api/position", rules)
-        self.assertEqual(dashboard_app.OPENF1_SESSION_ENDPOINTS["position"], "position")
+        self.assertEqual(
+            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["position"]["feed"],
+            "TimingData",
+        )
 
     def test_dashboard_contains_position_chip_and_chart_container(self):
         self.assertIn('data-chart-id="position"', self.index_html)

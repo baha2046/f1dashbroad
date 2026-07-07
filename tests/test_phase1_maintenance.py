@@ -18,8 +18,27 @@ class SessionEndpointFactoryTests(unittest.TestCase):
         for route_name in ("weather", "stints", "pit", "position", "results", "race_control"):
             self.assertIn(f"/api/{route_name}", rules)
 
-    def test_results_route_maps_to_session_result_endpoint(self):
-        self.assertEqual(dashboard_app.OPENF1_SESSION_ENDPOINTS["results"], "session_result")
+    def test_results_route_maps_to_livetiming_timing_feed(self):
+        self.assertEqual(
+            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["results"]["feed"],
+            "TimingData",
+        )
+        self.assertFalse(dashboard_app.LIVETIMING_SESSION_ENDPOINTS["results"]["stream"])
+        self.assertEqual(
+            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["results"]["cache_prefix"],
+            "results_v2",
+        )
+
+    def test_stints_route_reads_livetiming_keyframe(self):
+        self.assertEqual(
+            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["stints"]["feed"],
+            "TyreStintSeries",
+        )
+        self.assertFalse(dashboard_app.LIVETIMING_SESSION_ENDPOINTS["stints"]["stream"])
+        self.assertEqual(
+            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["stints"]["cache_prefix"],
+            "stints_v2",
+        )
 
 
 class ApiResponseHeaderTests(unittest.IsolatedAsyncioTestCase):

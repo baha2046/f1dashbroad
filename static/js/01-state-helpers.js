@@ -12,6 +12,7 @@ const state = {
     seasonProgression: null,
     progressionView: 'drivers',
     raceControl: [],
+    sessionStatusSeries: [], // /api/session_status rows (SessionData StatusSeries)
     teamRadio: [],
     pitStops: [],
     position: [],

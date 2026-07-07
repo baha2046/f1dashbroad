@@ -7,16 +7,42 @@ import tempfile
 import weakref
 import httpx
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urljoin
 
 from quart import Quart, render_template, jsonify, request
+
+from livetiming_client import (
+    fetch_livetiming_json,
+    fetch_livetiming_stream,
+    resolve_livetiming_session_ref,
+)
+from livetiming_compat import (
+    derive_session_started_utc,
+    derive_stream_start_utc,
+    flatten_car_data_z,
+    flatten_position_z,
+    normalize_livetiming_drivers,
+    normalize_livetiming_intervals,
+    normalize_livetiming_laps,
+    normalize_livetiming_meeting,
+    normalize_livetiming_pit,
+    normalize_livetiming_position,
+    normalize_livetiming_race_control,
+    normalize_livetiming_results,
+    normalize_livetiming_session_status,
+    normalize_livetiming_sessions,
+    normalize_livetiming_stints,
+    normalize_livetiming_team_radio,
+    normalize_livetiming_weather,
+)
 
 app = Quart(__name__)
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
-OPENF1_429_MAX_RETRIES = 3
-OPENF1_429_BASE_DELAY_SECONDS = 1.0
-OPENF1_429_MAX_DELAY_SECONDS = 10.0
+HTTP_429_MAX_RETRIES = 3
+HTTP_429_BASE_DELAY_SECONDS = 1.0
+HTTP_429_MAX_DELAY_SECONDS = 10.0
 
 DATE_PARAM_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -278,75 +304,49 @@ def is_session_live(session, now=None):
         now = datetime.now(timezone.utc)
     return start <= now <= end + timedelta(seconds=LIVE_SESSION_OVERRUN_SECONDS)
 
-class OpenF1AuthError(Exception):
-    def __init__(self, message, status_code=403):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
-
 class UpstreamAPIError(Exception):
     def __init__(self, message, status_code=502):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
 
-def get_openf1_retry_delay(response, retry_index):
+def get_retry_delay(response, retry_index):
     retry_after = response.headers.get("Retry-After")
     if retry_after:
         try:
-            return min(float(retry_after), OPENF1_429_MAX_DELAY_SECONDS)
+            return min(float(retry_after), HTTP_429_MAX_DELAY_SECONDS)
         except ValueError:
             pass
-    return min(OPENF1_429_BASE_DELAY_SECONDS * (2 ** retry_index), OPENF1_429_MAX_DELAY_SECONDS)
+    return min(HTTP_429_BASE_DELAY_SECONDS * (2 ** retry_index), HTTP_429_MAX_DELAY_SECONDS)
 
-async def fetch_url(url: str, api_key: str = None):
-    headers = {}
-    if not api_key:
-        api_key = os.environ.get("OPENF1_API_KEY")
-
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
+async def fetch_url(url: str):
     client = get_http_client()
     response = None
-    for retry_index in range(OPENF1_429_MAX_RETRIES + 1):
-        response = await client.get(url, headers=headers, timeout=15.0)
-        if response.status_code != 429 or retry_index == OPENF1_429_MAX_RETRIES:
+    for retry_index in range(HTTP_429_MAX_RETRIES + 1):
+        response = await client.get(url, timeout=15.0)
+        if response.status_code != 429 or retry_index == HTTP_429_MAX_RETRIES:
             break
-        delay = get_openf1_retry_delay(response, retry_index)
+        delay = get_retry_delay(response, retry_index)
         await asyncio.sleep(delay)
 
-    if response.status_code in (401, 403):
-        try:
-            error_data = response.json()
-            if isinstance(error_data, dict) and "detail" in error_data:
-                raise OpenF1AuthError(error_data["detail"], response.status_code)
-        except OpenF1AuthError:
-            raise
-        except Exception:
-            pass
     response.raise_for_status()
     return response.json()
 
-async def get_cached_api(url: str, cache_name: str, session_key=None, year=None, api_key: str = None):
+async def get_cached_livetiming(cache_name: str, fetcher, session_key=None, year=None):
     cache_path = os.path.join(CACHE_DIR, cache_name)
     if year is None:
         year = current_season_year()
 
-    # Determine TTL
-    ttl = None  # None means permanent cache (historical)
-
+    ttl = None
     if "sessions" in cache_name:
-        # If it's the current year or future, cache sessions for 1 hour to fetch updates
         if int(year) >= current_season_year():
             ttl = 3600
     else:
-        # For session-specific data (drivers, weather, laps, etc.)
         session = await asyncio.to_thread(get_session_info, session_key, year) if session_key else None
         if session is not None and is_session_live(session):
-            ttl = LIVE_CACHE_TTL_SECONDS  # live sessions are polled by the frontend
+            ttl = LIVE_CACHE_TTL_SECONDS
         elif not session or not is_historical(session):
-            ttl = 300  # 5 minutes for recent/future sessions
+            ttl = 300
 
     cached = await read_cache(cache_path, ttl)
     if cached is not None:
@@ -357,17 +357,80 @@ async def get_cached_api(url: str, cache_name: str, session_key=None, year=None,
         if cached is not None:
             return cached
         try:
-            data = await fetch_url(url, api_key=api_key)
-        except OpenF1AuthError:
-            raise
+            data = await fetcher()
         except Exception as e:
-            print(f"Error fetching {url}: {e}")
+            print(f"Error fetching Livetiming data for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
                 return stale
             raise UpstreamAPIError(f"Upstream API request failed for {cache_name}")
         await write_cache(cache_path, data)
         return data
+
+async def fetch_livetiming_year_index(year):
+    client = get_http_client()
+    return await fetch_livetiming_json(client, f"{int(year)}/Index.json")
+
+async def fetch_livetiming_session_index(session_path):
+    client = get_http_client()
+    return await fetch_livetiming_json(client, urljoin(session_path, "Index.json"))
+
+async def fetch_livetiming_feed(session_path, feed_name, stream=True):
+    session_index = await fetch_livetiming_session_index(session_path)
+    feed = (session_index.get("Feeds") or {}).get(feed_name)
+    if not feed:
+        raise UpstreamAPIError(f"Livetiming feed {feed_name} is unavailable")
+    client = get_http_client()
+    if stream:
+        stream_path = feed.get("StreamPath")
+        if stream_path:
+            try:
+                return await fetch_livetiming_stream(client, urljoin(session_path, stream_path))
+            except Exception:
+                pass
+    keyframe_path = feed.get("KeyFramePath")
+    if not keyframe_path:
+        raise UpstreamAPIError(f"Livetiming feed {feed_name} has no keyframe path")
+    return await fetch_livetiming_json(client, urljoin(session_path, keyframe_path))
+
+def find_livetiming_meeting(year_index, meeting_key):
+    target = str(meeting_key)
+    for meeting in year_index.get("Meetings") or []:
+        if str(meeting.get("Key")) == target:
+            return meeting
+    return None
+
+# Stream elapsed timestamps count from when the Livetiming recording began,
+# not the advertised session start; the Heartbeat feed pins that instant to
+# UTC. The anchor never changes for a given session, so memoize it.
+_stream_start_cache = {}
+
+async def fetch_livetiming_stream_start(session_path, fallback=None):
+    if session_path in _stream_start_cache:
+        return _stream_start_cache[session_path]
+    anchor = None
+    try:
+        records = await fetch_livetiming_feed(session_path, "Heartbeat", stream=True)
+        anchor = derive_stream_start_utc(ensure_livetiming_records(records))
+    except Exception as e:
+        print(f"Error deriving Livetiming stream start for {session_path}: {e}")
+    if anchor:
+        _stream_start_cache[session_path] = anchor
+        return anchor
+    return fallback
+
+async def resolve_livetiming_session_path(session_key, year=None):
+    if year is None:
+        year = await find_session_year(session_key)
+    session = await asyncio.to_thread(get_session_info, session_key, year)
+    if session and session.get("path"):
+        return session["path"], year
+
+    year_index = await fetch_livetiming_year_index(year)
+    ref = resolve_livetiming_session_ref(year_index, int(year), session_key)
+    if ref is None or not ref.path:
+        raise UpstreamAPIError(f"Livetiming session {session_key} was not found", 404)
+    return ref.path, year
 
 async def get_cached_circuit_info(url: str, cache_name: str):
     cache_path = os.path.join(CACHE_DIR, cache_name)
@@ -460,13 +523,6 @@ def find_jolpica_race_by_date(races, target_date):
             return race
     return None
 
-@app.errorhandler(OpenF1AuthError)
-async def handle_openf1_auth_error(error):
-    return jsonify({
-        "error": "live_session_restriction",
-        "detail": error.message
-    }), error.status_code
-
 @app.errorhandler(UpstreamAPIError)
 async def handle_upstream_api_error(error):
     return jsonify({
@@ -480,33 +536,39 @@ async def api_meetings():
     if meeting_key is None:
         return invalid_param_response("meeting_key")
 
-    url = f"https://api.openf1.org/v1/meetings?meeting_key={meeting_key}"
-    cache_name = f"meetings_{meeting_key}.json"
-
-    api_key = request.headers.get("X-OpenF1-Key")
-    meeting_data = await get_cached_api(url, cache_name, api_key=api_key)
-
-    if not meeting_data:
-        return jsonify({"error": "Meeting not found"}), 404
-
-    if isinstance(meeting_data, list) and len(meeting_data) > 0:
-        meeting = meeting_data[0]
-    elif isinstance(meeting_data, dict):
-        meeting = meeting_data
+    year = request.args.get("year")
+    if year is not None:
+        year = parse_int_param(year)
+        if year is None:
+            return invalid_param_response("year")
     else:
-        return jsonify({"error": "Meeting not found"}), 404
+        year = current_season_year()
 
+    cache_name = f"meetings_{meeting_key}_{year}.json"
+
+    async def fetch_meeting():
+        year_index = await fetch_livetiming_year_index(year)
+        meeting = find_livetiming_meeting(year_index, meeting_key)
+        if not meeting:
+            raise UpstreamAPIError("Meeting not found", 404)
+        return {"meeting": normalize_livetiming_meeting(meeting, year)}
+
+    data = await get_cached_livetiming(cache_name, fetch_meeting, year=year)
+    meeting = data.get("meeting") if isinstance(data, dict) else None
+
+    # Track layout/corner map for the Circuit tab and replay outline; the
+    # MultiViewer API keys circuits by the same official F1 circuit key.
     circuit_info = None
-    circuit_info_url = meeting.get("circuit_info_url")
-    if circuit_info_url:
-        circuit_key = meeting.get("circuit_key")
-        year = meeting.get("year", current_season_year())
-        circuit_cache_name = f"circuit_info_{circuit_key}_{year}.json"
-        circuit_info = await get_cached_circuit_info(circuit_info_url, circuit_cache_name)
+    circuit_key = (meeting or {}).get("circuit_key")
+    if circuit_key is not None:
+        circuit_info = await get_cached_circuit_info(
+            f"https://api.multiviewer.app/api/v1/circuits/{circuit_key}/{year}",
+            f"circuit_info_{circuit_key}_{year}.json",
+        )
 
     return jsonify({
         "meeting": meeting,
-        "circuit_info": circuit_info
+        "circuit_info": circuit_info,
     })
 
 @app.route("/")
@@ -519,10 +581,13 @@ async def api_sessions():
     year = parse_int_param(request.args.get("year", str(current_season_year())))
     if year is None:
         return invalid_param_response("year")
-    url = f"https://api.openf1.org/v1/sessions?year={year}"
     cache_name = f"sessions_{year}.json"
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, year=year, api_key=api_key)
+
+    async def fetch_sessions():
+        year_index = await fetch_livetiming_year_index(year)
+        return normalize_livetiming_sessions(year_index, year)
+
+    data = await get_cached_livetiming(cache_name, fetch_sessions, year=year)
     return jsonify(data)
 
 @app.route("/api/drivers")
@@ -531,11 +596,7 @@ async def api_drivers():
     if session_key is None:
         return invalid_param_response("session_key")
 
-    url = f"https://api.openf1.org/v1/drivers?session_key={session_key}"
     cache_name = f"drivers_{session_key}.json"
-    api_key = request.headers.get("X-OpenF1-Key")
-
-    openf1_drivers = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
 
     year = request.args.get("year")
     if year is not None:
@@ -544,6 +605,18 @@ async def api_drivers():
             return invalid_param_response("year")
     else:
         year = await find_session_year(session_key)
+
+    async def fetch_drivers():
+        session_path, _year = await resolve_livetiming_session_path(session_key, year)
+        driver_list = await fetch_livetiming_feed(session_path, "DriverList", stream=False)
+        return normalize_livetiming_drivers(driver_list)
+
+    livetiming_drivers = await get_cached_livetiming(
+        cache_name,
+        fetch_drivers,
+        session_key=session_key,
+        year=year,
+    )
 
     f1api_drivers = await get_f1api_drivers(year)
 
@@ -557,8 +630,8 @@ async def api_drivers():
         if acronym:
             f1api_acronym_map[acronym.upper()] = d
 
-    if isinstance(openf1_drivers, list):
-        for d in openf1_drivers:
+    if isinstance(livetiming_drivers, list):
+        for d in livetiming_drivers:
             driver_number = d.get("driver_number")
             acronym = d.get("name_acronym")
             extra = None
@@ -573,38 +646,99 @@ async def api_drivers():
                 d["wiki_url"] = extra.get("url")
                 d["driver_id"] = extra.get("driverId")
 
-    return jsonify(openf1_drivers)
+    return jsonify(livetiming_drivers)
 
-# Session-scoped OpenF1 proxy endpoints that share identical handling:
-# route name -> OpenF1 endpoint. Cache file names stay "<route>_<session_key>.json".
-OPENF1_SESSION_ENDPOINTS = {
-    "weather": "weather",
-    "stints": "stints",
-    "pit": "pit",
-    "position": "position",
-    "intervals": "intervals",
-    "results": "session_result",
-    "race_control": "race_control",
-    "team_radio": "team_radio",
+# Session-scoped Livetiming endpoints that share identical handling.
+# Cache file names stay "<route>_<session_key>.json" to preserve local caches.
+LIVETIMING_SESSION_ENDPOINTS = {
+    "weather": {"feed": "WeatherData", "normalizer": normalize_livetiming_weather},
+    "stints": {"feed": "TyreStintSeries", "normalizer": normalize_livetiming_stints, "stream": False, "cache_prefix": "stints_v2"},
+    "pit": {"feed": "PitLaneTimeCollection", "normalizer": normalize_livetiming_pit},
+    "position": {"feed": "TimingData", "normalizer": normalize_livetiming_position},
+    "intervals": {"feed": "TimingData", "normalizer": normalize_livetiming_intervals},
+    "results": {"feed": "TimingData", "normalizer": normalize_livetiming_results, "stream": False, "cache_prefix": "results_v2"},
+    "race_control": {"feed": "RaceControlMessages", "normalizer": normalize_livetiming_race_control},
+    "team_radio": {"feed": "TeamRadio", "normalizer": normalize_livetiming_team_radio, "needs_session_path": True},
+    "session_status": {"feed": "SessionData", "normalizer": normalize_livetiming_session_status},
 }
 
-def _make_session_endpoint(route_name, openf1_endpoint):
+def ensure_livetiming_records(feed_data):
+    return feed_data if isinstance(feed_data, list) else [(None, feed_data)]
+
+def _make_session_endpoint(route_name, endpoint_config):
     async def handler():
         session_key = parse_int_param(request.args.get("session_key"))
         if session_key is None:
             return invalid_param_response("session_key")
 
-        url = f"https://api.openf1.org/v1/{openf1_endpoint}?session_key={session_key}"
-        cache_name = f"{route_name}_{session_key}.json"
-        api_key = request.headers.get("X-OpenF1-Key")
-        data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
+        cache_prefix = endpoint_config.get("cache_prefix", route_name)
+        cache_name = f"{cache_prefix}_{session_key}.json"
+
+        async def fetch_endpoint():
+            year = await find_session_year(session_key)
+            session_path, resolved_year = await resolve_livetiming_session_path(session_key, year)
+            session = await asyncio.to_thread(get_session_info, session_key, resolved_year)
+            session_start = session.get("date_start") if session else None
+            stream_start = await fetch_livetiming_stream_start(session_path, fallback=session_start)
+            feed_data = await fetch_livetiming_feed(
+                session_path,
+                endpoint_config["feed"],
+                stream=endpoint_config.get("stream", True),
+            )
+            records = ensure_livetiming_records(feed_data)
+            normalizer = endpoint_config["normalizer"]
+            if endpoint_config.get("needs_session_path"):
+                return normalizer(
+                    records,
+                    session_path,
+                    session_key=session_key,
+                    stream_start_utc=stream_start,
+                )
+            return normalizer(
+                records,
+                session_key=session_key,
+                stream_start_utc=stream_start,
+            )
+
+        data = await get_cached_livetiming(cache_name, fetch_endpoint, session_key=session_key)
         return jsonify(data)
 
     handler.__name__ = f"api_{route_name}"
     return handler
 
-for _route_name, _endpoint in OPENF1_SESSION_ENDPOINTS.items():
-    app.add_url_rule(f"/api/{_route_name}", view_func=_make_session_endpoint(_route_name, _endpoint))
+for _route_name, _endpoint_config in LIVETIMING_SESSION_ENDPOINTS.items():
+    app.add_url_rule(f"/api/{_route_name}", view_func=_make_session_endpoint(_route_name, _endpoint_config))
+
+async def fetch_livetiming_laps_payload(session_key, driver_number=None):
+    year = await find_session_year(session_key)
+    session_path, resolved_year = await resolve_livetiming_session_path(session_key, year)
+    session = await asyncio.to_thread(get_session_info, session_key, resolved_year)
+    session_start = session.get("date_start") if session else None
+    stream_start = await fetch_livetiming_stream_start(session_path, fallback=session_start)
+    records = await fetch_livetiming_feed(session_path, "TimingData", stream=True)
+
+    # Race/Sprint lap 1 has no LastLapTime upstream; anchor it at the green
+    # light so its window (and full-race replay) still works. Other session
+    # types start lap 1 whenever each driver leaves the pits, so no anchor.
+    race_start = None
+    if session and session.get("session_type") in ("Race", "Sprint"):
+        try:
+            status_records = await fetch_livetiming_feed(session_path, "SessionStatus", stream=True)
+            race_start = derive_session_started_utc(
+                ensure_livetiming_records(status_records), stream_start
+            )
+        except Exception as e:
+            print(f"Error fetching Livetiming SessionStatus for {session_key}: {e}")
+
+    laps = normalize_livetiming_laps(
+        ensure_livetiming_records(records),
+        session_key=session_key,
+        stream_start_utc=stream_start,
+        race_start_utc=race_start,
+    )
+    if driver_number is not None:
+        laps = [lap for lap in laps if lap.get("driver_number") == driver_number]
+    return laps
 
 @app.route("/api/laps")
 async def api_laps():
@@ -617,14 +751,15 @@ async def api_laps():
         driver_number = parse_int_param(driver_number)
         if driver_number is None:
             return invalid_param_response("driver_number")
-        url = f"https://api.openf1.org/v1/laps?session_key={session_key}&driver_number={driver_number}"
         cache_name = f"laps_{session_key}_{driver_number}.json"
     else:
-        url = f"https://api.openf1.org/v1/laps?session_key={session_key}"
         cache_name = f"laps_{session_key}.json"
 
-    api_key = request.headers.get("X-OpenF1-Key")
-    data = await get_cached_api(url, cache_name, session_key=session_key, api_key=api_key)
+    data = await get_cached_livetiming(
+        cache_name,
+        lambda: fetch_livetiming_laps_payload(session_key, driver_number),
+        session_key=session_key,
+    )
     return jsonify(data)
 
 def parse_iso_utc(value):
@@ -638,10 +773,6 @@ def parse_iso_utc(value):
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-
-def format_openf1_date(dt):
-    # Naive-UTC format keeps the literal '+' of '+00:00' out of the query string
-    return dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
 
 def build_lap_telemetry_window(laps, lap_number):
     """Return (lap, start, end) datetimes for a lap, or None when no usable window exists.
@@ -742,36 +873,27 @@ async def api_car_telemetry():
     if cached is not None:
         return jsonify(cached)
 
-    api_key = request.headers.get("X-OpenF1-Key")
-
     async with get_cache_lock(cache_path):
         cached = await read_cache(cache_path, ttl)
         if cached is not None:
             return jsonify(cached)
 
-        laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}&driver_number={driver_number}"
-        laps = await get_cached_api(
-            laps_url,
+        laps = await get_cached_livetiming(
             f"laps_{session_key}_{driver_number}.json",
+            lambda: fetch_livetiming_laps_payload(session_key, driver_number),
             session_key=session_key,
-            api_key=api_key,
         )
         window = build_lap_telemetry_window(laps, lap_number)
         if window is None:
             return jsonify({"error": "No telemetry window available for this lap"}), 404
         lap, start, end = window
 
-        url = (
-            f"https://api.openf1.org/v1/car_data?session_key={session_key}"
-            f"&driver_number={driver_number}"
-            f"&date>={format_openf1_date(start)}&date<{format_openf1_date(end)}"
-        )
         try:
-            car_data = await fetch_url(url, api_key=api_key)
-        except OpenF1AuthError:
-            raise
+            session_path, _ = await resolve_livetiming_session_path(session_key)
+            car_records = await fetch_livetiming_feed(session_path, "CarData.z", stream=True)
+            car_data = list(flatten_car_data_z(ensure_livetiming_records(car_records), session_key=session_key))
         except Exception as e:
-            print(f"Error fetching {url}: {e}")
+            print(f"Error fetching Livetiming CarData.z for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
                 return jsonify(stale)
@@ -782,6 +904,9 @@ async def api_car_telemetry():
         for sample in car_data if isinstance(car_data, list) else []:
             sample_time = parse_iso_utc(sample.get("date")) if isinstance(sample, dict) else None
             if sample_time is None:
+                continue
+            sample_driver = parse_int_param(sample.get("driver_number"))
+            if sample_driver != driver_number:
                 continue
             t = (sample_time - start).total_seconds()
             if t < 0 or t > window_seconds:
@@ -836,24 +961,19 @@ async def api_track_replay():
     if cached is not None:
         return jsonify(cached)
 
-    api_key = request.headers.get("X-OpenF1-Key")
-
     async with get_cache_lock(cache_path):
         cached = await read_cache(cache_path, ttl)
         if cached is not None:
             return jsonify(cached)
 
         if driver_number is None:
-            laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}"
             laps_cache_name = f"laps_{session_key}.json"
         else:
-            laps_url = f"https://api.openf1.org/v1/laps?session_key={session_key}&driver_number={driver_number}"
             laps_cache_name = f"laps_{session_key}_{driver_number}.json"
-        laps = await get_cached_api(
-            laps_url,
+        laps = await get_cached_livetiming(
             laps_cache_name,
+            lambda: fetch_livetiming_laps_payload(session_key, driver_number),
             session_key=session_key,
-            api_key=api_key,
         )
         if driver_number is None:
             window = build_race_lap_window(laps, lap_number)
@@ -868,17 +988,12 @@ async def api_track_replay():
             lap, start, end = window
             lap_duration = parse_float(lap.get("lap_duration"))
 
-        # No driver filter: one query returns the whole field for the window
-        url = (
-            f"https://api.openf1.org/v1/location?session_key={session_key}"
-            f"&date>={format_openf1_date(start)}&date<{format_openf1_date(end)}"
-        )
         try:
-            location_data = await fetch_url(url, api_key=api_key)
-        except OpenF1AuthError:
-            raise
+            session_path, _ = await resolve_livetiming_session_path(session_key)
+            position_records = await fetch_livetiming_feed(session_path, "Position.z", stream=True)
+            location_data = list(flatten_position_z(ensure_livetiming_records(position_records), session_key=session_key))
         except Exception as e:
-            print(f"Error fetching {url}: {e}")
+            print(f"Error fetching Livetiming Position.z for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
                 return jsonify(stale)

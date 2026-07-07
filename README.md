@@ -1,6 +1,6 @@
 # Formula 1 Data Dashboard 🏎️🏁
 
-A high-performance, asynchronous, and interactive Formula 1 telemetry and statistics dashboard. Powered by the **OpenF1 API** (`https://openf1.org`) and enhanced with additional driver biographical data from `https://f1api.dev/`.
+A high-performance, asynchronous, and interactive Formula 1 telemetry and statistics dashboard. Powered by keyless **Formula 1 Livetiming** data (`https://livetiming.formula1.com/static/`) and enhanced with additional driver biographical data from `https://f1api.dev/`.
 
 Built on a robust, lightweight Python asynchronous backend (**Quart** + **HTTPX**) and a responsive, high-fidelity frontend (**Vanilla JS** + **Vanilla CSS** + **SVG charting**).
 
@@ -15,7 +15,7 @@ Built on a robust, lightweight Python asynchronous backend (**Quart** + **HTTPX*
 graph TD
     Client[Web Browser / User] <-->|HTTPS / REST API| Backend[Python Quart App]
     Backend <-->|Local Read/Write| Cache[Smart File Cache: data_cache/]
-    Backend <-->|Async HTTPX Fetch| OpenF1[OpenF1 API api.openf1.org]
+    Backend <-->|Async HTTPX Fetch| Livetiming[Formula 1 Livetiming static feeds]
     Backend <-->|Async HTTPX Fetch| F1ApiDev[F1API Dev f1api.dev]
     
     subgraph Frontend [Interactive Client-Side App]
@@ -68,14 +68,14 @@ Our F1 Dashboard offers standard-setting telemetry analysis and event coverage t
 * Details the official event name, local timezone offsets, start/end dates, and renders dynamic SVG/image representations of the track layouts.
 
 ### 8. Enterprise-grade API Cache Engine
-* Protects OpenF1 API usage and speeds up load times with flat-file JSON caching:
+* Protects upstream Formula 1 Livetiming usage and speeds up load times with flat-file JSON caching:
   * **Historical Data (Ended > 24 hours ago):** Cached permanently.
   * **Active / Upcoming Sessions:** 5-minute Time-To-Live (TTL).
   * **Session Listings:** 1-hour TTL.
   * **Stale Fallback:** Serves expired cache files gracefully if the external API experiences downtime.
 
-### 9. Bypassing Live Restrictions
-* Bypasses live session restrictions during race weekends by letting users input their own OpenF1 API key directly in the UI settings panel. Keys are stored in the browser's `localStorage` and sent via requests.
+### 9. Keyless Live Data
+* Uses official Formula 1 Livetiming feeds for real-time and historical dashboard data without requiring users to provide an API key.
 
 ---
 

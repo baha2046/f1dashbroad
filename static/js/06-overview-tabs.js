@@ -730,7 +730,7 @@ function renderRaceStandingsTables() {
 }
 
 // Jolpica constructor names ("RB F1 Team", "Alpine F1 Team") don't always
-// match the OpenF1-style TEAM_COLORS keys, so fall back progressively.
+// match the compatibility TEAM_COLORS keys, so fall back progressively.
 function getProgressionTeamHex(series) {
     const raw = (series.team || '').toLowerCase();
     if (TEAM_COLORS[raw]) return TEAM_COLORS[raw];

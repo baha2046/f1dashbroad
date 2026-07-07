@@ -21,7 +21,10 @@ class TeamRadioApiTests(unittest.IsolatedAsyncioTestCase):
         shutil.rmtree(self.cache_dir, ignore_errors=True)
 
     def test_team_radio_registered_as_session_endpoint(self):
-        self.assertEqual(dashboard_app.OPENF1_SESSION_ENDPOINTS.get("team_radio"), "team_radio")
+        self.assertEqual(
+            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["team_radio"]["feed"],
+            "TeamRadio",
+        )
 
     async def test_team_radio_endpoint_returns_cached_session_clips(self):
         sample_clips = [

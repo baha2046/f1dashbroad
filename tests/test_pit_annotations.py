@@ -59,7 +59,10 @@ class PitAnnotationStaticWiringTests(unittest.TestCase):
     def test_backend_has_cached_pit_proxy(self):
         rules = {rule.rule for rule in dashboard_app.app.url_map.iter_rules()}
         self.assertIn("/api/pit", rules)
-        self.assertEqual(dashboard_app.OPENF1_SESSION_ENDPOINTS["pit"], "pit")
+        self.assertEqual(
+            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["pit"]["feed"],
+            "PitLaneTimeCollection",
+        )
 
     def test_frontend_loads_pits_only_for_race_or_sprint(self):
         self.assertIn("pitStops: []", self.dashboard_js)

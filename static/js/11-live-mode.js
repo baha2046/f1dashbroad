@@ -130,10 +130,11 @@ async function refreshLiveData() {
 
     const sessionKey = session.session_key;
     try {
-        const [positionRes, intervalsRes, raceControlRes, teamRadioRes] = await Promise.all([
+        const [positionRes, intervalsRes, raceControlRes, sessionStatusRes, teamRadioRes] = await Promise.all([
             customFetch(`/api/position?session_key=${sessionKey}`),
             customFetch(`/api/intervals?session_key=${sessionKey}`),
             customFetch(`/api/race_control?session_key=${sessionKey}`),
+            customFetch(`/api/session_status?session_key=${sessionKey}`),
             customFetch(`/api/team_radio?session_key=${sessionKey}`)
         ]);
 
@@ -155,6 +156,12 @@ async function refreshLiveData() {
         if (raceControlRes.ok) {
             const raceControl = await raceControlRes.json();
             state.raceControl = Array.isArray(raceControl) ? raceControl : [];
+        }
+        if (sessionStatusRes.ok) {
+            const statusSeries = await sessionStatusRes.json();
+            state.sessionStatusSeries = Array.isArray(statusSeries) ? statusSeries : [];
+        }
+        if (raceControlRes.ok || sessionStatusRes.ok) {
             refreshReplayCircuitStates();
         }
         if (teamRadioRes.ok) {

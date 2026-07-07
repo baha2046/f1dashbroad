@@ -68,14 +68,17 @@ class TrackReplayEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def request(self, fetch_mock, lap_number=5):
         with (
             patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
-            patch.object(dashboard_app, "fetch_url", new=fetch_mock),
+            patch.object(dashboard_app, "resolve_livetiming_session_path", new=AsyncMock(return_value=("session/path/", 2026))),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=fetch_mock),
+            patch.object(dashboard_app, "flatten_position_z", new=lambda records, session_key=None: records),
+            patch.object(dashboard_app, "fetch_url", new=AsyncMock(side_effect=AssertionError("OpenF1 should not be called"))),
         ):
             client = dashboard_app.app.test_client()
             return await client.get(
                 f"/api/track_replay?session_key=4242&driver_number=1&lap_number={lap_number}"
             )
 
-    async def test_queries_location_for_whole_field_in_lap_window(self):
+    async def test_reads_livetiming_position_feed_for_whole_field_in_lap_window(self):
         fetch_mock = AsyncMock(return_value=[
             location_sample("2026-05-24T13:03:00+00:00", 1, x=-3650, y=1193),
             location_sample("2026-05-24T13:03:01.500000+00:00", 1, x=-3600, y=1210),
@@ -85,12 +88,7 @@ class TrackReplayEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(fetch_mock.await_count, 1)
-        url = fetch_mock.await_args.args[0]
-        self.assertIn("/location", url)
-        self.assertIn("session_key=4242", url)
-        self.assertNotIn("driver_number", url)  # one query returns the whole field
-        self.assertIn("date>=2026-05-24T13:03:00", url)
-        self.assertIn("date<2026-05-24T13:04:30", url)
+        fetch_mock.assert_awaited_once_with("session/path/", "Position.z", stream=True)
 
         data = await response.get_json()
         self.assertEqual(data["session_key"], 4242)
@@ -210,14 +208,17 @@ class TrackReplayFullRaceEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def request(self, fetch_mock, lap_number=5):
         with (
             patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
-            patch.object(dashboard_app, "fetch_url", new=fetch_mock),
+            patch.object(dashboard_app, "resolve_livetiming_session_path", new=AsyncMock(return_value=("session/path/", 2026))),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=fetch_mock),
+            patch.object(dashboard_app, "flatten_position_z", new=lambda records, session_key=None: records),
+            patch.object(dashboard_app, "fetch_url", new=AsyncMock(side_effect=AssertionError("OpenF1 should not be called"))),
         ):
             client = dashboard_app.app.test_client()
             return await client.get(
                 f"/api/track_replay?session_key=4242&lap_number={lap_number}"
             )
 
-    async def test_queries_location_for_race_lap_window_without_driver(self):
+    async def test_reads_livetiming_position_feed_for_race_lap_window_without_driver(self):
         fetch_mock = AsyncMock(return_value=[
             location_sample("2026-05-24T13:03:00+00:00", 1, x=-3650, y=1193),
             location_sample("2026-05-24T13:03:30+00:00", 44, x=500, y=-750),
@@ -225,11 +226,7 @@ class TrackReplayFullRaceEndpointTests(unittest.IsolatedAsyncioTestCase):
         response = await self.request(fetch_mock)
 
         self.assertEqual(response.status_code, 200)
-        url = fetch_mock.await_args.args[0]
-        self.assertIn("/location", url)
-        self.assertNotIn("driver_number", url)
-        self.assertIn("date>=2026-05-24T13:03:00", url)
-        self.assertIn("date<2026-05-24T13:04:30", url)
+        fetch_mock.assert_awaited_once_with("session/path/", "Position.z", stream=True)
 
         data = await response.get_json()
         self.assertIsNone(data["driver_number"])
@@ -244,9 +241,6 @@ class TrackReplayFullRaceEndpointTests(unittest.IsolatedAsyncioTestCase):
         response = await self.request(fetch_mock, lap_number=6)
 
         self.assertEqual(response.status_code, 200)
-        url = fetch_mock.await_args.args[0]
-        self.assertIn("date>=2026-05-24T13:04:30", url)
-        self.assertIn("date<2026-05-24T13:06:31", url)  # backmarker's lap end
         data = await response.get_json()
         self.assertEqual(data["window_seconds"], 121.0)
 

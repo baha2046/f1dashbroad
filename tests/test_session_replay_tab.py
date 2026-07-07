@@ -170,6 +170,8 @@ class ReplayRaceControlTimelineTests(unittest.TestCase):
     def test_js_defines_circuit_state_helpers(self):
         for snippet in (
             "function extractCircuitStatePeriods",
+            "function extractCircuitStatePeriodsFromStatus",
+            "function getReplayCircuitStates",
             "function buildRaceControlTimeline",
             "function stateBandsForRange",
             "function circuitStateAt",
@@ -178,6 +180,17 @@ class ReplayRaceControlTimelineTests(unittest.TestCase):
             "function getReplayAbsoluteMs",
         ):
             self.assertIn(snippet, self.dashboard_js)
+
+    def test_js_prefers_session_status_series_for_circuit_states(self):
+        # SessionData StatusSeries is the authoritative source; the session
+        # loader and live refresh both fetch it, and the replay consumes it
+        # ahead of race-control text parsing.
+        self.assertIn("/api/session_status?session_key=${session.session_key}", self.dashboard_js)
+        self.assertIn("/api/session_status?session_key=${sessionKey}", self.dashboard_js)
+        self.assertIn("extractCircuitStatePeriodsFromStatus(state.sessionStatusSeries)", self.dashboard_js)
+        for status in ("'YELLOW'", "'SCDEPLOYED'", "'VSCDEPLOYED'", "'RED'"):
+            self.assertIn(status, self.dashboard_js)
+        self.assertNotIn("states: extractCircuitStatePeriods(state.raceControl)", self.dashboard_js)
 
     def test_js_parses_grounded_race_control_signals(self):
         # Signal strings observed in real OpenF1 race_control payloads
@@ -306,6 +319,8 @@ class ReplayRaceContextTests(unittest.TestCase):
             "function buildDriverDateIndex",
             "function valueAtMs",
             "function buildReplayRaceOrder",
+            "function replayGapValueAtMs",
+            "function isReplayDriverRetiredAtMs",
             "function buildReplayPitWindows",
             "function deriveDriverLapAt",
             "function updateReplayRaceContext",
@@ -365,6 +380,64 @@ class ReplayRaceContextTests(unittest.TestCase):
             console.log(JSON.stringify([fresh && fresh.position, stale]));
         """)
         self.assertEqual(self._run_node(script), [1, None])
+
+    def test_replay_gap_lookup_keeps_last_real_gap_through_empty_snapshots(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildDriverDateIndex"),
+            self._extract_function("valueAtMs"),
+            self._extract_function("hasReplayGapValue"),
+            self._extract_function("replayGapValueAtMs"),
+        ])
+        intervals = [
+            {"driver_number": 44, "gap_to_leader": 1.234, "date": "2026-07-05T10:00:00Z"},
+            {"driver_number": 44, "gap_to_leader": None, "date": "2026-07-05T10:00:10Z"},
+            {"driver_number": 44, "gap_to_leader": "", "date": "2026-07-05T10:00:20Z"},
+            {"driver_number": 44, "gap_to_leader": 0.987, "date": "2026-07-05T10:00:30Z"},
+        ]
+        script = textwrap.dedent(f"""
+            {helpers}
+
+            const index = buildDriverDateIndex({json.dumps(intervals)});
+            const records = index.get(44);
+            const gaps = [
+                replayGapValueAtMs(records, Date.parse("2026-07-05T10:00:05Z"), 20000),
+                replayGapValueAtMs(records, Date.parse("2026-07-05T10:00:15Z"), 20000),
+                replayGapValueAtMs(records, Date.parse("2026-07-05T10:00:25Z"), 20000),
+                replayGapValueAtMs(records, Date.parse("2026-07-05T10:00:35Z"), 20000)
+            ];
+            console.log(JSON.stringify(gaps));
+        """)
+        self.assertEqual(self._run_node(script), [1.234, 1.234, 1.234, 0.987])
+
+    def test_replay_retired_status_waits_until_driver_has_no_future_positions(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildDriverDateIndex"),
+            self._extract_function("isReplayDriverRetiredAtMs"),
+        ])
+        positions = [
+            {"driver_number": 23, "position": 21, "date": "2026-07-05T10:00:00Z"},
+            {"driver_number": 23, "position": 21, "date": "2026-07-05T10:00:20Z"},
+            {"driver_number": 3, "position": 20, "date": "2026-07-05T10:00:00Z"},
+        ]
+        script = textwrap.dedent(f"""
+            const state = {{
+                results: [
+                    {{ driver_number: 23, dnf: true, status: "Retired" }},
+                    {{ driver_number: 3, dnf: false, status: "Stopped" }}
+                ]
+            }};
+            {helpers}
+
+            const positionIndex = buildDriverDateIndex({json.dumps(positions)});
+            const checks = [
+                isReplayDriverRetiredAtMs(23, Date.parse("2026-07-05T10:00:10Z"), positionIndex.get(23)),
+                isReplayDriverRetiredAtMs(23, Date.parse("2026-07-05T10:00:30Z"), positionIndex.get(23)),
+                isReplayDriverRetiredAtMs(3, Date.parse("2026-07-05T10:00:30Z"), positionIndex.get(3)),
+                isReplayDriverRetiredAtMs(99, Date.parse("2026-07-05T10:00:30Z"), [])
+            ];
+            console.log(JSON.stringify(checks));
+        """)
+        self.assertEqual(self._run_node(script), [False, True, False, False])
 
     def test_replay_race_order_seeds_sparse_position_stream(self):
         helpers = "\n\n".join([

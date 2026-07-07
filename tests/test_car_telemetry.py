@@ -22,8 +22,9 @@ LAP_FIXTURES = [
 ]
 
 
-def car_sample(date, speed=280, throttle=100, brake=0, gear=8, drs=12):
+def car_sample(date, speed=280, throttle=100, brake=0, gear=8, drs=12, driver_number=1):
     return {
+        "driver_number": driver_number,
         "date": date,
         "speed": speed,
         "throttle": throttle,
@@ -72,14 +73,17 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def request(self, fetch_mock, lap_number=5):
         with (
             patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
-            patch.object(dashboard_app, "fetch_url", new=fetch_mock),
+            patch.object(dashboard_app, "resolve_livetiming_session_path", new=AsyncMock(return_value=("session/path/", 2026))),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=fetch_mock),
+            patch.object(dashboard_app, "flatten_car_data_z", new=lambda records, session_key=None: records),
+            patch.object(dashboard_app, "fetch_url", new=AsyncMock(side_effect=AssertionError("OpenF1 should not be called"))),
         ):
             client = dashboard_app.app.test_client()
             return await client.get(
                 f"/api/car_telemetry?session_key=4242&driver_number=1&lap_number={lap_number}"
             )
 
-    async def test_queries_car_data_with_lap_date_window(self):
+    async def test_reads_livetiming_car_data_feed_and_filters_lap_window(self):
         fetch_mock = AsyncMock(return_value=[
             car_sample("2026-05-24T13:03:00+00:00", speed=120, throttle=80, brake=0, gear=3, drs=1),
             car_sample("2026-05-24T13:03:01.500000+00:00", speed=180, throttle=100, brake=0, gear=5, drs=12),
@@ -88,12 +92,7 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(fetch_mock.await_count, 1)
-        url = fetch_mock.await_args.args[0]
-        self.assertIn("car_data", url)
-        self.assertIn("session_key=4242", url)
-        self.assertIn("driver_number=1", url)
-        self.assertIn("date>=2026-05-24T13:03:00", url)
-        self.assertIn("date<2026-05-24T13:04:30", url)
+        fetch_mock.assert_awaited_once_with("session/path/", "CarData.z", stream=True)
 
         data = await response.get_json()
         self.assertEqual(data["session_key"], 4242)
@@ -126,9 +125,10 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
         response = await self.request(fetch_mock, lap_number=4)
 
         self.assertEqual(response.status_code, 200)
-        url = fetch_mock.await_args.args[0]
-        self.assertIn("date>=2026-05-24T13:01:30", url)
-        self.assertIn("date<2026-05-24T13:03:00", url)
+        data = await response.get_json()
+        self.assertEqual(data["lap_date_start"], "2026-05-24T13:01:30+00:00")
+        self.assertIsNone(data["lap_duration"])
+        self.assertEqual(data["sample_count"], 0)
 
     async def test_unknown_lap_returns_404(self):
         response = await self.request(AsyncMock(return_value=[]), lap_number=99)
