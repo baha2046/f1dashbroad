@@ -749,13 +749,18 @@ async def enrich_results_with_jolpica(rows, session_key):
         return rows
     year = await find_session_year(session_key)
     session = await asyncio.to_thread(get_session_info, session_key, year)
-    if not session or session.get("session_type") != "Race":
+    # Livetiming types Sprint sessions as "Race" (name "Sprint"), but accept
+    # an explicit Sprint type too in case older seasons label them directly
+    if not session or session.get("session_type") not in ("Race", "Sprint"):
         return rows
 
     date_token = str(session.get("date_start") or "")[:10]
     if not DATE_PARAM_RE.match(date_token):
         return rows
-    is_sprint = "sprint" in str(session.get("session_name") or "").lower()
+    is_sprint = (
+        session.get("session_type") == "Sprint"
+        or "sprint" in str(session.get("session_name") or "").lower()
+    )
     endpoint = "sprint" if is_sprint else "results"
     try:
         races_data = await get_cached_jolpica_api(

@@ -111,6 +111,9 @@ let sessionsListSequence = 0;
 async function loadSessions(year, autoFocus = false) {
     const loadToken = ++sessionsListSequence;
     const isStale = () => loadToken !== sessionsListSequence;
+    // A year switch also invalidates any in-flight session detail load, so a
+    // pending selectSession can't repaint the dashboard this call just hid
+    sessionLoadSequence++;
     DOM.sessionsList.innerHTML = `
         <div class="loading-state">
             <div class="spinner"></div>
