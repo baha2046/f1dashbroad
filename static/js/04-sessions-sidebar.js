@@ -104,8 +104,13 @@ function findInitialFocusSession(sessions, now = new Date()) {
     return findLatestRaceEvent(selectableSessions, nowDate);
 }
 
+// Monotonic token so a slow year's response can't overwrite a newer one
+let sessionsListSequence = 0;
+
 // Fetch and load F1 sessions list for selected year
 async function loadSessions(year, autoFocus = false) {
+    const loadToken = ++sessionsListSequence;
+    const isStale = () => loadToken !== sessionsListSequence;
     DOM.sessionsList.innerHTML = `
         <div class="loading-state">
             <div class="spinner"></div>
@@ -118,8 +123,10 @@ async function loadSessions(year, autoFocus = false) {
     try {
         const response = await customFetch(`/api/sessions?year=${year}`);
         if (!response.ok) throw new Error('Failed to fetch sessions');
-        
-        state.sessions = await response.json();
+
+        const sessions = await response.json();
+        if (isStale()) return;
+        state.sessions = sessions;
         
         // Sort sessions by date (newest first, or oldest first)
         // Usually, order chronologically looks cleaner for F1 calendars
@@ -139,6 +146,7 @@ async function loadSessions(year, autoFocus = false) {
         }
     } catch (error) {
         console.error(error);
+        if (isStale()) return;
         DOM.sessionsList.innerHTML = `
             <div class="error-state">
                 <span class="material-icons-round" style="font-size:36px;color:var(--accent-red)">error_outline</span>

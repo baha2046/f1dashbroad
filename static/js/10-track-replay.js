@@ -29,6 +29,9 @@ const REPLAY_FULL_RACE = 'race';
 const REPLAY_FULL_SESSION = 'session';
 // Target duration of one full-session timeline slice
 const REPLAY_SESSION_SLICE_SECONDS = 120;
+// Cooldown appended after each qualifying phase's Finished so the replay
+// covers drivers finishing their final flying lap and returning to the pits
+const REPLAY_PHASE_COOLDOWN_MS = 180000;
 
 // Circuit-state precedence when periods overlap (e.g. sector yellows under SC)
 const REPLAY_STATE_PRIORITY = ['red', 'sc', 'vsc', 'yellow'];
@@ -613,8 +616,7 @@ function extractQualifyingPhases() {
         }
         if (status === 'FINISHED' || status === 'FINALISED' || status === 'ENDS') {
             if (openStartMs !== null && ms > openStartMs) {
-                // add 3 min to let them finish the last lap and back to pit
-                phases.push({ label: `${prefix}${phases.length + 1}`, startMs: openStartMs, endMs: ms + 180000});
+                phases.push({ label: `${prefix}${phases.length + 1}`, startMs: openStartMs, endMs: ms + REPLAY_PHASE_COOLDOWN_MS });
             }
             openStartMs = null;
         }

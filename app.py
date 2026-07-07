@@ -659,7 +659,6 @@ LIVETIMING_SESSION_ENDPOINTS = {
     "pit": {"feed": "PitLaneTimeCollection", "normalizer": normalize_livetiming_pit},
     "position": {"feed": "TimingData", "normalizer": normalize_livetiming_position},
     "intervals": {"feed": "TimingData", "normalizer": normalize_livetiming_intervals},
-    "results": {"feed": "TimingData", "normalizer": normalize_livetiming_results, "stream": False, "cache_prefix": "results_v2"},
     "race_control": {"feed": "RaceControlMessages", "normalizer": normalize_livetiming_race_control},
     "team_radio": {"feed": "TeamRadio", "normalizer": normalize_livetiming_team_radio, "needs_session_path": True},
     "session_status": {"feed": "SessionData", "normalizer": normalize_livetiming_session_status},
@@ -668,42 +667,44 @@ LIVETIMING_SESSION_ENDPOINTS = {
 def ensure_livetiming_records(feed_data):
     return feed_data if isinstance(feed_data, list) else [(None, feed_data)]
 
+async def get_livetiming_session_payload(route_name, endpoint_config, session_key):
+    cache_prefix = endpoint_config.get("cache_prefix", route_name)
+    cache_name = f"{cache_prefix}_{session_key}.json"
+
+    async def fetch_endpoint():
+        year = await find_session_year(session_key)
+        session_path, resolved_year = await resolve_livetiming_session_path(session_key, year)
+        session = await asyncio.to_thread(get_session_info, session_key, resolved_year)
+        session_start = session.get("date_start") if session else None
+        stream_start = await fetch_livetiming_stream_start(session_path, fallback=session_start)
+        feed_data = await fetch_livetiming_feed(
+            session_path,
+            endpoint_config["feed"],
+            stream=endpoint_config.get("stream", True),
+        )
+        records = ensure_livetiming_records(feed_data)
+        normalizer = endpoint_config["normalizer"]
+        if endpoint_config.get("needs_session_path"):
+            return normalizer(
+                records,
+                session_path,
+                session_key=session_key,
+                stream_start_utc=stream_start,
+            )
+        return normalizer(
+            records,
+            session_key=session_key,
+            stream_start_utc=stream_start,
+        )
+
+    return await get_cached_livetiming(cache_name, fetch_endpoint, session_key=session_key)
+
 def _make_session_endpoint(route_name, endpoint_config):
     async def handler():
         session_key = parse_int_param(request.args.get("session_key"))
         if session_key is None:
             return invalid_param_response("session_key")
-
-        cache_prefix = endpoint_config.get("cache_prefix", route_name)
-        cache_name = f"{cache_prefix}_{session_key}.json"
-
-        async def fetch_endpoint():
-            year = await find_session_year(session_key)
-            session_path, resolved_year = await resolve_livetiming_session_path(session_key, year)
-            session = await asyncio.to_thread(get_session_info, session_key, resolved_year)
-            session_start = session.get("date_start") if session else None
-            stream_start = await fetch_livetiming_stream_start(session_path, fallback=session_start)
-            feed_data = await fetch_livetiming_feed(
-                session_path,
-                endpoint_config["feed"],
-                stream=endpoint_config.get("stream", True),
-            )
-            records = ensure_livetiming_records(feed_data)
-            normalizer = endpoint_config["normalizer"]
-            if endpoint_config.get("needs_session_path"):
-                return normalizer(
-                    records,
-                    session_path,
-                    session_key=session_key,
-                    stream_start_utc=stream_start,
-                )
-            return normalizer(
-                records,
-                session_key=session_key,
-                stream_start_utc=stream_start,
-            )
-
-        data = await get_cached_livetiming(cache_name, fetch_endpoint, session_key=session_key)
+        data = await get_livetiming_session_payload(route_name, endpoint_config, session_key)
         return jsonify(data)
 
     handler.__name__ = f"api_{route_name}"
@@ -711,6 +712,87 @@ def _make_session_endpoint(route_name, endpoint_config):
 
 for _route_name, _endpoint_config in LIVETIMING_SESSION_ENDPOINTS.items():
     app.add_url_rule(f"/api/{_route_name}", view_func=_make_session_endpoint(_route_name, _endpoint_config))
+
+# /api/results is bespoke: Livetiming TimingData carries the classification
+# order but no championship points and no DNS/DSQ flags, so completed
+# Race/Sprint results are enriched from Jolpica's official results.
+RESULTS_ENDPOINT_CONFIG = {
+    "feed": "TimingData",
+    "normalizer": normalize_livetiming_results,
+    "stream": False,
+    "cache_prefix": "results_v2",
+}
+
+def merge_jolpica_results(rows, official_by_number):
+    merged = []
+    for row in rows:
+        item = official_by_number.get(parse_int_param(row.get("driver_number"))) if isinstance(row, dict) else None
+        if not item:
+            merged.append(row)
+            continue
+        row = dict(row)
+        position_text = str(item.get("positionText") or "")
+        status = str(item.get("status") or "")
+        row["points"] = parse_float(item.get("points"))
+        row["dnf"] = position_text == "R"
+        row["dsq"] = position_text in ("D", "E")
+        row["dns"] = position_text == "W" or status == "Did not start"
+        if status:
+            row["status"] = status
+        merged.append(row)
+    return merged
+
+async def enrich_results_with_jolpica(rows, session_key):
+    """Best-effort merge of official points/DNS/DSQ into Race/Sprint results;
+    returns the rows unchanged when Jolpica has nothing (yet)."""
+    if not isinstance(rows, list) or not rows:
+        return rows
+    year = await find_session_year(session_key)
+    session = await asyncio.to_thread(get_session_info, session_key, year)
+    if not session or session.get("session_type") != "Race":
+        return rows
+
+    date_token = str(session.get("date_start") or "")[:10]
+    if not DATE_PARAM_RE.match(date_token):
+        return rows
+    is_sprint = "sprint" in str(session.get("session_name") or "").lower()
+    endpoint = "sprint" if is_sprint else "results"
+    try:
+        races_data = await get_cached_jolpica_api(
+            f"https://api.jolpi.ca/ergast/f1/{year}/races/?format=json",
+            f"jolpica_races_{year}.json",
+            year=year,
+        )
+        race = find_jolpica_race_by_date(extract_jolpica_races(races_data), date_token)
+        if not race or not race.get("round"):
+            return rows
+        results_data = await get_cached_jolpica_api(
+            f"https://api.jolpi.ca/ergast/f1/{year}/{race['round']}/{endpoint}/?format=json",
+            f"jolpica_{endpoint}_{year}_{race['round']}.json",
+            year=year,
+        )
+    except UpstreamAPIError:
+        return rows
+
+    result_races = extract_jolpica_races(results_data)
+    items = (result_races[0].get("SprintResults" if is_sprint else "Results") or []) if result_races else []
+    official_by_number = {}
+    for item in items:
+        number = parse_int_param(item.get("number"))
+        if number is not None:
+            official_by_number[number] = item
+    if not official_by_number:
+        return rows
+    return merge_jolpica_results(rows, official_by_number)
+
+@app.route("/api/results")
+async def api_results():
+    session_key = parse_int_param(request.args.get("session_key"))
+    if session_key is None:
+        return invalid_param_response("session_key")
+    data = await get_livetiming_session_payload("results", RESULTS_ENDPOINT_CONFIG, session_key)
+    data = await enrich_results_with_jolpica(data, session_key)
+    return jsonify(data)
 
 async def fetch_livetiming_laps_payload(session_key, driver_number=None):
     year = await find_session_year(session_key)

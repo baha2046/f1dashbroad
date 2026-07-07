@@ -344,6 +344,7 @@ class FullQualifyingReplayTests(unittest.TestCase):
             {"session_status": "Finalised", "date": "2026-07-04T15:12:00Z"},
         ]
         script = textwrap.dedent(f"""
+            const REPLAY_PHASE_COOLDOWN_MS = 180000;
             const state = {{
                 sessionStatusSeries: {json.dumps(status_rows)},
                 selectedSession: {{ session_name: "Qualifying", session_type: "Qualifying" }}
@@ -358,10 +359,12 @@ class FullQualifyingReplayTests(unittest.TestCase):
                 new Date(p.endMs).toISOString()
             ])));
         """)
+        # Each closed phase ends REPLAY_PHASE_COOLDOWN_MS (3 min) after its
+        # Finished, covering in-laps back to the pits
         self.assertEqual(self._run_node(script), [
-            ["Q1", "2026-07-04T14:00:00.000Z", "2026-07-04T14:18:00.000Z"],
-            ["Q2", "2026-07-04T14:25:00.000Z", "2026-07-04T14:50:00.000Z"],
-            ["Q3", "2026-07-04T14:58:00.000Z", "2026-07-04T15:10:00.000Z"],
+            ["Q1", "2026-07-04T14:00:00.000Z", "2026-07-04T14:21:00.000Z"],
+            ["Q2", "2026-07-04T14:25:00.000Z", "2026-07-04T14:53:00.000Z"],
+            ["Q3", "2026-07-04T14:58:00.000Z", "2026-07-04T15:13:00.000Z"],
         ])
 
     def test_chequered_flag_is_the_last_finished_not_the_first(self):
@@ -406,13 +409,14 @@ class FullQualifyingReplayTests(unittest.TestCase):
         ])
         status_rows = [
             {"session_status": "Started", "date": "2026-07-04T14:00:00Z"},
-            {"session_status": "Finished", "date": "2026-07-04T14:18:00Z"},  # Q1: 18 min -> 9 slices
+            {"session_status": "Finished", "date": "2026-07-04T14:15:00Z"},  # Q1: 15 min + 3 min cooldown -> 9 slices
             {"session_status": "Started", "date": "2026-07-04T14:25:00Z"},
-            {"session_status": "Finished", "date": "2026-07-04T14:35:00Z"},  # Q2: 10 min -> 5 slices
+            {"session_status": "Finished", "date": "2026-07-04T14:32:00Z"},  # Q2: 7 min + 3 min cooldown -> 5 slices
         ]
         script = textwrap.dedent(f"""
             const REPLAY_TIMELINE_WIDTH_CAP = 3;
             const REPLAY_SESSION_SLICE_SECONDS = 120;
+            const REPLAY_PHASE_COOLDOWN_MS = 180000;
             const state = {{
                 sessionStatusSeries: {json.dumps(status_rows)},
                 selectedSession: {{ session_name: "Qualifying", session_type: "Qualifying" }}

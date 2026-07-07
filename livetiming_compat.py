@@ -366,17 +366,35 @@ def normalize_livetiming_position(records, session_key=None, stream_start_utc=No
 
 
 def normalize_livetiming_intervals(records, session_key=None, stream_start_utc=None):
+    """TimingData is a partial-update stream: a delta only produces a row when
+    it touches a gap field, and the other field carries forward per driver —
+    otherwise position-only deltas would emit null gaps that overwrite real
+    ones in latest-row-per-driver consumers (live timing, replay context)."""
     rows = []
+    known_by_driver = {}
     for date, driver_number, line in iter_timing_lines(records, stream_start_utc):
-        interval = line.get("IntervalToPositionAhead") or {}
+        interval_section = line.get("IntervalToPositionAhead")
+        has_interval = isinstance(interval_section, dict) and "Value" in interval_section
+        has_gap = "GapToLeader" in line
+        known = known_by_driver.setdefault(
+            driver_number, {"interval": None, "gap_to_leader": None, "position": 999}
+        )
         position = to_int(line.get("Position"))
+        if position is not None:
+            known["position"] = position
+        if has_interval:
+            known["interval"] = parse_gap_value(interval_section.get("Value"))
+        if has_gap:
+            known["gap_to_leader"] = parse_gap_value(line.get("GapToLeader"))
+        if not has_interval and not has_gap:
+            continue
         rows.append({
             "session_key": session_key,
             "driver_number": driver_number,
-            "interval": parse_gap_value(interval.get("Value")),
-            "gap_to_leader": parse_gap_value(line.get("GapToLeader")),
+            "interval": known["interval"],
+            "gap_to_leader": known["gap_to_leader"],
             "date": date,
-            "_position": position if position is not None else 999,
+            "_position": known["position"],
         })
     rows.sort(key=lambda row: (row["date"] or "", row["_position"], row["driver_number"]))
     for row in rows:

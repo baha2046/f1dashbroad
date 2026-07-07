@@ -167,6 +167,29 @@ class LivetimingCompatibilityTests(unittest.TestCase):
         self.assertEqual(intervals[1]["gap_to_leader"], 1.234)
         self.assertEqual(intervals[2]["gap_to_leader"], "1 LAP")
 
+    def test_normalize_intervals_skips_position_only_deltas_and_carries_gaps_forward(self):
+        # Latest-row-per-driver consumers must never see a position-only delta
+        # null out a previously delivered gap
+        records = [
+            ("00:01:00.000", {"Lines": {"16": {
+                "Position": "2",
+                "GapToLeader": "+1.234",
+                "IntervalToPositionAhead": {"Value": "+1.234"},
+            }}}),
+            ("00:01:05.000", {"Lines": {"16": {"Position": "3"}}}),
+            ("00:01:10.000", {"Lines": {"16": {"GapToLeader": "+2.5"}}}),
+        ]
+
+        intervals = normalize_livetiming_intervals(records, session_key=9574, stream_start_utc="2024-07-28T12:00:00Z")
+
+        # The position-only delta emits no row; the gap-only delta carries the
+        # last known interval forward
+        self.assertEqual(len(intervals), 2)
+        self.assertEqual(intervals[0]["gap_to_leader"], 1.234)
+        self.assertEqual(intervals[1]["date"], "2024-07-28T12:01:10Z")
+        self.assertEqual(intervals[1]["gap_to_leader"], 2.5)
+        self.assertEqual(intervals[1]["interval"], 1.234)
+
     def test_normalize_stints_maps_lap_ranges(self):
         rows = normalize_livetiming_stints([
             (None, {

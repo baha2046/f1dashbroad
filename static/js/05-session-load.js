@@ -1,5 +1,10 @@
+// Monotonic token so a slow in-flight selection can't overwrite a newer one
+let sessionLoadSequence = 0;
+
 // Select a session and fetch its detailed data
 async function selectSession(session) {
+    const loadToken = ++sessionLoadSequence;
+    const isStale = () => loadToken !== sessionLoadSequence;
     stopLiveMode();
     state.selectedSession = session;
     state.drivers = [];
@@ -69,53 +74,51 @@ async function selectSession(session) {
         ]);
 
         if (!driversRes.ok) throw new Error('Failed to load drivers');
-        
-        state.drivers = await driversRes.json();
-        
-        if (weatherRes.ok) {
-            state.weather = await weatherRes.json();
+
+        // Parse every body before touching state, then guard once: a stale
+        // load must not interleave its writes with a newer selection's
+        const parseJson = (res) => (res && res.ok ? res.json() : null);
+        const [
+            drivers, weather, meeting, stints, results, raceControl,
+            statusSeries, teamRadio, pitStops, allLaps, position,
+            raceStandings, seasonProgression
+        ] = await Promise.all([
+            driversRes.json(),
+            parseJson(weatherRes),
+            parseJson(meetingRes),
+            parseJson(stintsRes),
+            parseJson(resultsRes),
+            parseJson(raceControlRes),
+            parseJson(sessionStatusRes),
+            parseJson(teamRadioRes),
+            parseJson(pitStopsRes),
+            parseJson(lapsRes),
+            parseJson(positionRes),
+            parseJson(raceStandingsRes),
+            parseJson(progressionRes)
+        ]);
+
+        if (isStale()) return;
+
+        state.drivers = drivers;
+        if (weather) state.weather = weather;
+        if (meeting) state.currentMeeting = meeting;
+        if (stints) state.stints = stints;
+        if (results) state.results = results;
+        if (raceControl) state.raceControl = raceControl;
+        if (statusSeries) state.sessionStatusSeries = Array.isArray(statusSeries) ? statusSeries : [];
+        if (teamRadio) state.teamRadio = Array.isArray(teamRadio) ? teamRadio : [];
+
+        if (Array.isArray(pitStops)) {
+            state.pitStops = pitStops.sort((a, b) => (
+                Number(a.driver_number || 0) - Number(b.driver_number || 0) ||
+                Number(a.lap_number || 0) - Number(b.lap_number || 0)
+            ));
         }
 
-        if (meetingRes.ok) {
-            state.currentMeeting = await meetingRes.json();
-        }
-
-        if (stintsRes.ok) {
-            state.stints = await stintsRes.json();
-        }
-
-        if (resultsRes.ok) {
-            state.results = await resultsRes.json();
-        }
-
-        if (raceControlRes.ok) {
-            state.raceControl = await raceControlRes.json();
-        }
-
-        if (sessionStatusRes.ok) {
-            const statusSeries = await sessionStatusRes.json();
-            state.sessionStatusSeries = Array.isArray(statusSeries) ? statusSeries : [];
-        }
-
-        if (teamRadioRes.ok) {
-            const teamRadio = await teamRadioRes.json();
-            state.teamRadio = Array.isArray(teamRadio) ? teamRadio : [];
-        }
-
-        if (pitStopsRes && pitStopsRes.ok) {
-            const pitStops = await pitStopsRes.json();
-            state.pitStops = Array.isArray(pitStops)
-                ? pitStops.sort((a, b) => (
-                    Number(a.driver_number || 0) - Number(b.driver_number || 0) ||
-                    Number(a.lap_number || 0) - Number(b.lap_number || 0)
-                ))
-                : [];
-        }
-
-        if (lapsRes && lapsRes.ok) {
-            const allLaps = await lapsRes.json();
+        if (allLaps) {
             state.allSessionLaps = allLaps;
-            
+
             // Group by driver_number and store in state.laps
             const groupedLaps = {};
             if (Array.isArray(allLaps)) {
@@ -127,7 +130,7 @@ async function selectSession(session) {
                     }
                     groupedLaps[dn].push(lap);
                 });
-                
+
                 for (const dn in groupedLaps) {
                     groupedLaps[dn].sort((a, b) => Number(a.lap_number) - Number(b.lap_number));
                     state.laps[dn] = groupedLaps[dn];
@@ -135,19 +138,13 @@ async function selectSession(session) {
             }
         }
 
-        if (positionRes && positionRes.ok) {
-            const position = await positionRes.json();
+        if (position) {
             state.position = Array.isArray(position) ? position : [];
             state.positionByLap = buildPositionByLapMap();
         }
 
-        if (raceStandingsRes && raceStandingsRes.ok) {
-            state.raceStandings = await raceStandingsRes.json();
-        }
-
-        if (progressionRes && progressionRes.ok) {
-            state.seasonProgression = await progressionRes.json();
-        }
+        if (raceStandings) state.raceStandings = raceStandings;
+        if (seasonProgression) state.seasonProgression = seasonProgression;
 
         // Render dashboard components
         renderSessionHeader();
@@ -182,6 +179,8 @@ async function selectSession(session) {
         }
     } catch (error) {
         console.error(error);
+        // A stale load's failure must not tear down a newer selection's view
+        if (isStale()) return;
         const banner = document.getElementById('liveRestrictionBanner');
         if (!banner || banner.style.display !== 'flex') {
             alert('Error loading session details.');

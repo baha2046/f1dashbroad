@@ -19,15 +19,11 @@ class SessionEndpointFactoryTests(unittest.TestCase):
             self.assertIn(f"/api/{route_name}", rules)
 
     def test_results_route_maps_to_livetiming_timing_feed(self):
-        self.assertEqual(
-            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["results"]["feed"],
-            "TimingData",
-        )
-        self.assertFalse(dashboard_app.LIVETIMING_SESSION_ENDPOINTS["results"]["stream"])
-        self.assertEqual(
-            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["results"]["cache_prefix"],
-            "results_v2",
-        )
+        # /api/results left the factory dict for a bespoke handler (Jolpica
+        # enrichment) but must keep the same feed/cache contract
+        self.assertEqual(dashboard_app.RESULTS_ENDPOINT_CONFIG["feed"], "TimingData")
+        self.assertFalse(dashboard_app.RESULTS_ENDPOINT_CONFIG["stream"])
+        self.assertEqual(dashboard_app.RESULTS_ENDPOINT_CONFIG["cache_prefix"], "results_v2")
 
     def test_stints_route_reads_livetiming_keyframe(self):
         self.assertEqual(
