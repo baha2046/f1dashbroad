@@ -65,8 +65,30 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSessions(state.selectedYear, true);
 });
 
+const DRIVER_IMAGE_FALLBACK = 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/';
+
+// CSP forbids inline onerror handlers, so broken images are swapped centrally.
+// Error events don't bubble; listen in the capture phase.
+function setupImageFallbacks() {
+    document.addEventListener('error', (e) => {
+        const img = e.target;
+        if (!(img instanceof HTMLImageElement)) return;
+        if (img.classList.contains('fallback-track-img')) {
+            if (typeof showNoTrackMapState === 'function') showNoTrackMapState();
+            return;
+        }
+        const isDriverImage = img.classList.contains('driver-headshot')
+            || img.classList.contains('results-driver-avatar')
+            || img.classList.contains('driver-profile-avatar');
+        if (!isDriverImage || img.dataset.fallbackApplied) return;
+        img.dataset.fallbackApplied = '1';
+        img.src = DRIVER_IMAGE_FALLBACK;
+    }, true);
+}
+
 // Event Listeners Registration
 function setupEventListeners() {
+    setupImageFallbacks();
     // Year Buttons Click
     DOM.yearSelector.addEventListener('click', (e) => {
         const btn = e.target.closest('.year-btn');

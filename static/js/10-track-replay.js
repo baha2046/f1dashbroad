@@ -335,7 +335,7 @@ function setupReplaySection() {
     const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
     const options = sortedDrivers.map(d => {
         const label = d.full_name || d.broadcast_name || `Driver ${d.driver_number}`;
-        return `<option value="${d.driver_number}">${escapeHtml(label)} (#${d.driver_number})</option>`;
+        return `<option value="${escapeHtml(d.driver_number)}">${escapeHtml(label)} (#${escapeHtml(d.driver_number)})</option>`;
     });
     // Full race is the default view for Race/Sprint: no driver to pick,
     // playback starts from lap 1 of the whole field. Qualifying gets the

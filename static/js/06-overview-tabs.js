@@ -303,7 +303,7 @@ function renderCircuitTab() {
         // Fallback to official Formula 1 circuit graphic
         DOM.circuitMapContent.innerHTML = `
             <div class="fallback-track-img-wrapper">
-                <img src="${m.circuit_image}" class="fallback-track-img" alt="${m.circuit_short_name} track map" onerror="showNoTrackMapState()">
+                <img src="${safeUrl(m.circuit_image)}" class="fallback-track-img" alt="${escapeHtml(m.circuit_short_name)} track map">
                 <span class="fallback-label">Official Formula 1 Circuit Graphic</span>
             </div>
         `;
@@ -412,11 +412,7 @@ function renderResultsTab() {
                 team_colour: '787878'
             };
 
-            let teamHex = driver.team_colour;
-            if (!teamHex && driver.team_name) {
-                teamHex = TEAM_COLORS[driver.team_name.toLowerCase()];
-            }
-            if (!teamHex) teamHex = '787878';
+            let teamHex = getDriverTeamHex(driver);
 
             let posDisplay = '';
             let posClass = 'pos-non-podium';
@@ -494,27 +490,27 @@ function renderResultsTab() {
                 } else if (item.duration) {
                     timeGapDisplay = formatDuration(item.duration);
                 }
-                timingCells = `<td class="lap-duration-val">${timeGapDisplay}</td>`;
+                timingCells = `<td class="lap-duration-val">${escapeHtml(timeGapDisplay)}</td>`;
             }
 
             const pointsCell = isQualiResults
                 ? ''
-                : `<td style="font-weight: 600; color: ${item.points > 0 ? 'var(--text-primary)' : 'var(--text-muted)'};">${item.points && true ? item.points : '-'}</td>`;
+                : `<td style="font-weight: 600; color: ${item.points > 0 ? 'var(--text-primary)' : 'var(--text-muted)'};">${escapeHtml(item.points && true ? item.points : '-')}</td>`;
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td class="results-position-cell ${posClass}">${posDisplay}</td>
+                <td class="results-position-cell ${posClass}">${escapeHtml(posDisplay)}</td>
                 <td>
                     <div class="results-driver-cell">
                         <div class="results-team-color-indicator" style="background: #${teamHex};"></div>
-                        <img src="${(driver.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/').replace('.transform/1col/image.png', '')}" class="results-driver-avatar" alt="${driver.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/'">
+                        <img src="${safeUrl((driver.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/').replace('.transform/1col/image.png', ''))}" class="results-driver-avatar" alt="${escapeHtml(driver.full_name)}">
                         <div class="results-driver-info">
-                            <span class="results-driver-name">${driver.first_name} ${driver.last_name}</span>
-                            <span class="results-driver-team">${driver.team_name || 'Independent'}</span>
+                            <span class="results-driver-name">${escapeHtml(driver.first_name)} ${escapeHtml(driver.last_name)}</span>
+                            <span class="results-driver-team">${escapeHtml(driver.team_name || 'Independent')}</span>
                         </div>
                     </div>
                 </td>
-                <td>${item.number_of_laps !== null ? item.number_of_laps : '--'}</td>
+                <td>${escapeHtml(item.number_of_laps !== null ? item.number_of_laps : '--')}</td>
                 ${timingCells}
                 <td><span class="status-pill ${statusClass}">${statusText}</span></td>
                 ${pointsCell}
@@ -624,7 +620,7 @@ function renderRaceStandingsTables() {
             
             let teamHex = '';
             if (localDriver && localDriver.team_colour) {
-                teamHex = localDriver.team_colour;
+                teamHex = getDriverTeamHex(localDriver);
             } else {
                 const teamNameLower = (constructorName || '').toLowerCase();
                 const teamIdLower = (constructorId || '').toLowerCase();
@@ -656,10 +652,10 @@ function renderRaceStandingsTables() {
                     <td>
                         <div class="results-driver-cell">
                             <div class="results-team-color-indicator" style="background: #${teamHex};"></div>
-                            <img src="${avatarUrl}" class="results-driver-avatar" alt="${driverName}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/'">
+                            <img src="${safeUrl(avatarUrl)}" class="results-driver-avatar" alt="${escapeHtml(driverName)}">
                             <div class="results-driver-info">
                                 <div style="display: flex; align-items: center; gap: 6px;">
-                                    <span class="results-driver-name">${driverName}</span>
+                                    <span class="results-driver-name">${escapeHtml(driverName)}</span>
                                     <span class="standings-code" style="padding: 1px 4px; min-width: auto; font-size: 9px; line-height: 1.2;">${escapeHtml(driver.code || '--')}</span>
                                 </div>
                                 <div class="results-driver-team">${escapeHtml(constructorName)}</div>
@@ -687,7 +683,7 @@ function renderRaceStandingsTables() {
             if (!teamHex && state.drivers) {
                 const matchingDriver = state.drivers.find(d => (d.team_name || '').toLowerCase() === teamNameLower);
                 if (matchingDriver && matchingDriver.team_colour) {
-                    teamHex = matchingDriver.team_colour;
+                    teamHex = getDriverTeamHex(matchingDriver);
                 }
             }
             if (!teamHex) teamHex = '787878';
@@ -1106,7 +1102,7 @@ function renderTeamRadioFeedItem(item) {
                     <div class="race-control-meta">${driverPill}</div>
                 </div>
                 <div class="team-radio-player">
-                    <button type="button" class="team-radio-play-btn" data-radio-url="${escapeHtml(item.recording_url)}" aria-label="${escapeHtml(`Play team radio${driverLabel ? ` from ${driverLabel}` : ''}`)}">
+                    <button type="button" class="team-radio-play-btn" data-radio-url="${safeUrl(item.recording_url)}" aria-label="${escapeHtml(`Play team radio${driverLabel ? ` from ${driverLabel}` : ''}`)}">
                         <span class="material-icons-round">play_arrow</span>
                     </button>
                     <span class="team-radio-clip-time">Radio message</span>
@@ -1234,7 +1230,7 @@ function renderRaceControlFeed() {
         return `
             <div class="race-control-group">
                 <header class="race-control-group-header ${groupClass}">
-                    <span class="race-control-group-title">${groupTitle}</span>
+                    <span class="race-control-group-title">${escapeHtml(groupTitle)}</span>
                 </header>
                 <div class="race-control-group-items">
                     ${messagesHtml}

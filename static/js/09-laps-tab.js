@@ -94,7 +94,7 @@ async function selectDriverForStats(driverNumber) {
         loader.remove();
         
         // Render stats header with official headshot and color
-        let teamHex = d.team_colour || TEAM_COLORS[(d.team_name || '').toLowerCase()] || '787878';
+        let teamHex = getDriverTeamHex(d);
         DOM.statsColorBar.style.backgroundColor = `#${teamHex}`;
         DOM.statsDriverName.textContent = `${d.first_name} ${d.last_name}`;
         DOM.statsDriverTeam.textContent = d.team_name || 'Independent';
@@ -125,7 +125,7 @@ async function selectDriverForStats(driverNumber) {
 
         if (DOM.statsDriverWiki) {
             if (d.wiki_url) {
-                DOM.statsDriverWiki.href = d.wiki_url;
+                DOM.statsDriverWiki.href = safeUrl(d.wiki_url);
                 DOM.statsDriverWiki.style.display = 'inline-flex';
             } else {
                 DOM.statsDriverWiki.style.display = 'none';
@@ -134,7 +134,7 @@ async function selectDriverForStats(driverNumber) {
         
         // Load driver avatar image
         const headshot = d.headshot_url || "";//'https://media.formula1.com/d_driver_fallback_image.png';
-        DOM.statsDriverHeadshot.src = headshot.replace('.transform/1col/image.png', '');
+        DOM.statsDriverHeadshot.src = safeUrl(headshot.replace('.transform/1col/image.png', ''));
         DOM.statsDriverHeadshot.style.setProperty('--team-color', `#${teamHex}`);
         const rgb = getRGBColor(teamHex);
         DOM.statsDriverHeadshot.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.2)`);
@@ -206,8 +206,8 @@ async function selectDriverForStats(driverNumber) {
                 ].filter(Boolean).join(' ');
 
                 lapsTableHTML += `
-                    <tr id="lap-row-${lap.lap_number}" class="${rowClasses}">
-                        <td>${lap.lap_number}</td>
+                    <tr id="lap-row-${escapeHtml(lap.lap_number)}" class="${rowClasses}">
+                        <td>${escapeHtml(lap.lap_number)}</td>
                         <td class="pit-lap-cell">${renderPitLapBadges(pitAnnotation)}</td>
                         <td class="${isBestS1 ? 'personal-best-sector' : ''}">
                             ${lap.duration_sector_1 ? lap.duration_sector_1.toFixed(3) + 's' : '--'}
@@ -325,17 +325,17 @@ function renderStintsTimeline(driverNumber) {
                 <span>G</span>
                 <div class="stint-tooltip">
                     <strong>In Garage / Inactive</strong><br>
-                    Laps: ${segment.lap_start} - ${segment.lap_end} (${stintLaps} laps)
+                    Laps: ${escapeHtml(segment.lap_start)} - ${escapeHtml(segment.lap_end)} (${stintLaps} laps)
                 </div>
             `;
         } else {
             const initial = segment.compound ? segment.compound.charAt(0) : '?';
             div.innerHTML = `
-                <span>${initial}</span>
+                <span>${escapeHtml(initial)}</span>
                 <div class="stint-tooltip">
-                    <strong>Stint ${segment.stint_number}: ${segment.compound || 'Unknown'}</strong><br>
-                    Laps: ${segment.lap_start} - ${segment.lap_end} (${stintLaps} laps)<br>
-                    Starting Age: ${segment.tyre_age_at_start || 0} laps
+                    <strong>Stint ${escapeHtml(segment.stint_number)}: ${escapeHtml(segment.compound || 'Unknown')}</strong><br>
+                    Laps: ${escapeHtml(segment.lap_start)} - ${escapeHtml(segment.lap_end)} (${stintLaps} laps)<br>
+                    Starting Age: ${escapeHtml(segment.tyre_age_at_start || 0)} laps
                 </div>
             `;
         }
@@ -635,7 +635,7 @@ function renderLapChart(laps) {
     const activeDriver = state.drivers.find(drv => drv.driver_number === state.selectedDriverStats);
     let teamHex = 'ff1801';
     if (activeDriver) {
-        teamHex = activeDriver.team_colour || TEAM_COLORS[(activeDriver.team_name || '').toLowerCase()] || 'ff1801';
+        teamHex = getDriverTeamHex(activeDriver, 'ff1801');
     }
 
     if (points.length > 1) {
@@ -784,8 +784,8 @@ function setupTelemetrySection(laps) {
     DOM.telemetryLapSelect.innerHTML = selectable.map(lap => {
         const isFastest = fastest && lap.lap_number === fastest.lap_number;
         const timeLabel = lap.lap_duration ? formatLapTime(lap.lap_duration) : 'no time';
-        return `<option value="${lap.lap_number}"${isFastest ? ' selected' : ''}>` +
-               `Lap ${lap.lap_number} — ${timeLabel}${isFastest ? ' ★' : ''}</option>`;
+        return `<option value="${escapeHtml(lap.lap_number)}"${isFastest ? ' selected' : ''}>` +
+               `Lap ${escapeHtml(lap.lap_number)} — ${timeLabel}${isFastest ? ' ★' : ''}</option>`;
     }).join('');
 
     renderTelemetryMessage('Telemetry loads when the Laps tab is open.');

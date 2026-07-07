@@ -154,9 +154,11 @@ async function loadSessions(year, autoFocus = false) {
             <div class="error-state">
                 <span class="material-icons-round" style="font-size:36px;color:var(--accent-red)">error_outline</span>
                 <p>Could not load sessions. Please try again.</p>
-                <button onclick="loadSessions('${year}')" class="filter-pill" style="margin-top:8px">Retry</button>
+                <button id="sessionsRetryBtn" class="filter-pill" style="margin-top:8px">Retry</button>
             </div>
         `;
+        const retryBtn = document.getElementById('sessionsRetryBtn');
+        if (retryBtn) retryBtn.addEventListener('click', () => loadSessions(year));
     }
 }
 
@@ -343,7 +345,7 @@ function renderSessionsList() {
                 pillClass += ' active';
             }
                         const shortName = getSessionShortName(session.session_name);
-            sessionsHtml += `<button class="${pillClass}" data-session-key="${session.session_key}" data-tooltip="${escapeHtml(session.session_name)}">${shortName}</button>`;
+            sessionsHtml += `<button class="${pillClass}" data-session-key="${escapeHtml(session.session_key)}" data-tooltip="${escapeHtml(session.session_name)}">${escapeHtml(shortName)}</button>`;
         });
 
         meetingCard.innerHTML = `
@@ -352,13 +354,13 @@ function renderSessionsList() {
             </div>
             <div class="session-card-main">
                 <div class="card-top">
-                    <span class="status-badge ${meetingStatus.className}">${meetingStatus.text}</span>
-                    <span class="session-date">${dateRangeText}</span>
+                    <span class="status-badge ${meetingStatus.className}">${escapeHtml(meetingStatus.text)}</span>
+                    <span class="session-date">${escapeHtml(dateRangeText)}</span>
                 </div>
-                <div class="session-gp">${grandPrixName}</div>
+                <div class="session-gp">${escapeHtml(grandPrixName)}</div>
                 <div class="session-loc">
                     <span class="material-icons-round loc-pin" aria-hidden="true">place</span>
-                    <span>${placeName}</span>
+                    <span>${escapeHtml(placeName)}</span>
                 </div>
                 <div class="meeting-sessions-container">
                     ${sessionsHtml}

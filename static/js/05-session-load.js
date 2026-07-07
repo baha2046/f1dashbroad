@@ -195,9 +195,9 @@ function showCancelledSessionState(session) {
     DOM.emptyState.style.display = 'flex';
     DOM.emptyState.innerHTML = `
         <span class="material-icons-round empty-icon" style="color: var(--accent-red); opacity: 0.85; text-shadow: 0 0 15px rgba(255, 24, 1, 0.4);">cancel</span>
-        <h2 style="color: var(--text-primary); margin-top: 16px;">${session.circuit_short_name} Grand Prix Cancelled</h2>
+        <h2 style="color: var(--text-primary); margin-top: 16px;">${escapeHtml(session.circuit_short_name)} Grand Prix Cancelled</h2>
         <p style="color: var(--text-secondary); margin-bottom: 24px; max-width: 440px; line-height: 1.6;">
-            The <strong>${session.session_name}</strong> session for the ${session.year} ${session.location} Grand Prix was officially cancelled. 
+            The <strong>${escapeHtml(session.session_name)}</strong> session for the ${escapeHtml(session.year)} ${escapeHtml(session.location)} Grand Prix was officially cancelled. 
             No driver telemetry, tire stint details, or weather metrics were recorded for this event.
         </p>
         <div style="background: rgba(255, 24, 1, 0.05); border: 1px solid rgba(255, 24, 1, 0.15); padding: 12px 24px; border-radius: 12px; color: var(--text-secondary); font-size: 13px; max-width: 400px; text-align: center; display: flex; align-items: center; gap: 8px;">
@@ -572,4 +572,3 @@ function renderPitLapMarkers(svg, markers, getX, minLap, maxLap, padding, chartH
         });
     });
 }
-

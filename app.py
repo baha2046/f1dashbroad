@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import gzip
@@ -35,6 +36,12 @@ from livetiming_compat import (
     normalize_livetiming_team_radio,
     normalize_livetiming_weather,
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("f1_dashboard")
 
 app = Quart(__name__)
 
@@ -101,7 +108,7 @@ def _evict_cache_if_over_limit():
         entries.append((st.st_mtime, st.st_size, path))
         total_bytes += st.st_size
 
-    print(
+    logger.info(
         f"data_cache: {len(entries)} files, {total_bytes / (1024 * 1024):.1f} MB "
         f"(limit {CACHE_MAX_BYTES / (1024 * 1024):.0f} MB)"
     )
@@ -119,15 +126,56 @@ def _evict_cache_if_over_limit():
             continue
         total_bytes -= size
         removed += 1
-    print(f"data_cache eviction: removed {removed} files, now {total_bytes / (1024 * 1024):.1f} MB")
+    logger.info(f"data_cache eviction: removed {removed} files, now {total_bytes / (1024 * 1024):.1f} MB")
+
+CACHE_EVICTION_INTERVAL_SECONDS = 3600
+_cache_maintenance_task = None
+
+async def _periodic_cache_maintenance():
+    # Live weekends generate replay-window and raw-feed files continuously;
+    # a startup-only eviction pass would let a long-running server overshoot
+    while True:
+        await asyncio.sleep(CACHE_EVICTION_INTERVAL_SECONDS)
+        try:
+            await asyncio.to_thread(_evict_cache_if_over_limit)
+        except Exception as e:
+            logger.warning(f"Cache eviction pass failed: {e}")
 
 @app.before_serving
 async def _startup_cache_maintenance():
+    global _cache_maintenance_task
     await asyncio.to_thread(_evict_cache_if_over_limit)
+    _cache_maintenance_task = asyncio.ensure_future(_periodic_cache_maintenance())
+
+@app.after_serving
+async def _stop_cache_maintenance():
+    global _cache_maintenance_task
+    if _cache_maintenance_task is not None:
+        _cache_maintenance_task.cancel()
+        _cache_maintenance_task = None
+
+# All scripts are external files, so script-src stays strict; style-src needs
+# 'unsafe-inline' for the template's inline styles; img-src allows any https
+# host (F1 media CDN + circuit map sources); media-src covers team radio mp3s.
+CONTENT_SECURITY_POLICY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "media-src https://livetiming.formula1.com",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'self'",
+])
 
 @app.after_request
 async def _api_response_headers(response):
     if not request.path.startswith("/api/"):
+        if (response.content_type or "").startswith("text/html"):
+            response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
         return response
 
     response.headers.setdefault("Cache-Control", "public, max-age=60")
@@ -214,7 +262,7 @@ async def write_cache(cache_path, data):
     try:
         await asyncio.to_thread(_write_json_file_atomic, cache_path, data)
     except Exception as e:
-        print(f"Error writing cache {cache_path}: {e}")
+        logger.warning(f"Error writing cache {cache_path}: {e}")
 
 def _read_gzip_json(path):
     try:
@@ -289,7 +337,7 @@ async def get_f1api_drivers(year):
             await write_cache(cache_path, drivers)
             return drivers
         except Exception as e:
-            print(f"Error fetching f1api drivers: {e}")
+            logger.warning(f"Error fetching f1api drivers: {e}")
             stale = await read_stale_cache(cache_path)
             return stale if stale is not None else []
 
@@ -404,7 +452,7 @@ async def get_cached_livetiming(cache_name: str, fetcher, session_key=None, year
         try:
             data = await fetcher()
         except Exception as e:
-            print(f"Error fetching Livetiming data for {cache_name}: {e}")
+            logger.warning(f"Error fetching Livetiming data for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
                 return stale
@@ -487,7 +535,7 @@ async def fetch_livetiming_feed_cached(session_key, session_path, feed_name, str
                     _write_gzip_json_atomic, cache_path, {"degraded": degraded, "records": data}
                 )
             except Exception as e:
-                print(f"Error writing raw feed cache {cache_path}: {e}")
+                logger.warning(f"Error writing raw feed cache {cache_path}: {e}")
         return data
 
 def find_livetiming_meeting(year_index, meeting_key):
@@ -512,7 +560,7 @@ async def fetch_livetiming_stream_start(session_key, session_path, fallback=None
         )
         anchor = derive_stream_start_utc(ensure_livetiming_records(records))
     except Exception as e:
-        print(f"Error deriving Livetiming stream start for {session_path}: {e}")
+        logger.warning(f"Error deriving Livetiming stream start for {session_path}: {e}")
     if anchor:
         _stream_start_cache[session_path] = anchor
         return anchor
@@ -554,7 +602,7 @@ async def get_cached_circuit_info(url: str, cache_name: str):
             await write_cache(cache_path, data)
             return data
         except Exception as e:
-            print(f"Error fetching circuit info from {url}: {e}")
+            logger.warning(f"Error fetching circuit info from {url}: {e}")
             return await read_stale_cache(cache_path)
 
 async def get_cached_jolpica_api(url: str, cache_name: str, year=None):
@@ -574,7 +622,7 @@ async def get_cached_jolpica_api(url: str, cache_name: str, year=None):
         try:
             data = await fetch_url(url)
         except Exception as e:
-            print(f"Error fetching Jolpica data from {url}: {e}")
+            logger.warning(f"Error fetching Jolpica data from {url}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
                 return stale
@@ -967,7 +1015,7 @@ async def fetch_livetiming_laps_payload(session_key, driver_number=None, year=No
                 ensure_livetiming_records(status_records), stream_start
             )
         except Exception as e:
-            print(f"Error fetching Livetiming SessionStatus for {session_key}: {e}")
+            logger.warning(f"Error fetching Livetiming SessionStatus for {session_key}: {e}")
 
     laps = await asyncio.to_thread(
         normalize_livetiming_laps,
@@ -1145,7 +1193,7 @@ async def api_car_telemetry():
                 lambda: list(flatten_car_data_z(ensure_livetiming_records(car_records), session_key=session_key))
             )
         except Exception as e:
-            print(f"Error fetching Livetiming CarData.z for {cache_name}: {e}")
+            logger.warning(f"Error fetching Livetiming CarData.z for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
                 return jsonify(stale)
@@ -1287,7 +1335,7 @@ async def api_track_replay():
                 lambda: list(flatten_position_z(ensure_livetiming_records(position_records), session_key=session_key))
             )
         except Exception as e:
-            print(f"Error fetching Livetiming Position.z for {cache_name}: {e}")
+            logger.warning(f"Error fetching Livetiming Position.z for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
                 return jsonify(stale)

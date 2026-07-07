@@ -21,11 +21,7 @@ function renderDriversGrid() {
     DOM.driversGrid.innerHTML = '';
     filteredDrivers.forEach(d => {
         // Resolve F1 Team Colors
-        let teamHex = d.team_colour;
-        if (!teamHex && d.team_name) {
-            teamHex = TEAM_COLORS[d.team_name.toLowerCase()];
-        }
-        if (!teamHex) teamHex = '787878';
+        let teamHex = getDriverTeamHex(d);
         
         const rgb = getRGBColor(teamHex);
         const card = document.createElement('div');
@@ -40,20 +36,20 @@ function renderDriversGrid() {
         card.innerHTML = `
             <div class="driver-card-top">
                 <div class="driver-info">
-                    <div class="driver-team">${d.team_name || 'Independent'}</div>
-                    <div class="driver-name">${d.first_name} ${d.last_name}</div>
-                    <div class="driver-acronym">${d.name_acronym || ''}</div>
+                    <div class="driver-team">${escapeHtml(d.team_name || 'Independent')}</div>
+                    <div class="driver-name">${escapeHtml(d.first_name)} ${escapeHtml(d.last_name)}</div>
+                    <div class="driver-acronym">${escapeHtml(d.name_acronym || '')}</div>
                     <div class="driver-meta">
-                        ${d.nationality ? `<span class="driver-flag" title="${d.nationality}">${getNationalityFlag(d.nationality)}</span>` : ''}
+                        ${d.nationality ? `<span class="driver-flag" title="${escapeHtml(d.nationality)}">${getNationalityFlag(d.nationality)}</span>` : ''}
                         ${age ? `<span class="driver-age">${age} yrs</span>` : ''}
-                        ${d.wiki_url ? `<a href="${d.wiki_url}" target="_blank" class="driver-wiki-link" title="Wikipedia Page"><span class="material-icons-round">open_in_new</span></a>` : ''}
+                        ${d.wiki_url ? `<a href="${safeUrl(d.wiki_url)}" target="_blank" class="driver-wiki-link" title="Wikipedia Page"><span class="material-icons-round">open_in_new</span></a>` : ''}
                     </div>
                 </div>
-                <div class="driver-number-badge">${d.driver_number}</div>
+                <div class="driver-number-badge">${escapeHtml(d.driver_number)}</div>
             </div>
-            <div class="driver-watermark-number">${d.driver_number}</div>
+            <div class="driver-watermark-number">${escapeHtml(d.driver_number)}</div>
             <div class="driver-headshot-container">
-                <img src="${headshot.replace('.transform/1col/image.png', '')}" class="driver-headshot" alt="${d.full_name}" onerror="this.src='https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/'">
+                <img src="${safeUrl(headshot.replace('.transform/1col/image.png', ''))}" class="driver-headshot" alt="${escapeHtml(d.full_name)}">
             </div>
         `;
 

@@ -132,7 +132,16 @@ function getRGBColor(hex) {
 
 function getDriverTeamHex(driver, fallback = '787878') {
     if (!driver) return fallback;
-    return (driver.team_colour || TEAM_COLORS[(driver.team_name || '').toLowerCase()] || fallback).replace('#', '');
+    const hex = String(driver.team_colour || TEAM_COLORS[(driver.team_name || '').toLowerCase()] || fallback).replace('#', '');
+    // Team colours land in style attributes; only plain hex may pass
+    return /^[0-9a-fA-F]{3,8}$/.test(hex) ? hex : fallback;
+}
+
+// Only absolute http(s) URLs may reach href/src attributes; anything else
+// (javascript:, data:, malformed upstream values) renders empty
+function safeUrl(value) {
+    const url = String(value ?? '');
+    return /^https?:\/\//i.test(url) ? escapeHtml(url) : '';
 }
 
 function calculateAgeAtDate(birthdayStr, targetDateStr) {

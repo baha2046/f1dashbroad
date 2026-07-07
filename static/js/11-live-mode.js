@@ -233,7 +233,7 @@ function renderLiveTiming() {
         const isLeader = index === 0;
         return `
             <tr class="${isLeader ? 'live-timing-leader' : ''}">
-                <td class="live-timing-pos">${row.position}</td>
+                <td class="live-timing-pos">${escapeHtml(row.position)}</td>
                 <td>
                     <div class="live-timing-driver-cell">
                         <span class="live-timing-team-bar" style="background: #${teamHex};"></span>

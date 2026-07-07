@@ -1849,10 +1849,10 @@ function renderCompareStrategyTooltip(ctx, event) {
                             <strong>${escapeHtml(compound)}</strong>
                         </div>
                         <div class="compare-tooltip-sectors">
-                            <span>Stint ${row.stint.stint_number ?? '--'}</span>
+                            <span>Stint ${escapeHtml(row.stint.stint_number ?? '--')}</span>
                             <span>L${start}-${end}</span>
                             <span>${length} laps</span>
-                            <span>Age ${row.stint.tyre_age_at_start ?? 0}</span>
+                            <span>Age ${escapeHtml(row.stint.tyre_age_at_start ?? 0)}</span>
                         </div>
                     </div>
                 `;
@@ -2048,4 +2048,3 @@ function renderCompareTyreStrategyChart(selectedDrivers = null) {
     updateCompareHighlightClasses();
     drawCompareCrosshairs();
 }
-

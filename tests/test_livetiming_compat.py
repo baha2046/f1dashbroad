@@ -190,6 +190,46 @@ class LivetimingCompatibilityTests(unittest.TestCase):
         self.assertEqual(intervals[1]["gap_to_leader"], 2.5)
         self.assertEqual(intervals[1]["interval"], 1.234)
 
+    def test_normalizers_survive_deletion_markers_and_malformed_entries(self):
+        # Stream deltas can carry "_deleted" keys and non-dict items anywhere;
+        # no normalizer may 500 on them (review 2026-07-07, section 2.2)
+        timing_records = [("00:01:00.000", {"Lines": {
+            "_deleted": ["4"],
+            "16": {"Position": "2", "GapToLeader": "+1.0", "IntervalToPositionAhead": {"Value": "+1.0"}},
+            "99": "retired",
+        }})]
+        self.assertEqual(
+            [row["driver_number"] for row in normalize_livetiming_position(timing_records)], [16]
+        )
+        self.assertEqual(
+            [row["driver_number"] for row in normalize_livetiming_intervals(timing_records)], [16]
+        )
+
+        race_control = normalize_livetiming_race_control(
+            [(None, {"Messages": {"_deleted": ["1"], "2": {"Message": "ok"}, "3": "junk"}})]
+        )
+        self.assertEqual([row["message"] for row in race_control], ["ok"])
+
+        team_radio = normalize_livetiming_team_radio(
+            [(None, {"Captures": ["junk", {"Utc": "2024-07-28T12:00:00Z", "RacingNumber": "55", "Path": "x.mp3"}]})],
+            "2024/race/",
+        )
+        self.assertEqual([row["driver_number"] for row in team_radio], [55])
+
+        drivers = normalize_livetiming_drivers({
+            "_kf": True,
+            "44": {"RacingNumber": "44", "FullName": "LEWIS HAMILTON", "Tla": "HAM"},
+        })
+        self.assertEqual([row["driver_number"] for row in drivers], [44])
+
+        weather = normalize_livetiming_weather([("00:01:00.000", "corrupt"), ("00:02:00.000", {"AirTemp": "20"})])
+        self.assertEqual(len(weather), 1)
+
+        stints = normalize_livetiming_stints([(None, {"Stints": {
+            "_deleted": [], "44": [{"Compound": "SOFT", "TotalLaps": 5, "StartLaps": 0}],
+        }})])
+        self.assertEqual([row["driver_number"] for row in stints], [44])
+
     def test_normalize_stints_maps_lap_ranges(self):
         rows = normalize_livetiming_stints([
             (None, {

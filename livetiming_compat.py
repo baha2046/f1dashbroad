@@ -243,9 +243,14 @@ def split_full_name(full_name: str | None):
 def normalize_livetiming_drivers(driver_list: dict):
     rows = []
     for key, driver in (driver_list or {}).items():
+        if not isinstance(driver, dict):
+            continue
+        driver_number = to_int(driver.get("RacingNumber")) or to_int(key)
+        if driver_number is None:
+            continue
         first_name, last_name = split_full_name(driver.get("FullName"))
         rows.append({
-            "driver_number": int(driver.get("RacingNumber") or key),
+            "driver_number": driver_number,
             "broadcast_name": driver.get("BroadcastName"),
             "full_name": driver.get("FullName"),
             "first_name": first_name,
@@ -261,6 +266,8 @@ def normalize_livetiming_drivers(driver_list: dict):
 def normalize_livetiming_weather(records, stream_start_utc=None, session_key=None):
     rows = []
     for timestamp, weather in records or []:
+        if not isinstance(weather, dict):
+            continue
         rows.append({
             "session_key": session_key,
             "date": date_from_elapsed(timestamp, stream_start_utc),
@@ -280,6 +287,8 @@ def normalize_livetiming_race_control(records, session_key=None, stream_start_ut
     for timestamp, payload in records or []:
         fallback_date = date_from_elapsed(timestamp, stream_start_utc)
         for message in collection_items(payload, "Messages"):
+            if not isinstance(message, dict):
+                continue
             text = message.get("Message")
             driver_number = to_int(message.get("RacingNumber"))
             if driver_number is None and text:
@@ -333,6 +342,8 @@ def normalize_livetiming_team_radio(records, session_path, session_key=None, str
     for timestamp, payload in records or []:
         fallback_date = date_from_elapsed(timestamp, stream_start_utc)
         for capture in collection_items(payload, "Captures"):
+            if not isinstance(capture, dict):
+                continue
             rows.append({
                 "session_key": session_key,
                 "date": normalize_utc_value(capture.get("Utc")) or fallback_date,
@@ -346,8 +357,15 @@ def iter_timing_lines(records, stream_start_utc=None):
     for timestamp, payload in records or []:
         date = date_from_elapsed(timestamp, stream_start_utc)
         lines = (payload or {}).get("Lines") or {}
+        if not isinstance(lines, dict):
+            continue
         for driver_number, line in lines.items():
-            yield date, int(driver_number), line
+            # Stream deltas can carry deletion markers ("_deleted") or other
+            # non-numeric keys alongside driver lines
+            number = to_int(driver_number)
+            if number is None or not isinstance(line, dict):
+                continue
+            yield date, number, line
 
 
 def normalize_livetiming_position(records, session_key=None, stream_start_utc=None):
@@ -407,7 +425,11 @@ def normalize_livetiming_stints(records, session_key=None, stream_start_utc=None
     for timestamp, payload in records or []:
         date = date_from_elapsed(timestamp, stream_start_utc)
         stints_by_driver = (payload or {}).get("Stints") or {}
+        if not isinstance(stints_by_driver, dict):
+            continue
         for driver_number, stints in stints_by_driver.items():
+            if to_int(driver_number) is None:
+                continue
             if isinstance(stints, list):
                 iterable = enumerate(stints)
             elif isinstance(stints, dict):
