@@ -262,6 +262,94 @@ class TrackReplayFullRaceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await first.get_json(), await second.get_json())
 
 
+class TrackReplayWindowEndpointTests(unittest.IsolatedAsyncioTestCase):
+    """/api/track_replay with explicit start/end serves full-session windows
+    (doc/2026-07-07-full-qualifying-replay-design.md)."""
+
+    WINDOW_QUERY = "session_key=4242&start=2026-05-23T14:00:00Z&end=2026-05-23T14:02:00Z"
+
+    def setUp(self):
+        self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+
+    async def request(self, fetch_mock, query=WINDOW_QUERY):
+        with (
+            patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
+            patch.object(dashboard_app, "resolve_livetiming_session_path", new=AsyncMock(return_value=("session/path/", 2026))),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=fetch_mock),
+            patch.object(dashboard_app, "flatten_position_z", new=lambda records, session_key=None: records),
+            patch.object(dashboard_app, "fetch_url", new=AsyncMock(side_effect=AssertionError("OpenF1 should not be called"))),
+        ):
+            client = dashboard_app.app.test_client()
+            return await client.get(f"/api/track_replay?{query}")
+
+    async def test_explicit_window_serves_whole_field_without_laps(self):
+        fetch_mock = AsyncMock(return_value=[
+            location_sample("2026-05-23T14:00:00+00:00", 1, x=-3650, y=1193),
+            location_sample("2026-05-23T14:01:30+00:00", 44, x=500, y=-750),
+            location_sample("2026-05-23T14:02:01+00:00", 1),  # after end
+        ])
+        response = await self.request(fetch_mock)
+
+        self.assertEqual(response.status_code, 200)
+        fetch_mock.assert_awaited_once_with("session/path/", "Position.z", stream=True)
+
+        data = await response.get_json()
+        self.assertIsNone(data["driver_number"])
+        self.assertIsNone(data["lap_number"])
+        self.assertIsNone(data["lap_duration"])
+        self.assertEqual(data["window_seconds"], 120.0)
+        drivers = {d["driver_number"]: d["samples"] for d in data["drivers"]}
+        self.assertEqual(set(drivers), {1, 44})
+        self.assertEqual(drivers[1], [[0.0, -3650, 1193]])
+        self.assertEqual(drivers[44], [[90.0, 500, -750]])
+
+    async def test_window_payload_is_cached_under_window_scope(self):
+        fetch_mock = AsyncMock(return_value=[
+            location_sample("2026-05-23T14:00:10+00:00", 1),
+        ])
+        first = await self.request(fetch_mock)
+        self.assertEqual(first.status_code, 200)
+
+        start_ms = int(datetime(2026, 5, 23, 14, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        end_ms = int(datetime(2026, 5, 23, 14, 2, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        cache_file = self.cache_dir / f"track_replay_4242_window_{start_ms}_{end_ms}.json"
+        self.assertTrue(cache_file.exists())
+
+        second = await self.request(fetch_mock)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(fetch_mock.await_count, 1)
+        self.assertEqual(await first.get_json(), await second.get_json())
+
+    async def test_invalid_windows_are_rejected(self):
+        fetch_mock = AsyncMock(side_effect=AssertionError("upstream should not be called"))
+        for query in (
+            # missing end
+            "session_key=4242&start=2026-05-23T14:00:00Z",
+            # non-ISO start
+            "session_key=4242&start=nonsense&end=2026-05-23T14:02:00Z",
+            # end not after start
+            "session_key=4242&start=2026-05-23T14:02:00Z&end=2026-05-23T14:02:00Z",
+            # window longer than REPLAY_WINDOW_MAX_SECONDS
+            "session_key=4242&start=2026-05-23T14:00:00Z&end=2026-05-23T15:00:00Z",
+        ):
+            response = await self.request(fetch_mock, query=query)
+            self.assertEqual(response.status_code, 400, f"query {query!r} was accepted")
+
+    async def test_window_with_driver_number_still_requires_lap_number(self):
+        # start/end only replace the lap window in driver-less mode
+        fetch_mock = AsyncMock(side_effect=AssertionError("upstream should not be called"))
+        response = await self.request(
+            fetch_mock,
+            query=f"{self.WINDOW_QUERY}&driver_number=1",
+        )
+        self.assertEqual(response.status_code, 400)
+
+
 class TrackReplayStaticWiringTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(__file__).resolve().parents[1]

@@ -5,7 +5,9 @@
 // doc/2026-07-05-session-replay-tab-design.md and the original single-lap
 // design in doc/2026-07-04-track-replay-design.md). Race/Sprint sessions add
 // a driver-less "Full race" mode whose windows follow the race leader
-// (doc/2026-07-05-full-race-replay-design.md).
+// (doc/2026-07-05-full-race-replay-design.md); Qualifying adds a driver-less
+// "Full qualifying" mode whose windows slice the Q1/Q2/Q3 session phases
+// (doc/2026-07-07-full-qualifying-replay-design.md).
 
 // Hide a car when the gap between its bracketing samples exceeds this (garage/retirement)
 const REPLAY_SAMPLE_GAP_SECONDS = 4;
@@ -19,6 +21,14 @@ const REPLAY_KEYBOARD_SEEK_SECONDS = 5;
 // Sentinel select value / state.replay.driverNumber for full-race mode:
 // the backend serves leader-based race-lap windows when driver_number is omitted
 const REPLAY_FULL_RACE = 'race';
+
+// Sentinel for full-session mode (Qualifying): quali lap numbers are
+// per-driver, so the timeline slices the Q1/Q2/Q3 session phases into fixed
+// windows and the backend serves each slice as an explicit start/end window
+// (doc/2026-07-07-full-qualifying-replay-design.md)
+const REPLAY_FULL_SESSION = 'session';
+// Target duration of one full-session timeline slice
+const REPLAY_SESSION_SLICE_SECONDS = 120;
 
 // Circuit-state precedence when periods overlap (e.g. sector yellows under SC)
 const REPLAY_STATE_PRIORITY = ['red', 'sc', 'vsc', 'yellow'];
@@ -100,7 +110,10 @@ function extractCircuitStatePeriods(records) {
         const sector = record.sector !== null && record.sector !== undefined ? String(record.sector) : null;
 
         if (flag === 'CHEQUERED') {
-            if (chequeredMs === null) chequeredMs = ms;
+            // Quali waves a chequered flag at the end of each Q segment; the
+            // session's flag is the last one still standing (a track-scope
+            // green — the next segment's pit-exit reopen — clears it below)
+            chequeredMs = ms;
             return;
         }
         // startsWith: steward notes like "INCIDENT ... - RED FLAG INFRINGEMENT"
@@ -134,10 +147,13 @@ function extractCircuitStatePeriods(records) {
                 }
                 return;
             }
-            // Track-scope GREEN / "TRACK CLEAR" ends every open period
+            // Track-scope GREEN / "TRACK CLEAR" ends every open period; the
+            // session is running again, so any earlier chequered flag (a
+            // finished quali segment) no longer stands
             closeYellows(ms);
             closeCar(ms);
             closeRed(ms);
+            chequeredMs = null;
         }
     });
 
@@ -185,10 +201,16 @@ function extractCircuitStatePeriodsFromStatus(rows) {
     sorted.forEach(({ row, ms }) => {
         const sessionStatus = (row.session_status || '').toUpperCase();
         if (sessionStatus) {
-            if (sessionStatus === 'STARTED') started = true;
-            // The chequered flag is the first Finished after the green light
-            // (Finalised covers feeds that never emit Finished)
-            if (started && chequeredMs === null && (sessionStatus === 'FINISHED' || sessionStatus === 'FINALISED')) {
+            if (sessionStatus === 'STARTED') {
+                started = true;
+                // Running again: an earlier chequered flag (a finished quali
+                // segment) no longer stands, so the session's flag ends up
+                // being the last Finished
+                chequeredMs = null;
+            } else if (started && sessionStatus === 'FINISHED') {
+                chequeredMs = ms;
+            } else if (started && chequeredMs === null && sessionStatus === 'FINALISED') {
+                // Finalised covers feeds that never emit Finished
                 chequeredMs = ms;
             }
             return;
@@ -260,13 +282,25 @@ function replaySupportsFullRace() {
     return isPitAnnotationSession(state.selectedSession);
 }
 
-// A replay selection is either the full-race sentinel or a driver number
+// Full-session windows come from the session-status phases, which is how
+// Qualifying is segmented (Q1/Q2/Q3); Race/Sprint keep the lap-based
+// full-race mode instead
+function replaySupportsFullSession() {
+    return isQualifyingSession(state.selectedSession) && !replaySupportsFullRace();
+}
+
+// Whole-field selections replay every car with no reference driver
+function isReplayWholeFieldSelection(value) {
+    return value === REPLAY_FULL_RACE || value === REPLAY_FULL_SESSION;
+}
+
+// A replay selection is either a whole-field sentinel or a driver number
 function normalizeReplaySelection(value) {
-    return value === REPLAY_FULL_RACE ? REPLAY_FULL_RACE : Number(value);
+    return isReplayWholeFieldSelection(value) ? value : Number(value);
 }
 
 function isValidReplaySelection(value) {
-    return value === REPLAY_FULL_RACE || Number.isFinite(value);
+    return isReplayWholeFieldSelection(value) || Number.isFinite(value);
 }
 
 function setReplayPlayIcon(playing) {
@@ -301,9 +335,12 @@ function setupReplaySection() {
         return `<option value="${d.driver_number}">${escapeHtml(label)} (#${d.driver_number})</option>`;
     });
     // Full race is the default view for Race/Sprint: no driver to pick,
-    // playback starts from lap 1 of the whole field
+    // playback starts from lap 1 of the whole field. Qualifying gets the
+    // equivalent full-session view, starting from the Q1 green light.
     if (replaySupportsFullRace()) {
         options.unshift(`<option value="${REPLAY_FULL_RACE}">Full race — whole field</option>`);
+    } else if (replaySupportsFullSession()) {
+        options.unshift(`<option value="${REPLAY_FULL_SESSION}">Full qualifying — whole field</option>`);
     }
     DOM.replayDriverSelect.innerHTML = options.join('');
 
@@ -321,6 +358,7 @@ async function setupReplayTimeline() {
     const selection = normalizeReplaySelection(DOM.replayDriverSelect.value);
     if (!isValidReplaySelection(selection)) return;
     const isFullRace = selection === REPLAY_FULL_RACE;
+    const isFullSession = selection === REPLAY_FULL_SESSION;
 
     state.replay.driverNumber = selection;
     state.replay.lapNumber = null;
@@ -332,22 +370,29 @@ async function setupReplayTimeline() {
         DOM.replayTimeline.innerHTML = '<span class="replay-timeline-loading">Loading laps...</span>';
     }
 
-    const laps = isFullRace
-        ? await fetchAllSessionLaps(state.selectedSession.session_key)
-        : await fetchDriverLaps(state.selectedSession.session_key, selection);
+    let timeline;
+    if (isFullSession) {
+        // Full-session slices come from the status series, already loaded
+        timeline = buildFullSessionTimeline();
+    } else {
+        const laps = isFullRace
+            ? await fetchAllSessionLaps(state.selectedSession.session_key)
+            : await fetchDriverLaps(state.selectedSession.session_key, selection);
 
-    // The user may have changed the selection while laps were loading
-    if (state.replay.driverNumber !== selection) return;
+        // The user may have changed the selection while laps were loading
+        if (state.replay.driverNumber !== selection) return;
 
-    const timeline = isFullRace ? buildFullRaceTimeline(laps) : buildReplayTimeline(laps);
+        timeline = isFullRace ? buildFullRaceTimeline(laps) : buildReplayTimeline(laps);
+    }
     if (!timeline) {
-        const subject = isFullRace ? 'this session' : 'this driver';
-        // Keep the race-control timeline: states stay visible, playback needs laps
+        const subject = isFullRace || isFullSession ? 'this session' : 'this driver';
+        const missing = isFullSession ? 'session phase data' : 'lap data';
+        // Keep the race-control timeline: states stay visible, playback needs windows
         if (state.replay.timeline) {
-            renderReplayMessage(`No lap data for ${subject} — the timeline shows race control track states.`);
+            renderReplayMessage(`No ${missing} for ${subject} — the timeline shows race control track states.`);
         } else {
             DOM.replayTimeline.innerHTML = '';
-            renderReplayMessage(`No laps with timing data recorded for ${subject}.`);
+            renderReplayMessage(`No ${missing} recorded for ${subject}.`);
         }
         return;
     }
@@ -464,6 +509,13 @@ function buildReplayTimeline(laps) {
 
     if (segments.length === 0) return null;
 
+    // add time to last segment endMs
+    const last = segments[segments.length - 1];
+    if (last) {
+        const range = getRaceControlRangeMs();
+        if (range && range.rangeEndMs > last.endMs) last.endMs = range.rangeEndMs;
+    }
+
     let fastest = null;
     segments.forEach(seg => {
         if (seg.hasTime && (!fastest || seg.seconds < fastest.seconds)) fastest = seg;
@@ -531,6 +583,106 @@ function buildFullRaceTimeline(allLaps) {
     return finalizeReplayTimeline(segments);
 }
 
+// Sprint Qualifying phases are conventionally SQ1..SQ3, plain Qualifying Q1..Q3
+function qualifyingPhasePrefix() {
+    const session = state.selectedSession || {};
+    const name = String(session.session_name || '').toLowerCase();
+    return name.includes('sprint') || name.includes('shootout') ? 'SQ' : 'Q';
+}
+
+// Qualifying phases (Q1/Q2/Q3) from the SessionData StatusSeries: a phase
+// opens at Started and closes at Finished. Aborted (red flag) pauses the
+// clock without ending the phase — the next Started resumes the same phase,
+// so each phase spans first green to Finished including red-flag gaps.
+function extractQualifyingPhases() {
+    const rows = (Array.isArray(state.sessionStatusSeries) ? state.sessionStatusSeries : [])
+        .map(row => ({
+            status: String((row && row.session_status) || '').toUpperCase(),
+            ms: row && row.date ? new Date(row.date).getTime() : NaN
+        }))
+        .filter(item => item.status && Number.isFinite(item.ms))
+        .sort((a, b) => a.ms - b.ms);
+
+    const prefix = qualifyingPhasePrefix();
+    const phases = [];
+    let openStartMs = null;
+    rows.forEach(({ status, ms }) => {
+        if (status === 'STARTED') {
+            if (openStartMs === null) openStartMs = ms;
+            return;
+        }
+        if (status === 'FINISHED' || status === 'FINALISED' || status === 'ENDS') {
+            if (openStartMs !== null && ms > openStartMs) {
+                // add 3 min to let them finish the last lap and back to pit
+                phases.push({ label: `${prefix}${phases.length + 1}`, startMs: openStartMs, endMs: ms + 180000});
+            }
+            openStartMs = null;
+        }
+        // Aborted (or any other status) leaves the phase open
+    });
+
+    // A phase still open (live session) runs to the latest known session time
+    if (openStartMs !== null) {
+        const range = getRaceControlRangeMs();
+        if (range && range.rangeEndMs > openStartMs) {
+            phases.push({ label: `${prefix}${phases.length + 1}`, startMs: openStartMs, endMs: range.rangeEndMs });
+        }
+    }
+    return phases;
+}
+
+// Tag timeline segments with the qualifying phase they belong to so the
+// renderer can label the Q1/Q2/Q3 regions. A segment belongs to the latest
+// phase started at-or-before it: in-laps completed after a phase's chequered
+// flag still count to that phase.
+function annotateQualifyingPhases(segments) {
+    if (!isQualifyingSession(state.selectedSession)) return;
+    const phases = extractQualifyingPhases();
+    if (phases.length === 0) return;
+
+    let previousLabel = null;
+    segments.forEach(seg => {
+        let phase = null;
+        for (const candidate of phases) {
+            if (seg.startMs >= candidate.startMs) phase = candidate;
+            else break;
+        }
+        seg.phase = phase ? phase.label : null;
+        seg.phaseStart = seg.phase !== null && seg.phase !== previousLabel;
+        if (seg.phase !== null) previousLabel = seg.phase;
+    });
+}
+
+// Driver-less qualifying timeline: each Q phase sliced into near-equal windows
+// of about REPLAY_SESSION_SLICE_SECONDS. Slice indices act as the timeline's
+// "lap" numbers; the backend serves each slice via explicit start/end params.
+function buildFullSessionTimeline() {
+    const phases = extractQualifyingPhases();
+
+    const segments = [];
+    phases.forEach(phase => {
+        const durationMs = phase.endMs - phase.startMs;
+        if (!(durationMs > 0)) return;
+        const sliceCount = Math.max(1, Math.round(durationMs / (REPLAY_SESSION_SLICE_SECONDS * 1000)));
+        const sliceMs = durationMs / sliceCount;
+        for (let i = 0; i < sliceCount; i++) {
+            const startMs = phase.startMs + i * sliceMs;
+            const endMs = i === sliceCount - 1 ? phase.endMs : phase.startMs + (i + 1) * sliceMs;
+            segments.push({
+                lapNumber: segments.length + 1,
+                startMs,
+                endMs,
+                seconds: (endMs - startMs) / 1000,
+                hasTime: false,
+                isFastest: false
+            });
+        }
+    });
+
+    if (segments.length === 0) return null;
+    return finalizeReplayTimeline(segments);
+}
+
 // Shared timeline tail: capped display widths plus the race-control range/states.
 // Display widths are capped so seeking stays precise on flying laps; the
 // click-to-seek mapping uses each segment's real seconds, not its width.
@@ -545,6 +697,8 @@ function finalizeReplayTimeline(segments) {
         seg.displayStart = displayTotal;
         displayTotal += seg.displayUnits;
     });
+
+    annotateQualifyingPhases(segments);
 
     const range = getRaceControlRangeMs();
     return {
@@ -589,6 +743,8 @@ function renderReplayTimeline() {
 
     // Label roughly every Nth lap so long races stay readable
     const labelStep = Math.max(1, Math.ceil(timeline.segments.length / 16));
+    // Full-session slices are time windows, not laps: clock tooltips, no lap numbers
+    const isFullSession = state.replay.driverNumber === REPLAY_FULL_SESSION;
 
     DOM.replayTimeline.innerHTML = '';
     const track = document.createElement('div');
@@ -600,13 +756,26 @@ function renderReplayTimeline() {
         btn.className = 'replay-timeline-segment';
         if (seg.isFastest) btn.classList.add('fastest');
         if (seg.lapNumber === state.replay.lapNumber) btn.classList.add('active');
+        if (seg.phaseStart) btn.classList.add('phase-start');
         btn.dataset.lap = seg.lapNumber;
         btn.style.flexGrow = String(seg.displayUnits);
-        const timeText = seg.hasTime ? ` — ${formatLapTime(seg.seconds)}` : '';
-        btn.title = `Lap ${seg.lapNumber}${timeText}${seg.isFastest ? ' ★' : ''}`;
+        const clockRange = `${formatRaceControlTime(new Date(seg.startMs))}–${formatRaceControlTime(new Date(seg.endMs))}`;
+        if (isFullSession) {
+            btn.title = `${seg.phase || 'Session'} · ${clockRange}`;
+        } else {
+            const timeText = seg.hasTime ? ` — ${formatLapTime(seg.seconds)}` : '';
+            const phaseText = seg.phase ? ` (${seg.phase})` : '';
+            btn.title = `Lap ${seg.lapNumber}${timeText}${seg.isFastest ? ' ★' : ''}${phaseText}`;
+        }
         btn.setAttribute('aria-label', btn.title);
 
-        if (index % labelStep === 0 || seg.isFastest) {
+        // A phase region label (Q1/Q2/Q3) takes precedence over the lap number
+        if (seg.phaseStart) {
+            const label = document.createElement('span');
+            label.className = 'replay-timeline-label phase';
+            label.textContent = seg.phase;
+            btn.appendChild(label);
+        } else if (!isFullSession && (index % labelStep === 0 || seg.isFastest)) {
             const label = document.createElement('span');
             label.className = 'replay-timeline-label';
             label.textContent = seg.lapNumber;
@@ -751,12 +920,22 @@ function fetchReplayPayload(sessionKey, driverNumber, lapNumber) {
     if (!replayFetchPromises[cacheKey]) {
         replayFetchPromises[cacheKey] = (async () => {
             try {
-                // Full-race mode omits driver_number: the backend then derives
-                // leader-based race-lap windows instead of one driver's laps
-                const driverParam = driverNumber === REPLAY_FULL_RACE ? '' : `&driver_number=${driverNumber}`;
-                const response = await customFetch(
-                    `/api/track_replay?session_key=${sessionKey}${driverParam}&lap_number=${lapNumber}`
-                );
+                let query;
+                if (driverNumber === REPLAY_FULL_SESSION) {
+                    // Full-session slices are explicit time windows; the
+                    // timeline segment carries the absolute bounds
+                    const seg = getTimelineSegment(Number(lapNumber));
+                    if (!seg) return null;
+                    const start = encodeURIComponent(new Date(seg.startMs).toISOString());
+                    const end = encodeURIComponent(new Date(seg.endMs).toISOString());
+                    query = `session_key=${sessionKey}&start=${start}&end=${end}`;
+                } else {
+                    // Full-race mode omits driver_number: the backend then derives
+                    // leader-based race-lap windows instead of one driver's laps
+                    const driverParam = driverNumber === REPLAY_FULL_RACE ? '' : `&driver_number=${driverNumber}`;
+                    query = `session_key=${sessionKey}${driverParam}&lap_number=${lapNumber}`;
+                }
+                const response = await customFetch(`/api/track_replay?${query}`);
                 if (!response.ok) return null;
                 const payload = await response.json();
                 if (!payload || !Array.isArray(payload.drivers) || payload.drivers.length === 0) return null;
@@ -1091,7 +1270,7 @@ function prefetchNextReplayLap() {
     fetchReplayPayload(state.selectedSession.session_key, state.replay.driverNumber, next.lapNumber)
         .catch(e => console.error('Error prefetching replay lap:', e));
     // Warm the telemetry strip for the lap handoff too (driver mode only)
-    if (state.replay.driverNumber !== REPLAY_FULL_RACE) {
+    if (!isReplayWholeFieldSelection(state.replay.driverNumber)) {
         fetchReplayTelemetryPayload(state.selectedSession.session_key, state.replay.driverNumber, next.lapNumber);
     }
 }

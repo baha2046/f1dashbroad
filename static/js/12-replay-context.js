@@ -401,12 +401,27 @@ function updateReplayLapChip() {
         return;
     }
 
+    const segment = segments.find(seg => seg.lapNumber === state.replay.lapNumber) || null;
+
+    // Full-session slices are not laps: show the phase and the playhead clock
+    if (state.replay.driverNumber === REPLAY_FULL_SESSION) {
+        const absoluteMs = state.replay.data
+            ? getReplayAbsoluteMs(state.replay.t)
+            : (segment ? segment.startMs : null);
+        const phase = segment && segment.phase ? segment.phase : 'Session';
+        const clock = Number.isFinite(absoluteMs) ? ` · ${formatRaceControlTime(new Date(absoluteMs))}` : '';
+        DOM.replayLapChip.hidden = false;
+        DOM.replayLapChip.textContent = `${phase}${clock}`;
+        return;
+    }
+
     const total = Number(segments[segments.length - 1].lapNumber);
+    const phasePrefix = segment && segment.phase ? `${segment.phase} · ` : '';
     const suffix = state.replay.driverNumber === REPLAY_FULL_RACE
         ? ''
         : ` - ${getReplayDriverCode(state.replay.driverNumber)}`;
     DOM.replayLapChip.hidden = false;
-    DOM.replayLapChip.textContent = `Lap ${state.replay.lapNumber} / ${total}${suffix}`;
+    DOM.replayLapChip.textContent = `${phasePrefix}Lap ${state.replay.lapNumber} / ${total}${suffix}`;
 }
 
 function prepareReplayRaceContext() {
@@ -716,7 +731,7 @@ function updateReplayRaceContext(force = false) {
 // ===== Reference-driver telemetry strip (speed / gear / DRS) =====
 // Driver mode only: the reference driver's car_data shares the replay's lap
 // window (both come from build_lap_telemetry_window), so sample.t aligns with
-// state.replay.t directly. Full-race mode has no reference driver — hidden.
+// state.replay.t directly. Whole-field modes have no reference driver — hidden.
 
 let replayTelemetryFetchPromises = {};
 
@@ -761,7 +776,7 @@ async function ensureReplayTelemetryLoaded() {
 
     const driverNumber = state.replay.driverNumber;
     const lapNumber = state.replay.lapNumber;
-    if (driverNumber === REPLAY_FULL_RACE || !Number.isFinite(Number(driverNumber)) || !Number.isFinite(lapNumber)) return;
+    if (isReplayWholeFieldSelection(driverNumber) || !Number.isFinite(Number(driverNumber)) || !Number.isFinite(lapNumber)) return;
 
     const sessionKey = state.selectedSession.session_key;
     const cacheKey = `${sessionKey}_${driverNumber}_${lapNumber}`;
@@ -780,7 +795,7 @@ function updateReplayTelemetryStrip(force = false) {
     if (!DOM.replayTelemetryStrip) return;
 
     const available = (
-        state.replay.driverNumber !== REPLAY_FULL_RACE &&
+        !isReplayWholeFieldSelection(state.replay.driverNumber) &&
         state.replay.data &&
         state.replay.telemetryKey === state.replay.loadedKey &&
         Array.isArray(state.replay.telemetrySamples) &&
@@ -874,7 +889,7 @@ function updateReplayTeamRadioTicker(force = false) {
     const radioIndex = state.replay.teamRadioIndex || buildDriverDateIndex(state.teamRadio);
     state.replay.teamRadioIndex = radioIndex;
 
-    const referenceDriver = state.replay.driverNumber === REPLAY_FULL_RACE
+    const referenceDriver = isReplayWholeFieldSelection(state.replay.driverNumber)
         ? null
         : Number(state.replay.driverNumber);
     const record = latestReplayTeamRadioAt(radioIndex, absoluteMs, referenceDriver);
@@ -892,21 +907,20 @@ function updateReplayTeamRadioTicker(force = false) {
 }
 
 function appendReplayPitMarkers(container, segment) {
-    if (!container || !segment || state.replay.driverNumber === REPLAY_FULL_RACE) return;
-    if (state.replay.driverNumber !== REPLAY_FULL_RACE) {
-        const driverNumber = Number(state.replay.driverNumber);
-        const lapNumber = Number(segment.lapNumber);
-        const hasPitIn = (Array.isArray(state.pitStops) ? state.pitStops : []).some(pitStop => (
-            Number(pitStop && pitStop.driver_number) === driverNumber &&
-            Number(pitStop && pitStop.lap_number) === lapNumber
-        ));
-        if (!hasPitIn) return;
+    if (!container || !segment || isReplayWholeFieldSelection(state.replay.driverNumber)) return;
 
-        const marker = document.createElement('span');
-        marker.className = 'replay-timeline-pit-marker';
-        marker.textContent = 'P';
-        marker.title = `PIT IN - Lap ${lapNumber}`;
-        marker.setAttribute('aria-label', `PIT IN Lap ${lapNumber}`);
-        container.appendChild(marker);
-    }
+    const driverNumber = Number(state.replay.driverNumber);
+    const lapNumber = Number(segment.lapNumber);
+    const hasPitIn = (Array.isArray(state.pitStops) ? state.pitStops : []).some(pitStop => (
+        Number(pitStop && pitStop.driver_number) === driverNumber &&
+        Number(pitStop && pitStop.lap_number) === lapNumber
+    ));
+    if (!hasPitIn) return;
+
+    const marker = document.createElement('span');
+    marker.className = 'replay-timeline-pit-marker';
+    marker.textContent = 'P';
+    marker.title = `PIT IN - Lap ${lapNumber}`;
+    marker.setAttribute('aria-label', `PIT IN Lap ${lapNumber}`);
+    container.appendChild(marker);
 }

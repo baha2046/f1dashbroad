@@ -4167,6 +4167,18 @@ body {
     top: 3px;
 }
 
+/* Qualifying phase regions (Q1/Q2/Q3): a boundary rule on each region's
+   first segment plus a brighter region label */
+.replay-timeline-segment.phase-start {
+    border-left: 2px solid rgba(255, 255, 255, 0.45);
+    border-radius: 0 4px 4px 0;
+}
+
+.replay-timeline-label.phase {
+    color: var(--text-primary);
+    letter-spacing: 0.8px;
+}
+
 .replay-timeline-playhead {
     background: var(--accent-red);
     border-radius: 1px;

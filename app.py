@@ -51,6 +51,9 @@ GZIP_MIN_BYTES = 1024
 
 TELEMETRY_MAX_POINTS = 700
 REPLAY_MAX_POINTS_PER_DRIVER = 400
+# Cap explicit start/end replay windows (full-session slices are ~2 min;
+# the cap only guards against runaway requests)
+REPLAY_WINDOW_MAX_SECONDS = 1800
 
 LIVE_CACHE_TTL_SECONDS = 30
 LIVE_SESSION_OVERRUN_SECONDS = 1800  # sessions (especially races) overrun date_end
@@ -947,12 +950,40 @@ async def api_track_replay():
         driver_number = parse_int_param(request.args.get("driver_number"))
         if driver_number is None:
             return invalid_param_response("driver_number")
-    lap_number = parse_int_param(request.args.get("lap_number"))
-    if lap_number is None:
-        return invalid_param_response("lap_number")
 
-    replay_scope = "race" if driver_number is None else driver_number
-    cache_name = f"track_replay_{session_key}_{replay_scope}_{lap_number}.json"
+    # Full-session mode (qualifying): an explicit start/end UTC window replaces
+    # the lap-derived one — quali lap numbers are per-driver, so the frontend
+    # slices the session's Q1/Q2/Q3 phases into windows itself
+    # (doc/2026-07-07-full-qualifying-replay-design.md)
+    window_start = window_end = None
+    if driver_number is None and (
+        request.args.get("start") is not None or request.args.get("end") is not None
+    ):
+        window_start = parse_iso_utc(request.args.get("start"))
+        if window_start is None:
+            return invalid_param_response("start")
+        window_end = parse_iso_utc(request.args.get("end"))
+        if window_end is None:
+            return invalid_param_response("end")
+        window_length = (window_end - window_start).total_seconds()
+        if window_length <= 0 or window_length > REPLAY_WINDOW_MAX_SECONDS:
+            return jsonify({"error": (
+                f"start/end must describe a window of at most {REPLAY_WINDOW_MAX_SECONDS} seconds"
+            )}), 400
+
+    lap_number = None
+    if window_start is None:
+        lap_number = parse_int_param(request.args.get("lap_number"))
+        if lap_number is None:
+            return invalid_param_response("lap_number")
+
+    if window_start is not None:
+        start_token = int(window_start.timestamp() * 1000)
+        end_token = int(window_end.timestamp() * 1000)
+        cache_name = f"track_replay_{session_key}_window_{start_token}_{end_token}.json"
+    else:
+        replay_scope = "race" if driver_number is None else driver_number
+        cache_name = f"track_replay_{session_key}_{replay_scope}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
     session = await asyncio.to_thread(get_session_info, session_key)
     ttl = None if is_historical(session) else 300
@@ -966,27 +997,32 @@ async def api_track_replay():
         if cached is not None:
             return jsonify(cached)
 
-        if driver_number is None:
-            laps_cache_name = f"laps_{session_key}.json"
-        else:
-            laps_cache_name = f"laps_{session_key}_{driver_number}.json"
-        laps = await get_cached_livetiming(
-            laps_cache_name,
-            lambda: fetch_livetiming_laps_payload(session_key, driver_number),
-            session_key=session_key,
-        )
-        if driver_number is None:
-            window = build_race_lap_window(laps, lap_number)
-            if window is None:
-                return jsonify({"error": "No replay window available for this lap"}), 404
-            start, end = window
+        if window_start is not None:
+            # Explicit window: no laps needed, the bounds are the window
+            start, end = window_start, window_end
             lap_duration = None
         else:
-            window = build_lap_telemetry_window(laps, lap_number)
-            if window is None:
-                return jsonify({"error": "No replay window available for this lap"}), 404
-            lap, start, end = window
-            lap_duration = parse_float(lap.get("lap_duration"))
+            if driver_number is None:
+                laps_cache_name = f"laps_{session_key}.json"
+            else:
+                laps_cache_name = f"laps_{session_key}_{driver_number}.json"
+            laps = await get_cached_livetiming(
+                laps_cache_name,
+                lambda: fetch_livetiming_laps_payload(session_key, driver_number),
+                session_key=session_key,
+            )
+            if driver_number is None:
+                window = build_race_lap_window(laps, lap_number)
+                if window is None:
+                    return jsonify({"error": "No replay window available for this lap"}), 404
+                start, end = window
+                lap_duration = None
+            else:
+                window = build_lap_telemetry_window(laps, lap_number)
+                if window is None:
+                    return jsonify({"error": "No replay window available for this lap"}), 404
+                lap, start, end = window
+                lap_duration = parse_float(lap.get("lap_duration"))
 
         try:
             session_path, _ = await resolve_livetiming_session_path(session_key)

@@ -251,6 +251,198 @@ class FullRaceReplayTests(unittest.TestCase):
         self.assertIn("driverNumber === REPLAY_FULL_RACE ? ''", self.dashboard_js)
 
 
+class FullQualifyingReplayTests(unittest.TestCase):
+    """Driver-less full-qualifying replay mode + Q1/Q2/Q3 region labels
+    (doc/2026-07-07-full-qualifying-replay-design.md)."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.dashboard_js = read_dashboard_js(self.root)
+        self.styles_css = (self.root / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    def _extract_function(self, function_name):
+        marker = f"function {function_name}"
+        start = self.dashboard_js.find(marker)
+        self.assertNotEqual(start, -1, f"{function_name} is missing from dashboard JS")
+
+        body_start = self.dashboard_js.find("{", start)
+        self.assertNotEqual(body_start, -1, f"{function_name} has no function body")
+
+        depth = 0
+        for index in range(body_start, len(self.dashboard_js)):
+            char = self.dashboard_js[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.dashboard_js[start:index + 1]
+
+        self.fail(f"{function_name} body was not closed")
+
+    def _run_node(self, script):
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+        return json.loads(completed.stdout)
+
+    def test_js_defines_full_session_helpers(self):
+        for snippet in (
+            "const REPLAY_FULL_SESSION",
+            "const REPLAY_SESSION_SLICE_SECONDS",
+            "function replaySupportsFullSession",
+            "function isReplayWholeFieldSelection",
+            "function qualifyingPhasePrefix",
+            "function extractQualifyingPhases",
+            "function annotateQualifyingPhases",
+            "function buildFullSessionTimeline",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_full_session_option_offered_for_qualifying_sessions(self):
+        self.assertIn("Full qualifying — whole field", self.dashboard_js)
+        self.assertIn("replaySupportsFullSession()", self.dashboard_js)
+
+    def test_full_session_requests_use_explicit_windows(self):
+        # The backend serves an explicit start/end window when lap-derived
+        # windows are meaningless (quali lap numbers are per-driver)
+        self.assertIn("session_key=${sessionKey}&start=${start}&end=${end}", self.dashboard_js)
+
+    def test_timeline_renders_phase_region_labels(self):
+        self.assertIn("replay-timeline-label phase", self.dashboard_js)
+        self.assertIn("phase-start", self.dashboard_js)
+        self.assertIn("annotateQualifyingPhases(segments);", self.dashboard_js)
+
+    def test_styles_contain_phase_classes(self):
+        for css_class in (
+            ".replay-timeline-segment.phase-start",
+            ".replay-timeline-label.phase",
+        ):
+            self.assertIn(css_class, self.styles_css)
+
+    def test_extract_qualifying_phases_spans_red_flag_pauses(self):
+        helpers = "\n\n".join([
+            self._extract_function("qualifyingPhasePrefix"),
+            self._extract_function("extractQualifyingPhases"),
+        ])
+        status_rows = [
+            {"session_status": "Started", "date": "2026-07-04T14:00:00Z"},
+            {"session_status": None, "track_status": "Yellow", "date": "2026-07-04T14:05:00Z"},
+            {"session_status": "Finished", "date": "2026-07-04T14:18:00Z"},
+            {"session_status": "Started", "date": "2026-07-04T14:25:00Z"},
+            # Red flag: Aborted pauses Q2, the next Started resumes it
+            {"session_status": "Aborted", "date": "2026-07-04T14:30:00Z"},
+            {"session_status": "Started", "date": "2026-07-04T14:40:00Z"},
+            {"session_status": "Finished", "date": "2026-07-04T14:50:00Z"},
+            {"session_status": "Started", "date": "2026-07-04T14:58:00Z"},
+            {"session_status": "Finished", "date": "2026-07-04T15:10:00Z"},
+            {"session_status": "Finalised", "date": "2026-07-04T15:12:00Z"},
+        ]
+        script = textwrap.dedent(f"""
+            const state = {{
+                sessionStatusSeries: {json.dumps(status_rows)},
+                selectedSession: {{ session_name: "Qualifying", session_type: "Qualifying" }}
+            }};
+            function getRaceControlRangeMs() {{ return null; }}
+            {helpers}
+
+            const phases = extractQualifyingPhases();
+            console.log(JSON.stringify(phases.map(p => [
+                p.label,
+                new Date(p.startMs).toISOString(),
+                new Date(p.endMs).toISOString()
+            ])));
+        """)
+        self.assertEqual(self._run_node(script), [
+            ["Q1", "2026-07-04T14:00:00.000Z", "2026-07-04T14:18:00.000Z"],
+            ["Q2", "2026-07-04T14:25:00.000Z", "2026-07-04T14:50:00.000Z"],
+            ["Q3", "2026-07-04T14:58:00.000Z", "2026-07-04T15:10:00.000Z"],
+        ])
+
+    def test_chequered_flag_is_the_last_finished_not_the_first(self):
+        # Each quali segment waves its own chequered flag; the session's flag
+        # is the last one, and a Started in between clears the earlier one so
+        # Q2/Q3 replay as green, not "Finished"
+        body = self._extract_function("extractCircuitStatePeriodsFromStatus")
+        status_rows = [
+            {"session_status": "Started", "date": "2026-07-04T14:00:00Z"},
+            {"session_status": "Finished", "date": "2026-07-04T14:18:00Z"},
+            {"session_status": "Started", "date": "2026-07-04T14:25:00Z"},
+            {"session_status": "Finished", "date": "2026-07-04T14:40:00Z"},
+            {"session_status": "Finalised", "date": "2026-07-04T14:45:00Z"},
+        ]
+        script = textwrap.dedent(f"""
+            const REPLAY_TRACK_STATUS_TYPES = {{}};
+            const REPLAY_PERIOD_LABELS = {{}};
+            function mergeYellowPeriods(periods) {{ return periods; }}
+            {body}
+
+            const midQ2 = extractCircuitStatePeriodsFromStatus(
+                {json.dumps(status_rows[:3])}
+            );
+            const finished = extractCircuitStatePeriodsFromStatus({json.dumps(status_rows)});
+            console.log(JSON.stringify([
+                midQ2.chequeredMs,
+                new Date(finished.chequeredMs).toISOString()
+            ]));
+        """)
+        self.assertEqual(
+            self._run_node(script),
+            [None, "2026-07-04T14:40:00.000Z"],
+        )
+
+    def test_full_session_timeline_slices_phases_and_labels_regions(self):
+        helpers = "\n\n".join([
+            self._extract_function("qualifyingPhasePrefix"),
+            self._extract_function("extractQualifyingPhases"),
+            self._extract_function("annotateQualifyingPhases"),
+            self._extract_function("finalizeReplayTimeline"),
+            self._extract_function("buildFullSessionTimeline"),
+        ])
+        status_rows = [
+            {"session_status": "Started", "date": "2026-07-04T14:00:00Z"},
+            {"session_status": "Finished", "date": "2026-07-04T14:18:00Z"},  # Q1: 18 min -> 9 slices
+            {"session_status": "Started", "date": "2026-07-04T14:25:00Z"},
+            {"session_status": "Finished", "date": "2026-07-04T14:35:00Z"},  # Q2: 10 min -> 5 slices
+        ]
+        script = textwrap.dedent(f"""
+            const REPLAY_TIMELINE_WIDTH_CAP = 3;
+            const REPLAY_SESSION_SLICE_SECONDS = 120;
+            const state = {{
+                sessionStatusSeries: {json.dumps(status_rows)},
+                selectedSession: {{ session_name: "Qualifying", session_type: "Qualifying" }}
+            }};
+            function getRaceControlRangeMs() {{ return null; }}
+            function getReplayCircuitStates() {{ return {{ periods: [], chequeredMs: null }}; }}
+            function isQualifyingSession() {{ return true; }}
+            {helpers}
+
+            const timeline = buildFullSessionTimeline();
+            const summary = timeline.segments.map(seg => [
+                seg.lapNumber, seg.phase, seg.phaseStart, seg.seconds
+            ]);
+            console.log(JSON.stringify([
+                timeline.segments.length,
+                summary[0],
+                summary[1],
+                summary[9],
+                summary[13]
+            ]));
+        """)
+        self.assertEqual(self._run_node(script), [
+            14,
+            [1, "Q1", True, 120],
+            [2, "Q1", False, 120],
+            [10, "Q2", True, 120],
+            [14, "Q2", False, 120],
+        ])
+
+
 class ReplayRaceContextTests(unittest.TestCase):
     """Phase 1 race-context surfaces for Session Replay
     (doc/2026-07-05-session-replay-review-and-enhancement-plan.md)."""
@@ -346,7 +538,7 @@ class ReplayRaceContextTests(unittest.TestCase):
             "function appendReplayPitMarkers",
             "replay-timeline-pit-marker",
             "PIT IN",
-            "state.replay.driverNumber !== REPLAY_FULL_RACE",
+            "isReplayWholeFieldSelection(state.replay.driverNumber)",
         ):
             self.assertIn(snippet, self.dashboard_js)
 
@@ -747,9 +939,9 @@ class ReplayDeferredEnhancementTests(unittest.TestCase):
         prefetch_body = self._extract_function("prefetchNextReplayLap")
         self.assertIn("fetchReplayTelemetryPayload(", prefetch_body)
 
-    def test_telemetry_strip_is_hidden_in_full_race_mode(self):
+    def test_telemetry_strip_is_hidden_in_whole_field_modes(self):
         body = self._extract_function("updateReplayTelemetryStrip")
-        self.assertIn("REPLAY_FULL_RACE", body)
+        self.assertIn("!isReplayWholeFieldSelection(state.replay.driverNumber)", body)
         self.assertIn("hidden = true", body)
 
     def test_telemetry_fetch_reuses_laps_tab_cache(self):
