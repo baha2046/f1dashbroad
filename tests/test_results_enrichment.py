@@ -111,6 +111,19 @@ class EnrichResultsWithJolpicaTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual(merged[0]["points"], 8.0)
 
+    async def test_sprint_typed_sessions_also_use_the_sprint_endpoint(self):
+        # Livetiming types Sprints as "Race", but an explicit Sprint type
+        # must not be gated out
+        session = dict(self.race_session(name="Sprint"), session_type="Sprint")
+        rows = [{"driver_number": 1, "points": None, "dnf": False, "dns": False, "dsq": False}]
+        merged = await self.enrich(rows, session, {
+            "/races/": jolpica_races_payload(),
+            "/12/sprint/": jolpica_results_payload([
+                {"number": "1", "positionText": "1", "points": "8", "status": "Finished"},
+            ], key="SprintResults"),
+        })
+        self.assertEqual(merged[0]["points"], 8.0)
+
     async def test_non_race_sessions_are_untouched(self):
         session = dict(self.race_session(), session_type="Qualifying")
         rows = [{"driver_number": 1, "points": None}]

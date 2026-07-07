@@ -447,7 +447,7 @@ async function ensureReplayIntervalsLoaded() {
     const sessionKey = state.selectedSession.session_key;
     state.replay.intervalsLoading = (async () => {
         try {
-            const response = await customFetch(`/api/intervals?session_key=${state.selectedSession.session_key}`);
+            const response = await customFetch(`/api/intervals?session_key=${state.selectedSession.session_key}${sessionYearParam()}`);
             if (!state.selectedSession || state.selectedSession.session_key !== sessionKey) return;
             if (response.ok) {
                 const intervals = await response.json();

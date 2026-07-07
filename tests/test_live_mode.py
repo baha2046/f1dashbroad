@@ -86,11 +86,13 @@ class IntervalsEndpointTests(unittest.IsolatedAsyncioTestCase):
             "2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/",
             "Heartbeat",
             stream=True,
+            meta={},
         )
         fetch_mock.assert_any_await(
             "2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/",
             "TimingData",
             stream=True,
+            meta={},
         )
 
 

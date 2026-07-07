@@ -110,6 +110,12 @@ const TEAM_COLORS = {
     'cadillac': '909090'
 };
 
+// Year hint appended to session-scoped API calls: the backend then skips its
+// cached-sessions year scan and applies the correct cache TTLs
+function sessionYearParam(session = state.selectedSession) {
+    return session && session.year ? `&year=${session.year}` : '';
+}
+
 // Helper: Convert hex to rgb string for CSS custom properties
 function getRGBColor(hex) {
     if (!hex) return '120, 120, 120';

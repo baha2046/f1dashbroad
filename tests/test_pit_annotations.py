@@ -68,7 +68,7 @@ class PitAnnotationStaticWiringTests(unittest.TestCase):
         self.assertIn("pitStops: []", self.dashboard_js)
         self.assertIn("function isPitAnnotationSession(session)", self.dashboard_js)
         self.assertIn("state.pitStops = []", self.dashboard_js)
-        self.assertIn("customFetch(`/api/pit?session_key=${session.session_key}`)", self.dashboard_js)
+        self.assertIn("customFetch(`/api/pit?session_key=${session.session_key}${sessionYearParam(session)}`)", self.dashboard_js)
         self.assertIn("isPitAnnotationSession(session)", self.dashboard_js)
 
     def test_dashboard_displays_pit_annotations_in_table_and_charts(self):

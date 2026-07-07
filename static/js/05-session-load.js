@@ -41,13 +41,13 @@ async function selectSession(session) {
     try {
         // Fetch session details concurrently. Pit data is useful only for Race/Sprint sessions.
         const pitStopsRequest = isPitAnnotationSession(session)
-            ? customFetch(`/api/pit?session_key=${session.session_key}`)
+            ? customFetch(`/api/pit?session_key=${session.session_key}${sessionYearParam(session)}`)
             : Promise.resolve(null);
         const lapsRequest = isPitAnnotationSession(session)
-            ? customFetch(`/api/laps?session_key=${session.session_key}`)
+            ? customFetch(`/api/laps?session_key=${session.session_key}${sessionYearParam(session)}`)
             : Promise.resolve(null);
         const positionRequest = isPitAnnotationSession(session)
-            ? customFetch(`/api/position?session_key=${session.session_key}`)
+            ? customFetch(`/api/position?session_key=${session.session_key}${sessionYearParam(session)}`)
             : Promise.resolve(null);
         const raceStandingsRequest = isRaceStandingsSession(session)
             ? customFetch(`/api/race_standings?year=${encodeURIComponent(session.year || state.selectedYear)}&date=${encodeURIComponent(getSessionDateToken(session))}`)
@@ -58,14 +58,14 @@ async function selectSession(session) {
             ? customFetch(`/api/season_progression?year=${encodeURIComponent(progressionYear)}`)
             : Promise.resolve(null);
         const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, sessionStatusRes, teamRadioRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
-            customFetch(`/api/drivers?session_key=${session.session_key}`),
-            customFetch(`/api/weather?session_key=${session.session_key}`),
+            customFetch(`/api/drivers?session_key=${session.session_key}${sessionYearParam(session)}`),
+            customFetch(`/api/weather?session_key=${session.session_key}${sessionYearParam(session)}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}&year=${encodeURIComponent(session.year || state.selectedYear)}`),
-            customFetch(`/api/stints?session_key=${session.session_key}`),
-            customFetch(`/api/results?session_key=${session.session_key}`),
-            customFetch(`/api/race_control?session_key=${session.session_key}`),
-            customFetch(`/api/session_status?session_key=${session.session_key}`),
-            customFetch(`/api/team_radio?session_key=${session.session_key}`),
+            customFetch(`/api/stints?session_key=${session.session_key}${sessionYearParam(session)}`),
+            customFetch(`/api/results?session_key=${session.session_key}${sessionYearParam(session)}`),
+            customFetch(`/api/race_control?session_key=${session.session_key}${sessionYearParam(session)}`),
+            customFetch(`/api/session_status?session_key=${session.session_key}${sessionYearParam(session)}`),
+            customFetch(`/api/team_radio?session_key=${session.session_key}${sessionYearParam(session)}`),
             pitStopsRequest,
             lapsRequest,
             positionRequest,
@@ -211,7 +211,7 @@ function showCancelledSessionState(session) {
 // Fetch stunts for selected session
 async function fetchStints(sessionKey) {
     try {
-        const response = await customFetch(`/api/stints?session_key=${sessionKey}`);
+        const response = await customFetch(`/api/stints?session_key=${sessionKey}${sessionYearParam()}`);
         if (response.ok) {
             state.stints = await response.json();
         }
@@ -225,7 +225,7 @@ async function fetchDriverLaps(sessionKey, driverNumber) {
     if (state.laps[driverNumber]) return state.laps[driverNumber];
     
     try {
-        const response = await customFetch(`/api/laps?session_key=${sessionKey}&driver_number=${driverNumber}`);
+        const response = await customFetch(`/api/laps?session_key=${sessionKey}&driver_number=${driverNumber}${sessionYearParam()}`);
         if (response.ok) {
             const laps = await response.json();
             // Sort laps chronologically
@@ -245,7 +245,7 @@ async function fetchAllSessionLaps(sessionKey) {
     if (Array.isArray(state.allSessionLaps)) return state.allSessionLaps;
 
     try {
-        const response = await customFetch(`/api/laps?session_key=${sessionKey}`);
+        const response = await customFetch(`/api/laps?session_key=${sessionKey}${sessionYearParam()}`);
         if (response.ok) {
             const laps = await response.json();
             if (Array.isArray(laps)) {

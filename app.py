@@ -216,6 +216,37 @@ async def write_cache(cache_path, data):
     except Exception as e:
         print(f"Error writing cache {cache_path}: {e}")
 
+def _read_gzip_json(path):
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+def _write_gzip_json_atomic(cache_path, data):
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(cache_path), prefix=".cache-", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "wb") as raw:
+            with gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=6) as gz:
+                gz.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        os.replace(tmp_path, cache_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+async def read_gzip_cache(cache_path, ttl=None):
+    age = cache_age_seconds(cache_path)
+    if age is None:
+        return None
+    if ttl is not None and age >= ttl:
+        return None
+    return await asyncio.to_thread(_read_gzip_json, cache_path)
+
 def _scan_cached_sessions_for_year(skey):
     for filename in os.listdir(CACHE_DIR):
         if filename.startswith("sessions_") and filename.endswith(".json"):
@@ -313,6 +344,14 @@ class UpstreamAPIError(Exception):
         self.message = message
         self.status_code = status_code
 
+class DegradedPayload:
+    """Wraps a fetcher result built from fallback data (keyframe snapshot or
+    missing stream anchor): usable now, but never cached permanently."""
+    __slots__ = ("data",)
+
+    def __init__(self, data):
+        self.data = data
+
 def get_retry_delay(response, retry_index):
     retry_after = response.headers.get("Retry-After")
     if retry_after:
@@ -335,21 +374,24 @@ async def fetch_url(url: str):
     response.raise_for_status()
     return response.json()
 
+async def session_cache_ttl(session_key, year=None):
+    """Cache TTL for session-scoped data: 30 s live, 5 min recent, permanent historical."""
+    session = await asyncio.to_thread(get_session_info, session_key, year) if session_key else None
+    if session is not None and is_session_live(session):
+        return LIVE_CACHE_TTL_SECONDS
+    if not session or not is_historical(session):
+        return 300
+    return None
+
 async def get_cached_livetiming(cache_name: str, fetcher, session_key=None, year=None):
     cache_path = os.path.join(CACHE_DIR, cache_name)
     if year is None:
         year = current_season_year()
 
-    ttl = None
     if "sessions" in cache_name:
-        if int(year) >= current_season_year():
-            ttl = 3600
+        ttl = 3600 if int(year) >= current_season_year() else None
     else:
-        session = await asyncio.to_thread(get_session_info, session_key, year) if session_key else None
-        if session is not None and is_session_live(session):
-            ttl = LIVE_CACHE_TTL_SECONDS
-        elif not session or not is_historical(session):
-            ttl = 300
+        ttl = await session_cache_ttl(session_key, year)
 
     cached = await read_cache(cache_path, ttl)
     if cached is not None:
@@ -367,7 +409,13 @@ async def get_cached_livetiming(cache_name: str, fetcher, session_key=None, year
             if stale is not None:
                 return stale
             raise UpstreamAPIError(f"Upstream API request failed for {cache_name}")
-        await write_cache(cache_path, data)
+        degraded = isinstance(data, DegradedPayload)
+        if degraded:
+            data = data.data
+        # Degraded payloads may only live under a TTL that retires them; a
+        # permanent (historical) cache entry must come from real stream data
+        if not degraded or ttl is not None:
+            await write_cache(cache_path, data)
         return data
 
 async def fetch_livetiming_year_index(year):
@@ -378,7 +426,10 @@ async def fetch_livetiming_session_index(session_path):
     client = get_http_client()
     return await fetch_livetiming_json(client, urljoin(session_path, "Index.json"))
 
-async def fetch_livetiming_feed(session_path, feed_name, stream=True):
+async def fetch_livetiming_feed(session_path, feed_name, stream=True, meta=None):
+    """Fetch a feed's stream (or keyframe). When a requested stream falls back
+    to its keyframe snapshot, meta["degraded"] is set so callers can avoid
+    caching the snapshot permanently."""
     session_index = await fetch_livetiming_session_index(session_path)
     feed = (session_index.get("Feeds") or {}).get(feed_name)
     if not feed:
@@ -390,11 +441,54 @@ async def fetch_livetiming_feed(session_path, feed_name, stream=True):
             try:
                 return await fetch_livetiming_stream(client, urljoin(session_path, stream_path))
             except Exception:
-                pass
+                if meta is not None:
+                    meta["degraded"] = True
     keyframe_path = feed.get("KeyFramePath")
     if not keyframe_path:
         raise UpstreamAPIError(f"Livetiming feed {feed_name} has no keyframe path")
     return await fetch_livetiming_json(client, urljoin(session_path, keyframe_path))
+
+RAW_FEED_SAFE_RE = re.compile(r"[^A-Za-z0-9_-]")
+
+async def fetch_livetiming_feed_cached(session_key, session_path, feed_name, stream=True, year=None, meta=None):
+    """Disk-backed raw feed fetch: one upstream download per session+feed
+    serves every normalized endpoint, telemetry lap and replay window derived
+    from it. Stored gzipped; TTL follows the session's liveness."""
+    variant = "stream" if stream else "keyframe"
+    safe_feed = RAW_FEED_SAFE_RE.sub("_", feed_name)
+    cache_path = os.path.join(CACHE_DIR, f"raw_{session_key}_{safe_feed}_{variant}.json.gz")
+    ttl = await session_cache_ttl(session_key, year)
+
+    def unpack(cached):
+        if not isinstance(cached, dict) or "records" not in cached:
+            return None
+        if meta is not None and cached.get("degraded"):
+            meta["degraded"] = True
+        return cached["records"]
+
+    cached = unpack(await read_gzip_cache(cache_path, ttl))
+    if cached is not None:
+        return cached
+
+    async with get_cache_lock(cache_path):
+        cached = unpack(await read_gzip_cache(cache_path, ttl))
+        if cached is not None:
+            return cached
+        fetch_meta = {}
+        data = await fetch_livetiming_feed(session_path, feed_name, stream=stream, meta=fetch_meta)
+        degraded = bool(fetch_meta.get("degraded"))
+        if meta is not None and degraded:
+            meta["degraded"] = True
+        # A keyframe snapshot standing in for a stream must not become the
+        # permanent copy for a historical session — retry on the next request
+        if not degraded or ttl is not None:
+            try:
+                await asyncio.to_thread(
+                    _write_gzip_json_atomic, cache_path, {"degraded": degraded, "records": data}
+                )
+            except Exception as e:
+                print(f"Error writing raw feed cache {cache_path}: {e}")
+        return data
 
 def find_livetiming_meeting(year_index, meeting_key):
     target = str(meeting_key)
@@ -408,18 +502,24 @@ def find_livetiming_meeting(year_index, meeting_key):
 # UTC. The anchor never changes for a given session, so memoize it.
 _stream_start_cache = {}
 
-async def fetch_livetiming_stream_start(session_path, fallback=None):
+async def fetch_livetiming_stream_start(session_key, session_path, fallback=None, year=None, meta=None):
     if session_path in _stream_start_cache:
         return _stream_start_cache[session_path]
     anchor = None
     try:
-        records = await fetch_livetiming_feed(session_path, "Heartbeat", stream=True)
+        records = await fetch_livetiming_feed_cached(
+            session_key, session_path, "Heartbeat", stream=True, year=year
+        )
         anchor = derive_stream_start_utc(ensure_livetiming_records(records))
     except Exception as e:
         print(f"Error deriving Livetiming stream start for {session_path}: {e}")
     if anchor:
         _stream_start_cache[session_path] = anchor
         return anchor
+    # The advertised session start is not the stream anchor; timestamps
+    # derived from it are approximations, so mark the payload degraded
+    if meta is not None:
+        meta["degraded"] = True
     return fallback
 
 async def resolve_livetiming_session_path(session_key, year=None):
@@ -667,45 +767,82 @@ LIVETIMING_SESSION_ENDPOINTS = {
 def ensure_livetiming_records(feed_data):
     return feed_data if isinstance(feed_data, list) else [(None, feed_data)]
 
-async def get_livetiming_session_payload(route_name, endpoint_config, session_key):
+def parse_optional_year_param():
+    """Returns (year, error_response); year is None when the param is absent."""
+    year = request.args.get("year")
+    if year is None:
+        return None, None
+    year = parse_int_param(year)
+    if year is None:
+        return None, invalid_param_response("year")
+    return year, None
+
+def session_cache_control(session):
+    if session and is_session_live(session):
+        # Live mode polls every 30 s; intermediary caches must not satisfy it
+        return "no-store"
+    if session and is_historical(session):
+        return "public, max-age=3600"
+    return "public, max-age=60"
+
+async def session_response(data, session_key, year=None):
+    session = await asyncio.to_thread(get_session_info, session_key, year)
+    response = jsonify(data)
+    response.headers["Cache-Control"] = session_cache_control(session)
+    return response
+
+async def get_livetiming_session_payload(route_name, endpoint_config, session_key, year=None):
     cache_prefix = endpoint_config.get("cache_prefix", route_name)
     cache_name = f"{cache_prefix}_{session_key}.json"
 
     async def fetch_endpoint():
-        year = await find_session_year(session_key)
-        session_path, resolved_year = await resolve_livetiming_session_path(session_key, year)
+        resolved = year if year is not None else await find_session_year(session_key)
+        session_path, resolved_year = await resolve_livetiming_session_path(session_key, resolved)
         session = await asyncio.to_thread(get_session_info, session_key, resolved_year)
         session_start = session.get("date_start") if session else None
-        stream_start = await fetch_livetiming_stream_start(session_path, fallback=session_start)
-        feed_data = await fetch_livetiming_feed(
+        meta = {}
+        stream_start = await fetch_livetiming_stream_start(
+            session_key, session_path, fallback=session_start, year=resolved_year, meta=meta
+        )
+        feed_data = await fetch_livetiming_feed_cached(
+            session_key,
             session_path,
             endpoint_config["feed"],
             stream=endpoint_config.get("stream", True),
+            year=resolved_year,
+            meta=meta,
         )
         records = ensure_livetiming_records(feed_data)
         normalizer = endpoint_config["normalizer"]
         if endpoint_config.get("needs_session_path"):
-            return normalizer(
+            payload = await asyncio.to_thread(
+                normalizer,
                 records,
                 session_path,
                 session_key=session_key,
                 stream_start_utc=stream_start,
             )
-        return normalizer(
-            records,
-            session_key=session_key,
-            stream_start_utc=stream_start,
-        )
+        else:
+            payload = await asyncio.to_thread(
+                normalizer,
+                records,
+                session_key=session_key,
+                stream_start_utc=stream_start,
+            )
+        return DegradedPayload(payload) if meta.get("degraded") else payload
 
-    return await get_cached_livetiming(cache_name, fetch_endpoint, session_key=session_key)
+    return await get_cached_livetiming(cache_name, fetch_endpoint, session_key=session_key, year=year)
 
 def _make_session_endpoint(route_name, endpoint_config):
     async def handler():
         session_key = parse_int_param(request.args.get("session_key"))
         if session_key is None:
             return invalid_param_response("session_key")
-        data = await get_livetiming_session_payload(route_name, endpoint_config, session_key)
-        return jsonify(data)
+        year, year_error = parse_optional_year_param()
+        if year_error is not None:
+            return year_error
+        data = await get_livetiming_session_payload(route_name, endpoint_config, session_key, year=year)
+        return await session_response(data, session_key, year=year)
 
     handler.__name__ = f"api_{route_name}"
     return handler
@@ -742,12 +879,13 @@ def merge_jolpica_results(rows, official_by_number):
         merged.append(row)
     return merged
 
-async def enrich_results_with_jolpica(rows, session_key):
+async def enrich_results_with_jolpica(rows, session_key, year=None):
     """Best-effort merge of official points/DNS/DSQ into Race/Sprint results;
     returns the rows unchanged when Jolpica has nothing (yet)."""
     if not isinstance(rows, list) or not rows:
         return rows
-    year = await find_session_year(session_key)
+    if year is None:
+        year = await find_session_year(session_key)
     session = await asyncio.to_thread(get_session_info, session_key, year)
     # Livetiming types Sprint sessions as "Race" (name "Sprint"), but accept
     # an explicit Sprint type too in case older seasons label them directly
@@ -795,17 +933,26 @@ async def api_results():
     session_key = parse_int_param(request.args.get("session_key"))
     if session_key is None:
         return invalid_param_response("session_key")
-    data = await get_livetiming_session_payload("results", RESULTS_ENDPOINT_CONFIG, session_key)
-    data = await enrich_results_with_jolpica(data, session_key)
-    return jsonify(data)
+    year, year_error = parse_optional_year_param()
+    if year_error is not None:
+        return year_error
+    data = await get_livetiming_session_payload("results", RESULTS_ENDPOINT_CONFIG, session_key, year=year)
+    data = await enrich_results_with_jolpica(data, session_key, year=year)
+    return await session_response(data, session_key, year=year)
 
-async def fetch_livetiming_laps_payload(session_key, driver_number=None):
-    year = await find_session_year(session_key)
+async def fetch_livetiming_laps_payload(session_key, driver_number=None, year=None):
+    if year is None:
+        year = await find_session_year(session_key)
     session_path, resolved_year = await resolve_livetiming_session_path(session_key, year)
     session = await asyncio.to_thread(get_session_info, session_key, resolved_year)
     session_start = session.get("date_start") if session else None
-    stream_start = await fetch_livetiming_stream_start(session_path, fallback=session_start)
-    records = await fetch_livetiming_feed(session_path, "TimingData", stream=True)
+    meta = {}
+    stream_start = await fetch_livetiming_stream_start(
+        session_key, session_path, fallback=session_start, year=resolved_year, meta=meta
+    )
+    records = await fetch_livetiming_feed_cached(
+        session_key, session_path, "TimingData", stream=True, year=resolved_year, meta=meta
+    )
 
     # Race/Sprint lap 1 has no LastLapTime upstream; anchor it at the green
     # light so its window (and full-race replay) still works. Other session
@@ -813,14 +960,17 @@ async def fetch_livetiming_laps_payload(session_key, driver_number=None):
     race_start = None
     if session and session.get("session_type") in ("Race", "Sprint"):
         try:
-            status_records = await fetch_livetiming_feed(session_path, "SessionStatus", stream=True)
+            status_records = await fetch_livetiming_feed_cached(
+                session_key, session_path, "SessionStatus", stream=True, year=resolved_year
+            )
             race_start = derive_session_started_utc(
                 ensure_livetiming_records(status_records), stream_start
             )
         except Exception as e:
             print(f"Error fetching Livetiming SessionStatus for {session_key}: {e}")
 
-    laps = normalize_livetiming_laps(
+    laps = await asyncio.to_thread(
+        normalize_livetiming_laps,
         ensure_livetiming_records(records),
         session_key=session_key,
         stream_start_utc=stream_start,
@@ -828,13 +978,16 @@ async def fetch_livetiming_laps_payload(session_key, driver_number=None):
     )
     if driver_number is not None:
         laps = [lap for lap in laps if lap.get("driver_number") == driver_number]
-    return laps
+    return DegradedPayload(laps) if meta.get("degraded") else laps
 
 @app.route("/api/laps")
 async def api_laps():
     session_key = parse_int_param(request.args.get("session_key"))
     if session_key is None:
         return invalid_param_response("session_key")
+    year, year_error = parse_optional_year_param()
+    if year_error is not None:
+        return year_error
 
     driver_number = request.args.get("driver_number")
     if driver_number is not None:
@@ -847,10 +1000,11 @@ async def api_laps():
 
     data = await get_cached_livetiming(
         cache_name,
-        lambda: fetch_livetiming_laps_payload(session_key, driver_number),
+        lambda: fetch_livetiming_laps_payload(session_key, driver_number, year=year),
         session_key=session_key,
+        year=year,
     )
-    return jsonify(data)
+    return await session_response(data, session_key, year=year)
 
 def parse_iso_utc(value):
     """Parse an ISO timestamp into an aware-UTC datetime (naive input treated as UTC)."""
@@ -953,25 +1107,29 @@ async def api_car_telemetry():
     lap_number = parse_int_param(request.args.get("lap_number"))
     if lap_number is None:
         return invalid_param_response("lap_number")
+    year, year_error = parse_optional_year_param()
+    if year_error is not None:
+        return year_error
 
     cache_name = f"car_telemetry_{session_key}_{driver_number}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
-    session = await asyncio.to_thread(get_session_info, session_key)
+    session = await asyncio.to_thread(get_session_info, session_key, year)
     ttl = None if is_historical(session) else 300
 
     cached = await read_cache(cache_path, ttl)
     if cached is not None:
-        return jsonify(cached)
+        return await session_response(cached, session_key, year=year)
 
     async with get_cache_lock(cache_path):
         cached = await read_cache(cache_path, ttl)
         if cached is not None:
-            return jsonify(cached)
+            return await session_response(cached, session_key, year=year)
 
         laps = await get_cached_livetiming(
             f"laps_{session_key}_{driver_number}.json",
-            lambda: fetch_livetiming_laps_payload(session_key, driver_number),
+            lambda: fetch_livetiming_laps_payload(session_key, driver_number, year=year),
             session_key=session_key,
+            year=year,
         )
         window = build_lap_telemetry_window(laps, lap_number)
         if window is None:
@@ -979,9 +1137,13 @@ async def api_car_telemetry():
         lap, start, end = window
 
         try:
-            session_path, _ = await resolve_livetiming_session_path(session_key)
-            car_records = await fetch_livetiming_feed(session_path, "CarData.z", stream=True)
-            car_data = list(flatten_car_data_z(ensure_livetiming_records(car_records), session_key=session_key))
+            session_path, _ = await resolve_livetiming_session_path(session_key, year)
+            car_records = await fetch_livetiming_feed_cached(
+                session_key, session_path, "CarData.z", stream=True, year=year
+            )
+            car_data = await asyncio.to_thread(
+                lambda: list(flatten_car_data_z(ensure_livetiming_records(car_records), session_key=session_key))
+            )
         except Exception as e:
             print(f"Error fetching Livetiming CarData.z for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
@@ -1023,7 +1185,7 @@ async def api_car_telemetry():
             "telemetry": telemetry,
         }
         await write_cache(cache_path, payload)
-        return jsonify(payload)
+        return await session_response(payload, session_key, year=year)
 
 @app.route("/api/track_replay")
 async def api_track_replay():
@@ -1064,6 +1226,10 @@ async def api_track_replay():
         if lap_number is None:
             return invalid_param_response("lap_number")
 
+    year, year_error = parse_optional_year_param()
+    if year_error is not None:
+        return year_error
+
     if window_start is not None:
         start_token = int(window_start.timestamp() * 1000)
         end_token = int(window_end.timestamp() * 1000)
@@ -1072,17 +1238,17 @@ async def api_track_replay():
         replay_scope = "race" if driver_number is None else driver_number
         cache_name = f"track_replay_{session_key}_{replay_scope}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
-    session = await asyncio.to_thread(get_session_info, session_key)
+    session = await asyncio.to_thread(get_session_info, session_key, year)
     ttl = None if is_historical(session) else 300
 
     cached = await read_cache(cache_path, ttl)
     if cached is not None:
-        return jsonify(cached)
+        return await session_response(cached, session_key, year=year)
 
     async with get_cache_lock(cache_path):
         cached = await read_cache(cache_path, ttl)
         if cached is not None:
-            return jsonify(cached)
+            return await session_response(cached, session_key, year=year)
 
         if window_start is not None:
             # Explicit window: no laps needed, the bounds are the window
@@ -1095,8 +1261,9 @@ async def api_track_replay():
                 laps_cache_name = f"laps_{session_key}_{driver_number}.json"
             laps = await get_cached_livetiming(
                 laps_cache_name,
-                lambda: fetch_livetiming_laps_payload(session_key, driver_number),
+                lambda: fetch_livetiming_laps_payload(session_key, driver_number, year=year),
                 session_key=session_key,
+                year=year,
             )
             if driver_number is None:
                 window = build_race_lap_window(laps, lap_number)
@@ -1112,9 +1279,13 @@ async def api_track_replay():
                 lap_duration = parse_float(lap.get("lap_duration"))
 
         try:
-            session_path, _ = await resolve_livetiming_session_path(session_key)
-            position_records = await fetch_livetiming_feed(session_path, "Position.z", stream=True)
-            location_data = list(flatten_position_z(ensure_livetiming_records(position_records), session_key=session_key))
+            session_path, _ = await resolve_livetiming_session_path(session_key, year)
+            position_records = await fetch_livetiming_feed_cached(
+                session_key, session_path, "Position.z", stream=True, year=year
+            )
+            location_data = await asyncio.to_thread(
+                lambda: list(flatten_position_z(ensure_livetiming_records(position_records), session_key=session_key))
+            )
         except Exception as e:
             print(f"Error fetching Livetiming Position.z for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
@@ -1158,7 +1329,7 @@ async def api_track_replay():
             "drivers": drivers,
         }
         await write_cache(cache_path, payload)
-        return jsonify(payload)
+        return await session_response(payload, session_key, year=year)
 
 @app.route("/api/season_progression")
 async def api_season_progression():

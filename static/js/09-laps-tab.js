@@ -828,7 +828,7 @@ async function loadLapTelemetry(driverNumber, lapNumber) {
 
     try {
         const response = await customFetch(
-            `/api/car_telemetry?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}`
+            `/api/car_telemetry?session_key=${sessionKey}&driver_number=${driverNumber}&lap_number=${lapNumber}${sessionYearParam()}`
         );
         if (!isCurrentSelection()) return;
         if (!response.ok) {

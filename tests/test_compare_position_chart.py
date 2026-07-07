@@ -76,7 +76,7 @@ class ComparePositionChartStaticWiringTests(unittest.TestCase):
         self.assertIn("positionByLap: {}", self.dashboard_js)
         self.assertIn("state.position = []", self.dashboard_js)
         self.assertIn("state.positionByLap = {}", self.dashboard_js)
-        self.assertIn("customFetch(`/api/position?session_key=${session.session_key}`)", self.dashboard_js)
+        self.assertIn("customFetch(`/api/position?session_key=${session.session_key}${sessionYearParam(session)}`)", self.dashboard_js)
         self.assertIn("function buildPositionByLapMap()", self.dashboard_js)
 
     def test_dashboard_js_renders_position_chart(self):

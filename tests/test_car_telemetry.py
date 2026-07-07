@@ -92,7 +92,7 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(fetch_mock.await_count, 1)
-        fetch_mock.assert_awaited_once_with("session/path/", "CarData.z", stream=True)
+        fetch_mock.assert_awaited_once_with("session/path/", "CarData.z", stream=True, meta={})
 
         data = await response.get_json()
         self.assertEqual(data["session_key"], 4242)

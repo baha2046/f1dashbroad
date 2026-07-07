@@ -533,7 +533,7 @@ class ReplayRaceContextTests(unittest.TestCase):
             "function ensureReplayIntervalsLoaded",
             "ensureReplayIntervalsLoaded();",
             "state.replay.intervalsSessionKey",
-            "customFetch(`/api/intervals?session_key=${state.selectedSession.session_key}`)",
+            "customFetch(`/api/intervals?session_key=${state.selectedSession.session_key}${sessionYearParam()}`)",
         ):
             self.assertIn(snippet, self.dashboard_js)
 

@@ -937,6 +937,7 @@ function fetchReplayPayload(sessionKey, driverNumber, lapNumber) {
                     const driverParam = driverNumber === REPLAY_FULL_RACE ? '' : `&driver_number=${driverNumber}`;
                     query = `session_key=${sessionKey}${driverParam}&lap_number=${lapNumber}`;
                 }
+                query += sessionYearParam();
                 const response = await customFetch(`/api/track_replay?${query}`);
                 if (!response.ok) return null;
                 const payload = await response.json();

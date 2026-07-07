@@ -47,7 +47,7 @@ def make_feed_mock(feeds):
     SessionStatus for race start); feeds not provided raise like a missing
     upstream file so the route falls back gracefully.
     """
-    async def dispatch(session_path, feed_name, stream=True):
+    async def dispatch(session_path, feed_name, stream=True, meta=None):
         if feed_name in feeds:
             return feeds[feed_name]
         raise dashboard_app.UpstreamAPIError(f"{feed_name} unavailable in test")
@@ -195,7 +195,7 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
         weather = await response.get_json()
         self.assertEqual(weather[0]["date"], "2026-07-05T15:00:14.052000Z")
         self.assertEqual(weather[0]["air_temperature"], 21.0)
-        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "WeatherData", stream=True)
+        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "WeatherData", stream=True, meta={})
 
     async def test_intervals_endpoint_normalizes_livetiming_timing_feed(self):
         self.seed_session_cache()
@@ -221,7 +221,7 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(intervals[0]["driver_number"], 44)
         self.assertEqual(intervals[0]["gap_to_leader"], None)
         self.assertEqual(intervals[1]["interval"], 1.234)
-        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "TimingData", stream=True)
+        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "TimingData", stream=True, meta={})
 
     async def test_team_radio_endpoint_normalizes_livetiming_team_radio_feed(self):
         self.seed_session_cache()
@@ -250,7 +250,7 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
             clips[0]["recording_url"],
             "https://livetiming.formula1.com/static/2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/TeamRadio/CARSAI01.mp3",
         )
-        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "TeamRadio", stream=True)
+        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "TeamRadio", stream=True, meta={})
 
     async def test_session_status_endpoint_normalizes_status_series(self):
         self.seed_session_cache()
@@ -275,7 +275,7 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row["track_status"] for row in rows], ["Yellow", "SCDeployed", None])
         self.assertEqual(rows[1]["date"], "2026-07-05T15:18:49.826000Z")
         self.assertEqual(rows[2]["session_status"], "Finished")
-        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "SessionData", stream=True)
+        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "SessionData", stream=True, meta={})
 
     async def test_laps_endpoint_reconstructs_livetiming_laps_and_filters_driver(self):
         self.seed_session_cache()
@@ -330,8 +330,8 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(laps[1]["date_start"], "2026-07-05T14:02:30Z")
         self.assertEqual(laps[1]["lap_duration"], 110.24)
         self.assertEqual(laps[1]["duration_sector_1"], 31.831)
-        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "TimingData", stream=True)
-        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "Heartbeat", stream=True)
+        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "TimingData", stream=True, meta={})
+        fetch_feed.assert_any_await("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "Heartbeat", stream=True, meta={})
 
     async def test_car_telemetry_endpoint_decodes_livetiming_car_data(self):
         self.seed_session_cache()
@@ -361,7 +361,7 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["telemetry"][0]["t"], 1.0)
         self.assertEqual(data["telemetry"][0]["speed"], 250)
         self.assertEqual(data["telemetry"][0]["gear"], 5)
-        fetch_feed.assert_awaited_once_with("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "CarData.z", stream=True)
+        fetch_feed.assert_awaited_once_with("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "CarData.z", stream=True, meta={})
 
     async def test_track_replay_endpoint_decodes_livetiming_position_data(self):
         self.seed_session_cache()
@@ -390,7 +390,7 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
         drivers = {driver["driver_number"]: driver["samples"] for driver in data["drivers"]}
         self.assertEqual(drivers[44], [[1.0, 10, 20]])
         self.assertEqual(drivers[16], [[1.0, 30, 40]])
-        fetch_feed.assert_awaited_once_with("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "Position.z", stream=True)
+        fetch_feed.assert_awaited_once_with("2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/", "Position.z", stream=True, meta={})
 
 
 if __name__ == "__main__":

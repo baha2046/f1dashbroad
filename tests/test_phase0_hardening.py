@@ -119,9 +119,16 @@ class CacheBehaviorTests(unittest.IsolatedAsyncioTestCase):
             })
         ]
 
+        heartbeat_records = [("00:00:00.000", {"Utc": "2026-07-05T14:00:00Z"})]
+
+        async def dispatch(session_path, feed_name, stream=True, meta=None):
+            # A valid Heartbeat anchor keeps the payload non-degraded, so the
+            # permanent cache write under test actually happens
+            return heartbeat_records if feed_name == "Heartbeat" else timing_records
+
         with (
             patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
-            patch.object(dashboard_app, "fetch_livetiming_feed", new=AsyncMock(return_value=timing_records)),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=AsyncMock(side_effect=dispatch)),
         ):
             client = dashboard_app.app.test_client()
             response = await client.get("/api/laps?session_key=4242")
@@ -142,7 +149,7 @@ class CacheBehaviorTests(unittest.IsolatedAsyncioTestCase):
         ]
         fetch_calls_by_feed = {}
 
-        async def slow_fetch(session_path, feed_name, stream=True):
+        async def slow_fetch(session_path, feed_name, stream=True, meta=None):
             fetch_calls_by_feed[feed_name] = fetch_calls_by_feed.get(feed_name, 0) + 1
             await asyncio.sleep(0.05)
             return timing_records

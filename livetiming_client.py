@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import zlib
@@ -58,7 +59,10 @@ async def fetch_livetiming_json(client: httpx.AsyncClient, path: str):
 
 
 async def fetch_livetiming_stream(client: httpx.AsyncClient, path: str):
-    return parse_livetiming_stream(await fetch_livetiming_text(client, path))
+    # Full-session streams run to tens of MB of line-delimited JSON; parse
+    # off the event loop
+    text = await fetch_livetiming_text(client, path)
+    return await asyncio.to_thread(parse_livetiming_stream, text)
 
 
 def resolve_livetiming_session_ref(year_index: dict, year: int, session_key: int | str):
