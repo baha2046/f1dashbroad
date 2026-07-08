@@ -505,7 +505,7 @@ function renderResultsTab() {
                         <div class="results-team-color-indicator" style="background: #${teamHex};"></div>
                         <img src="${safeUrl((driver.headshot_url || 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/').replace('.transform/1col/image.png', ''))}" class="results-driver-avatar" alt="${escapeHtml(driver.full_name)}">
                         <div class="results-driver-info">
-                            <span class="results-driver-name">${escapeHtml(driver.first_name)} ${escapeHtml(driver.last_name)}</span>
+                            <span class="results-driver-name">${escapeHtml(driver.first_name)} ${escapeHtml(driver.last_name)}${item.fastest_lap ? `<span class="fl-pill" title="Fastest lap${item.fastest_lap_time ? ` · ${escapeHtml(item.fastest_lap_time)}` : ''}${item.fastest_lap_number ? ` (lap ${escapeHtml(item.fastest_lap_number)})` : ''}">FL</span>` : ''}</span>
                             <span class="results-driver-team">${escapeHtml(driver.team_name || 'Independent')}</span>
                         </div>
                     </div>

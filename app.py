@@ -727,6 +727,47 @@ async def index():
     return await render_template("index.html", version=datetime.timestamp(datetime.now()))
 
 
+# The Livetiming root index only lists the current season, so seasons are
+# probed individually; the archive is irregular (e.g. 2022 is missing).
+YEARS_PROBE_FLOOR = 2018
+
+@app.route("/api/years")
+async def api_years():
+    cache_path = os.path.join(CACHE_DIR, "years_available.json")
+    cached = await read_cache(cache_path, ttl=86400)
+    if cached:
+        return jsonify(cached)
+
+    async with get_cache_lock(cache_path):
+        cached = await read_cache(cache_path, ttl=86400)
+        if cached:
+            return jsonify(cached)
+
+        current = current_season_year()
+        # current + 1 lets the next season appear as soon as Livetiming does
+        candidates = list(range(current + 1, YEARS_PROBE_FLOOR - 1, -1))
+        semaphore = asyncio.Semaphore(4)
+
+        async def probe(year):
+            async with semaphore:
+                try:
+                    index = await fetch_livetiming_year_index(year)
+                    return year if index.get("Meetings") else None
+                except Exception:
+                    return None
+
+        results = await asyncio.gather(*(probe(year) for year in candidates))
+        years = [year for year in results if year is not None]
+        if not years:
+            stale = await read_stale_cache(cache_path)
+            if stale is not None:
+                return jsonify(stale)
+            # Upstream unreachable and no cache: a sane offline default,
+            # deliberately not cached so the next request re-probes
+            return jsonify(list(range(current, current - 4, -1)))
+        await write_cache(cache_path, years)
+        return jsonify(years)
+
 @app.route("/api/sessions")
 async def api_sessions():
     year = parse_int_param(request.args.get("year", str(current_season_year())))
@@ -924,6 +965,12 @@ def merge_jolpica_results(rows, official_by_number):
         row["dns"] = position_text == "W" or status == "Did not start"
         if status:
             row["status"] = status
+        fastest = item.get("FastestLap")
+        if isinstance(fastest, dict):
+            row["fastest_lap"] = str(fastest.get("rank") or "") == "1"
+            time = fastest.get("Time")
+            row["fastest_lap_time"] = time.get("time") if isinstance(time, dict) else None
+            row["fastest_lap_number"] = parse_int_param(fastest.get("lap"))
         merged.append(row)
     return merged
 

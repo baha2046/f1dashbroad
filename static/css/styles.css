@@ -140,6 +140,7 @@ body {
 
 .year-selector {
     display: flex;
+    flex-wrap: wrap; /* the probed season list can exceed one row */
     background: var(--bg-control);
     border: 1px solid var(--border-color);
     border-radius: 10px;
@@ -148,7 +149,8 @@ body {
 }
 
 .year-btn {
-    flex: 1;
+    flex: 1 1 22%;
+    min-width: 58px;
     background: transparent;
     border: none;
     outline: none;
@@ -2940,6 +2942,20 @@ body {
     font-size: 15px;
     width: 60px;
     text-align: center;
+}
+
+/* Fastest-lap marker on the Results tab (F1's conventional purple) */
+.fl-pill {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: #fff;
+    background: #b13bff;
+    vertical-align: 1px;
 }
 
 .pos-podium-1 {

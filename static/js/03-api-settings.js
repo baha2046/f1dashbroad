@@ -62,8 +62,27 @@ document.addEventListener('DOMContentLoaded', () => {
         setupLapsChartAutoResize();
     }
     updateApiStatusBarUI();
-    loadSessions(state.selectedYear, true);
+    // The static buttons in index.html are the instant fallback; the probed
+    // list replaces them so new seasons appear without a template edit
+    initYearSelector().finally(() => loadSessions(state.selectedYear, true));
 });
+
+async function initYearSelector() {
+    try {
+        const response = await customFetch('/api/years');
+        if (!response.ok) return;
+        const years = await response.json();
+        if (!Array.isArray(years) || years.length === 0) return;
+        state.selectedYear = String(Number(years[0]));
+        DOM.yearSelector.innerHTML = years
+            .map(y => Number(y))
+            .filter(y => Number.isFinite(y))
+            .map((y, i) => `<button class="year-btn${i === 0 ? ' active' : ''}" data-year="${y}">${y}</button>`)
+            .join('');
+    } catch (error) {
+        console.error('Year list load failed:', error);
+    }
+}
 
 const DRIVER_IMAGE_FALLBACK = 'https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/';
 
