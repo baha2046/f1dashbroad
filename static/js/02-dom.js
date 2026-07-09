@@ -60,6 +60,12 @@ const DOM = {
     telemetryStats: document.getElementById('telemetryStats'),
     telemetrySpeedChart: document.getElementById('telemetrySpeedChart'),
     telemetryInputsChart: document.getElementById('telemetryInputsChart'),
+    telemetryCompareDriverSelect: document.getElementById('telemetryCompareDriverSelect'),
+    telemetryCompareLapWrapper: document.getElementById('telemetryCompareLapWrapper'),
+    telemetryCompareLapSelect: document.getElementById('telemetryCompareLapSelect'),
+    telemetryDeltaWrapper: document.getElementById('telemetryDeltaWrapper'),
+    telemetryDeltaHeading: document.getElementById('telemetryDeltaHeading'),
+    telemetryDeltaChart: document.getElementById('telemetryDeltaChart'),
 
     // Compare Section
     compareDriverList: document.getElementById('compareDriverList'),

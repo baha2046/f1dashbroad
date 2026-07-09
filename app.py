@@ -1229,21 +1229,124 @@ def downsample_telemetry(samples, max_points=TELEMETRY_MAX_POINTS):
     picked[-1] = samples[-1]
     return picked, True
 
-@app.route("/api/car_telemetry")
-async def api_car_telemetry():
-    session_key = parse_int_param(request.args.get("session_key"))
-    if session_key is None:
-        return invalid_param_response("session_key")
-    driver_number = parse_int_param(request.args.get("driver_number"))
-    if driver_number is None:
-        return invalid_param_response("driver_number")
-    lap_number = parse_int_param(request.args.get("lap_number"))
-    if lap_number is None:
-        return invalid_param_response("lap_number")
-    year, year_error = parse_optional_year_param()
-    if year_error is not None:
-        return year_error
+def _telemetry_sample_t(sample):
+    """Best-effort float `t` (seconds into lap) for a telemetry sample."""
+    if not isinstance(sample, dict):
+        return None
+    try:
+        return float(sample.get("t"))
+    except (TypeError, ValueError):
+        return None
 
+def compute_telemetry_distance(telemetry):
+    """Cumulative distance (m) per sample via trapezoidal integration of speed.
+
+    speed (km/h) is converted to m/s; d[0]=0 and
+    d[i] = d[i-1] + (v[i-1]+v[i])/2 * (t[i]-t[i-1]). Missing speed carries the
+    previous speed forward; a missing or non-increasing t contributes 0.
+    Distances round to 0.1 m. Returns a list parallel to `telemetry`.
+    """
+    distances = []
+    prev_t = None
+    prev_v = 0.0  # m/s
+    total = 0.0
+    for sample in telemetry:
+        raw_speed = sample.get("speed") if isinstance(sample, dict) else None
+        if raw_speed is None:
+            v = prev_v
+        else:
+            try:
+                v = float(raw_speed) / 3.6
+            except (TypeError, ValueError):
+                v = prev_v
+        t = _telemetry_sample_t(sample)
+        if prev_t is not None and t is not None:
+            dt = t - prev_t
+            if dt > 0:
+                total += (prev_v + v) / 2.0 * dt
+        distances.append(round(total, 1))
+        prev_v = v
+        if t is not None:
+            prev_t = t
+    return distances
+
+def _interpolate_t_at_distance(distances, telemetry, d):
+    """Linearly interpolate a lap's `t` at cumulative distance `d`.
+
+    `distances` is the monotonic (non-decreasing) output of
+    compute_telemetry_distance for `telemetry`. Clamps to the endpoints.
+    """
+    n = len(distances)
+    if n == 0:
+        return None
+    if d <= distances[0]:
+        return _telemetry_sample_t(telemetry[0])
+    if d >= distances[-1]:
+        return _telemetry_sample_t(telemetry[-1])
+    lo, hi = 0, n - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if distances[mid] < d:
+            lo = mid + 1
+        else:
+            hi = mid
+    i = lo - 1
+    d0, d1 = distances[i], distances[i + 1]
+    t0 = _telemetry_sample_t(telemetry[i])
+    t1 = _telemetry_sample_t(telemetry[i + 1])
+    if t0 is None:
+        return t1
+    if t1 is None or d1 == d0:
+        return t0
+    return t0 + (t1 - t0) * ((d - d0) / (d1 - d0))
+
+def compute_telemetry_delta(main_telemetry, ref_telemetry, points=200):
+    """Time gap (main - ref) sampled over the distance both laps share.
+
+    Distances are integrated for each lap; the common range is
+    0..min(main_total, ref_total). For `points` evenly spaced distances across
+    that range (both endpoints included) the lap times are linearly
+    interpolated and the gap emitted as {"d", "gap"}. Positive gap => the main
+    lap is slower (behind) at that distance. Returns [] when either lap has
+    fewer than 2 samples or the common range is <= 0.
+    """
+    if len(main_telemetry) < 2 or len(ref_telemetry) < 2:
+        return []
+    main_dist = compute_telemetry_distance(main_telemetry)
+    ref_dist = compute_telemetry_distance(ref_telemetry)
+    common = min(main_dist[-1], ref_dist[-1])
+    if common <= 0:
+        return []
+    delta = []
+    for i in range(points):
+        d = common * i / (points - 1) if points > 1 else common
+        t_main = _interpolate_t_at_distance(main_dist, main_telemetry, d)
+        t_ref = _interpolate_t_at_distance(ref_dist, ref_telemetry, d)
+        if t_main is None or t_ref is None:
+            continue
+        delta.append({"d": round(d, 1), "gap": round(t_main - t_ref, 3)})
+    return delta
+
+def telemetry_payload_with_distance(payload):
+    """Return a copy of a car-telemetry payload whose samples carry `d` (metres).
+
+    Copies are made at both the payload and sample level so the cached
+    `d`-free single-lap payload is never mutated (see compare endpoint).
+    """
+    telemetry = payload.get("telemetry") or []
+    distances = compute_telemetry_distance(telemetry)
+    enriched = [dict(sample, d=distances[index]) for index, sample in enumerate(telemetry)]
+    result = dict(payload)
+    result["telemetry"] = enriched
+    return result
+
+async def build_car_telemetry_payload(session_key, driver_number, lap_number, year):
+    """Build (or cache-load) one lap's car-telemetry payload.
+
+    Returns (payload, error_response) with exactly one non-None. When non-None,
+    error_response is a ready-to-return Flask response (a 404 tuple or a
+    stale-cache body) so callers can propagate it verbatim.
+    """
     # v2: windows derive from the laps payload, rebuilt when laps moved to v2
     cache_name = f"car_telemetry_v2_{session_key}_{driver_number}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
@@ -1252,12 +1355,12 @@ async def api_car_telemetry():
 
     cached = await read_cache(cache_path, ttl)
     if cached is not None:
-        return await session_response(cached, session_key, year=year)
+        return cached, None
 
     async with get_cache_lock(cache_path):
         cached = await read_cache(cache_path, ttl)
         if cached is not None:
-            return await session_response(cached, session_key, year=year)
+            return cached, None
 
         laps = await get_cached_livetiming(
             laps_cache_name(session_key, driver_number),
@@ -1267,7 +1370,7 @@ async def api_car_telemetry():
         )
         window = build_lap_telemetry_window(laps, lap_number)
         if window is None:
-            return jsonify({"error": "No telemetry window available for this lap"}), 404
+            return None, (jsonify({"error": "No telemetry window available for this lap"}), 404)
         lap, start, end = window
 
         try:
@@ -1282,7 +1385,7 @@ async def api_car_telemetry():
             logger.warning(f"Error fetching Livetiming CarData.z for {cache_name}: {e}")
             stale = await read_stale_cache(cache_path)
             if stale is not None:
-                return jsonify(stale)
+                return None, jsonify(stale)
             raise UpstreamAPIError(f"Upstream API request failed for {cache_name}")
 
         window_seconds = (end - start).total_seconds()
@@ -1319,7 +1422,76 @@ async def api_car_telemetry():
             "telemetry": telemetry,
         }
         await write_cache(cache_path, payload)
-        return await session_response(payload, session_key, year=year)
+        return payload, None
+
+@app.route("/api/car_telemetry")
+async def api_car_telemetry():
+    session_key = parse_int_param(request.args.get("session_key"))
+    if session_key is None:
+        return invalid_param_response("session_key")
+    driver_number = parse_int_param(request.args.get("driver_number"))
+    if driver_number is None:
+        return invalid_param_response("driver_number")
+    lap_number = parse_int_param(request.args.get("lap_number"))
+    if lap_number is None:
+        return invalid_param_response("lap_number")
+    year, year_error = parse_optional_year_param()
+    if year_error is not None:
+        return year_error
+
+    payload, error = await build_car_telemetry_payload(session_key, driver_number, lap_number, year)
+    if error is not None:
+        return error
+    return await session_response(payload, session_key, year=year)
+
+@app.route("/api/telemetry_compare")
+async def api_telemetry_compare():
+    session_key = parse_int_param(request.args.get("session_key"))
+    if session_key is None:
+        return invalid_param_response("session_key")
+    driver_number = parse_int_param(request.args.get("driver_number"))
+    if driver_number is None:
+        return invalid_param_response("driver_number")
+    lap_number = parse_int_param(request.args.get("lap_number"))
+    if lap_number is None:
+        return invalid_param_response("lap_number")
+    ref_driver_number = parse_int_param(request.args.get("ref_driver_number"))
+    if ref_driver_number is None:
+        return invalid_param_response("ref_driver_number")
+    ref_lap_number = parse_int_param(request.args.get("ref_lap_number"))
+    if ref_lap_number is None:
+        return invalid_param_response("ref_lap_number")
+    year, year_error = parse_optional_year_param()
+    if year_error is not None:
+        return year_error
+
+    # Reuse the per-lap builder/caches; propagate its error shape verbatim so an
+    # unknown ref lap yields the same 404 the single endpoint gives.
+    main_payload, main_error = await build_car_telemetry_payload(
+        session_key, driver_number, lap_number, year
+    )
+    if main_error is not None:
+        return main_error
+    ref_payload, ref_error = await build_car_telemetry_payload(
+        session_key, ref_driver_number, ref_lap_number, year
+    )
+    if ref_error is not None:
+        return ref_error
+
+    # Enrich copies with distance so the cached, d-free single-lap payloads stay
+    # byte-identical to what /api/car_telemetry serves.
+    delta = compute_telemetry_delta(
+        main_payload.get("telemetry") or [], ref_payload.get("telemetry") or []
+    )
+    return await session_response(
+        {
+            "main": telemetry_payload_with_distance(main_payload),
+            "ref": telemetry_payload_with_distance(ref_payload),
+            "delta": delta,
+        },
+        session_key,
+        year=year,
+    )
 
 @app.route("/api/track_replay")
 async def api_track_replay():

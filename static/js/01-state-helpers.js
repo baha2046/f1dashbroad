@@ -21,7 +21,8 @@ const state = {
     live: createLiveState(),
     laps: {}, // map of driverNumber -> laps array
     allSessionLaps: null,
-    telemetryCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/car_telemetry payload
+    telemetryCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/car_telemetry payload (compare responses keyed `cmp_...`)
+    telemetryCompare: null, // { driverNumber, lapNumber } of the active comparison lap, or null when off
     replayCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/track_replay payload
     replay: createReplayState(),
     selectedDriverStats: null,

@@ -766,6 +766,31 @@ function getTelemetrySelectableLaps(laps) {
     return (Array.isArray(laps) ? laps : []).filter(lap => lap && lap.date_start);
 }
 
+// Fastest selectable lap (used to preselect it in the lap dropdowns)
+function fastestSelectableLap(laps) {
+    return getTelemetrySelectableLaps(laps).reduce((best, lap) => {
+        if (!lap.lap_duration) return best;
+        return (!best || lap.lap_duration < best.lap_duration) ? lap : best;
+    }, null);
+}
+
+// Shared "Lap N — 1:31.234 ★" option markup for both the main and compare selects.
+// selectedLapNumber === null preselects the fastest lap (main-select default).
+function buildTelemetryLapOptionsHtml(laps, selectedLapNumber) {
+    const selectable = getTelemetrySelectableLaps(laps);
+    const fastest = fastestSelectableLap(laps);
+    const preselect = selectedLapNumber != null
+        ? Number(selectedLapNumber)
+        : (fastest ? fastest.lap_number : null);
+    return selectable.map(lap => {
+        const isFastest = fastest && lap.lap_number === fastest.lap_number;
+        const isSelected = preselect != null && lap.lap_number === preselect;
+        const timeLabel = lap.lap_duration ? formatLapTime(lap.lap_duration) : 'no time';
+        return `<option value="${escapeHtml(lap.lap_number)}"${isSelected ? ' selected' : ''}>` +
+               `Lap ${escapeHtml(lap.lap_number)} — ${timeLabel}${isFastest ? ' ★' : ''}</option>`;
+    }).join('');
+}
+
 function setupTelemetrySection(laps) {
     if (!DOM.telemetrySection || !DOM.telemetryLapSelect) return;
 
@@ -776,27 +801,105 @@ function setupTelemetrySection(laps) {
     }
     DOM.telemetrySection.style.display = 'block';
 
-    const fastest = selectable.reduce((best, lap) => {
-        if (!lap.lap_duration) return best;
-        return (!best || lap.lap_duration < best.lap_duration) ? lap : best;
-    }, null);
-
-    DOM.telemetryLapSelect.innerHTML = selectable.map(lap => {
-        const isFastest = fastest && lap.lap_number === fastest.lap_number;
-        const timeLabel = lap.lap_duration ? formatLapTime(lap.lap_duration) : 'no time';
-        return `<option value="${escapeHtml(lap.lap_number)}"${isFastest ? ' selected' : ''}>` +
-               `Lap ${escapeHtml(lap.lap_number)} — ${timeLabel}${isFastest ? ' ★' : ''}</option>`;
-    }).join('');
+    DOM.telemetryLapSelect.innerHTML = buildTelemetryLapOptionsHtml(laps, null);
+    setupTelemetryCompareControls();
 
     renderTelemetryMessage('Telemetry loads when the Laps tab is open.');
     maybeAutoLoadTelemetry();
 }
 
 // Session load auto-selects a driver while another tab is on screen;
-// defer the car_data fetch until the Laps tab is actually visible.
+// defer the car_data fetch until the Laps tab is actually visible. A pending
+// comparison loads here too when the tab becomes visible.
 function maybeAutoLoadTelemetry() {
     if (state.currentTab !== 'laps-view') return;
-    loadSelectedLapTelemetry();
+    if (state.telemetryCompare) {
+        loadTelemetryComparison();
+    } else {
+        loadSelectedLapTelemetry();
+    }
+}
+
+// Populate the "vs" driver dropdown (all drivers, incl. the current one for
+// same-driver lap-vs-lap). Restores an active comparison across a main-driver
+// or main-lap change so the selection survives setupTelemetrySection re-runs.
+function setupTelemetryCompareControls() {
+    if (!DOM.telemetryCompareDriverSelect) return;
+    const drivers = Array.isArray(state.drivers) ? state.drivers : [];
+    const sorted = [...drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
+    const active = state.telemetryCompare;
+
+    const options = ['<option value="">No comparison</option>'];
+    sorted.forEach(drv => {
+        const dn = drv.driver_number;
+        const acr = drv.name_acronym || `#${dn}`;
+        const team = drv.team_name ? ` — ${drv.team_name}` : '';
+        const isSel = active && Number(active.driverNumber) === Number(dn);
+        options.push(
+            `<option value="${escapeHtml(dn)}"${isSel ? ' selected' : ''}>` +
+            `${escapeHtml(acr)}${escapeHtml(team)}</option>`
+        );
+    });
+    DOM.telemetryCompareDriverSelect.innerHTML = options.join('');
+
+    if (active) {
+        populateCompareLapOptions(active.driverNumber, active.lapNumber);
+    } else {
+        hideTelemetryCompareLap();
+    }
+}
+
+function hideTelemetryCompareLap() {
+    if (DOM.telemetryCompareLapWrapper) DOM.telemetryCompareLapWrapper.style.display = 'none';
+    if (DOM.telemetryDeltaWrapper) DOM.telemetryDeltaWrapper.style.display = 'none';
+}
+
+function populateCompareLapOptions(driverNumber, selectedLapNumber) {
+    if (!DOM.telemetryCompareLapSelect) return;
+    const html = buildTelemetryLapOptionsHtml(state.laps[driverNumber] || [], selectedLapNumber);
+    DOM.telemetryCompareLapSelect.innerHTML = html;
+    if (DOM.telemetryCompareLapWrapper) {
+        DOM.telemetryCompareLapWrapper.style.display = html ? 'inline-flex' : 'none';
+    }
+}
+
+async function onTelemetryCompareDriverChange() {
+    if (!DOM.telemetryCompareDriverSelect) return;
+    const value = DOM.telemetryCompareDriverSelect.value;
+    if (!value) {
+        state.telemetryCompare = null;
+        hideTelemetryCompareLap();
+        loadSelectedLapTelemetry();
+        return;
+    }
+    const compareDriver = Number(value);
+    // Reuse the laps-tab fetch to make the compare driver's laps available
+    if (!state.laps[compareDriver] && state.selectedSession) {
+        await fetchDriverLaps(state.selectedSession.session_key, compareDriver);
+    }
+    // The user may have changed the select again while awaiting
+    if (Number(DOM.telemetryCompareDriverSelect.value) !== compareDriver) return;
+
+    const fastest = fastestSelectableLap(state.laps[compareDriver] || []);
+    const selectable = getTelemetrySelectableLaps(state.laps[compareDriver] || []);
+    const lapNumber = fastest ? fastest.lap_number : (selectable[0] ? selectable[0].lap_number : null);
+    if (lapNumber == null) {
+        state.telemetryCompare = null;
+        hideTelemetryCompareLap();
+        loadSelectedLapTelemetry();
+        return;
+    }
+    state.telemetryCompare = { driverNumber: compareDriver, lapNumber };
+    populateCompareLapOptions(compareDriver, lapNumber);
+    loadTelemetryComparison();
+}
+
+function onTelemetryCompareLapChange() {
+    if (!state.telemetryCompare || !DOM.telemetryCompareLapSelect) return;
+    const lapNumber = Number(DOM.telemetryCompareLapSelect.value);
+    if (!Number.isFinite(lapNumber)) return;
+    state.telemetryCompare = { ...state.telemetryCompare, lapNumber };
+    loadTelemetryComparison();
 }
 
 function loadSelectedLapTelemetry() {
@@ -968,7 +1071,8 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
         text.setAttribute("y", padding.top + chartHeight + 16);
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("class", "chart-axis-text");
-        text.textContent = `${t.toFixed(0)}s`;
+        // Compare mode swaps the seconds axis for a distance axis via formatXLabel
+        text.textContent = options.formatXLabel ? options.formatXLabel(t) : `${t.toFixed(0)}s`;
         svg.appendChild(text);
     }
 
@@ -1119,8 +1223,25 @@ function attachTelemetryCrosshair(contexts, samples, payload) {
     });
 }
 
+// The inputs legend is shared with compare mode; keep single-lap look here.
+const TELEMETRY_LEGEND_DEFAULT_HTML =
+    '<span><span class="telemetry-legend-swatch throttle"></span>Throttle</span>' +
+    '<span><span class="telemetry-legend-swatch brake"></span>Brake</span>';
+
+function getTelemetryLegendEl() {
+    return document.querySelector('#telemetrySection .telemetry-legend');
+}
+
+function resetTelemetryLegend() {
+    const legend = getTelemetryLegendEl();
+    if (legend) legend.innerHTML = TELEMETRY_LEGEND_DEFAULT_HTML;
+}
+
 function renderTelemetryCharts(payload) {
     if (!DOM.telemetrySpeedChart || !DOM.telemetryInputsChart) return;
+    resetTelemetryLegend();
+    // Single-lap view never shows the delta chart (guards a failed-compare fallback)
+    if (DOM.telemetryDeltaWrapper) DOM.telemetryDeltaWrapper.style.display = 'none';
 
     const samples = payload.telemetry.filter(s => Number.isFinite(Number(s.t)));
     if (samples.length < 2) {
@@ -1181,6 +1302,429 @@ function renderTelemetryCharts(payload) {
     ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%` });
 
     attachTelemetryCrosshair([speedCtx, inputsCtx], samples, payload);
+}
+
+// ===== Lap Telemetry Compare (two laps, distance-aligned) =====
+
+async function loadTelemetryComparison() {
+    if (!state.telemetryCompare || !state.selectedSession || state.selectedDriverStats === null) return;
+    if (DOM.telemetrySection && DOM.telemetrySection.style.display === 'none') return;
+    if (!DOM.telemetryLapSelect) return;
+
+    const mainLap = Number(DOM.telemetryLapSelect.value);
+    if (!Number.isFinite(mainLap)) return;
+    const mainDriver = Number(state.selectedDriverStats);
+    const refDriver = Number(state.telemetryCompare.driverNumber);
+    const refLap = Number(state.telemetryCompare.lapNumber);
+    if (!Number.isFinite(refLap)) return;
+
+    const sessionKey = state.selectedSession.session_key;
+    const cacheKey = `cmp_${sessionKey}_${mainDriver}_${mainLap}_${refDriver}_${refLap}`;
+
+    // Responses can land after the user moved on to another lap/driver/comparison
+    const isCurrentSelection = () => (
+        Number(state.selectedDriverStats) === mainDriver &&
+        Number(DOM.telemetryLapSelect.value) === mainLap &&
+        state.telemetryCompare &&
+        Number(state.telemetryCompare.driverNumber) === refDriver &&
+        Number(state.telemetryCompare.lapNumber) === refLap
+    );
+
+    const cached = state.telemetryCache[cacheKey];
+    if (cached) {
+        renderTelemetryComparison(cached);
+        return;
+    }
+
+    renderTelemetryMessage('Loading telemetry comparison...');
+
+    try {
+        const response = await customFetch(
+            `/api/telemetry_compare?session_key=${sessionKey}&driver_number=${mainDriver}&lap_number=${mainLap}` +
+            `&ref_driver_number=${refDriver}&ref_lap_number=${refLap}${sessionYearParam()}`
+        );
+        if (!isCurrentSelection()) return;
+        if (!response.ok) {
+            renderTelemetryMessage('No telemetry available for this comparison.');
+            loadSelectedLapTelemetry();
+            return;
+        }
+        const payload = await response.json();
+        if (!payload || !payload.main || !Array.isArray(payload.main.telemetry) || payload.main.telemetry.length === 0) {
+            renderTelemetryMessage('No telemetry recorded for this comparison.');
+            loadSelectedLapTelemetry();
+            return;
+        }
+        state.telemetryCache[cacheKey] = payload;
+        if (!isCurrentSelection()) return;
+        renderTelemetryComparison(payload);
+    } catch (e) {
+        console.error('Error loading telemetry comparison:', e);
+        if (isCurrentSelection()) {
+            renderTelemetryMessage('Failed to load telemetry comparison.');
+            loadSelectedLapTelemetry();
+        }
+    }
+}
+
+// Contiguous DRS-open runs of a lap, keyed by cumulative distance (compare mode)
+function buildDrsZonesByDistance(samples, maxX) {
+    const zones = [];
+    let start = null;
+    samples.forEach(sample => {
+        const active = isTelemetryDrsActive(sample.drs);
+        if (active && start === null) {
+            start = Number(sample.d);
+        } else if (!active && start !== null) {
+            zones.push({ start, end: Number(sample.d) });
+            start = null;
+        }
+    });
+    if (start !== null) zones.push({ start, end: maxX });
+    return zones;
+}
+
+// Symmetric y-bound for the delta chart: smallest nice step covering max |gap|
+function niceDeltaBound(maxGap) {
+    if (!Number.isFinite(maxGap) || maxGap <= 0) return 0.5;
+    const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20];
+    for (const step of steps) {
+        if (maxGap <= step) return step;
+    }
+    return Math.ceil(maxGap);
+}
+
+// Time-delta chart: gap (s) vs distance, y-axis symmetric around a dashed zero line
+function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatXLabel) {
+    container.innerHTML = '';
+
+    const width = container.clientWidth || 800;
+    const padding = { top: 16, right: 20, bottom: 26, left: 48 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    const maxGap = deltaSamples.reduce((m, pt) => Math.max(m, Math.abs(Number(pt.gap) || 0)), 0);
+    const yBound = niceDeltaBound(maxGap);
+
+    const getX = (d) => padding.left + (maxX > 0 ? (d / maxX) * chartWidth : 0);
+    const getY = (gap) => padding.top + chartHeight / 2 - (yBound > 0 ? (gap / yBound) * (chartHeight / 2) : 0);
+
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.style.overflow = "visible";
+
+    // Y grid + labels (+bound .. 0 .. -bound)
+    [yBound, yBound / 2, 0, -yBound / 2, -yBound].forEach(value => {
+        const y = getY(value);
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", padding.left);
+        line.setAttribute("y1", y);
+        line.setAttribute("x2", padding.left + chartWidth);
+        line.setAttribute("y2", y);
+        line.setAttribute("class", value === 0 ? "telemetry-delta-zero" : "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", padding.left - 8);
+        text.setAttribute("y", y + 4);
+        text.setAttribute("text-anchor", "end");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = `${value > 0 ? '+' : ''}${value.toFixed(value % 1 === 0 ? 0 : 2)}`;
+        svg.appendChild(text);
+    });
+
+    // X grid + labels (distance)
+    const xGridLines = 6;
+    for (let i = 0; i <= xGridLines; i++) {
+        const d = (i / xGridLines) * maxX;
+        const x = getX(d);
+        const line = document.createElementNS(svgNamespace, "line");
+        line.setAttribute("x1", x);
+        line.setAttribute("y1", padding.top);
+        line.setAttribute("x2", x);
+        line.setAttribute("y2", padding.top + chartHeight);
+        line.setAttribute("class", "chart-grid-line");
+        svg.appendChild(line);
+
+        const text = document.createElementNS(svgNamespace, "text");
+        text.setAttribute("x", x);
+        text.setAttribute("y", padding.top + chartHeight + 16);
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("class", "chart-axis-text");
+        text.textContent = formatXLabel ? formatXLabel(d) : `${Math.round(d)}`;
+        svg.appendChild(text);
+    }
+
+    // Axis lines
+    const xAxis = document.createElementNS(svgNamespace, "line");
+    xAxis.setAttribute("x1", padding.left);
+    xAxis.setAttribute("y1", padding.top + chartHeight);
+    xAxis.setAttribute("x2", padding.left + chartWidth);
+    xAxis.setAttribute("y2", padding.top + chartHeight);
+    xAxis.setAttribute("class", "chart-axis-line");
+    svg.appendChild(xAxis);
+
+    const yAxis = document.createElementNS(svgNamespace, "line");
+    yAxis.setAttribute("x1", padding.left);
+    yAxis.setAttribute("y1", padding.top);
+    yAxis.setAttribute("x2", padding.left);
+    yAxis.setAttribute("y2", padding.top + chartHeight);
+    yAxis.setAttribute("class", "chart-axis-line");
+    svg.appendChild(yAxis);
+
+    // Delta line
+    if (deltaSamples.length >= 2) {
+        const d = deltaSamples
+            .map((pt, index) => `${index === 0 ? 'M' : 'L'} ${getX(Number(pt.d)).toFixed(1)},${getY(Number(pt.gap)).toFixed(1)}`)
+            .join(' ');
+        const path = document.createElementNS(svgNamespace, "path");
+        path.setAttribute("d", d);
+        path.setAttribute("class", "telemetry-delta-line");
+        svg.appendChild(path);
+    }
+
+    // Crosshair + hover target (shared with the speed/inputs charts)
+    const crosshair = document.createElementNS(svgNamespace, "line");
+    crosshair.setAttribute("y1", padding.top);
+    crosshair.setAttribute("y2", padding.top + chartHeight);
+    crosshair.setAttribute("class", "telemetry-crosshair");
+    crosshair.style.display = "none";
+    svg.appendChild(crosshair);
+
+    const overlay = document.createElementNS(svgNamespace, "rect");
+    overlay.setAttribute("x", padding.left);
+    overlay.setAttribute("y", padding.top);
+    overlay.setAttribute("width", chartWidth);
+    overlay.setAttribute("height", chartHeight);
+    overlay.setAttribute("class", "telemetry-hover-target");
+    svg.appendChild(overlay);
+
+    container.appendChild(svg);
+    return { svg, overlay, crosshair, getX, padding, chartWidth, width, maxT: maxX };
+}
+
+function findNearestTelemetrySampleByDistance(samples, d) {
+    let nearest = null;
+    let nearestDistance = Infinity;
+    samples.forEach(sample => {
+        const distance = Math.abs(Number(sample.d) - d);
+        if (distance < nearestDistance) {
+            nearest = sample;
+            nearestDistance = distance;
+        }
+    });
+    return nearest;
+}
+
+// Shared distance crosshair across the speed, inputs and delta charts showing
+// both laps' values plus the gap at the nearest distance.
+function attachTelemetryCompareCrosshair(contexts, mainSamples, refSamples, deltaSamples, mainLabel, refLabel) {
+    let tooltip = document.querySelector(".chart-tooltip");
+    if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.className = "chart-tooltip";
+        tooltip.style.display = "none";
+        document.body.appendChild(tooltip);
+    }
+
+    const hideAll = () => {
+        contexts.forEach(ctx => { ctx.crosshair.style.display = "none"; });
+        tooltip.style.display = "none";
+    };
+
+    const fmt = (sample, key, unit) =>
+        (sample && Number.isFinite(Number(sample[key]))) ? `${sample[key]}${unit}` : '--';
+    const gearOf = (sample) =>
+        (sample && Number.isFinite(Number(sample.gear)) && Number(sample.gear) > 0) ? sample.gear : 'N';
+
+    contexts.forEach(ctx => {
+        ctx.overlay.addEventListener("mousemove", (event) => {
+            const svgRect = ctx.svg.getBoundingClientRect();
+            if (svgRect.width === 0) return;
+            const viewX = (event.clientX - svgRect.left) * (ctx.width / svgRect.width);
+            const d = ((viewX - ctx.padding.left) / ctx.chartWidth) * ctx.maxT;
+            const mainSample = findNearestTelemetrySampleByDistance(mainSamples, d);
+            const refSample = findNearestTelemetrySampleByDistance(refSamples, d);
+            if (!mainSample) return;
+            const anchorD = Number(mainSample.d);
+
+            contexts.forEach(c => {
+                const x = c.getX(anchorD);
+                c.crosshair.setAttribute("x1", x);
+                c.crosshair.setAttribute("x2", x);
+                c.crosshair.style.display = "block";
+            });
+
+            const gapPt = deltaSamples.length ? findNearestTelemetrySampleByDistance(deltaSamples, anchorD) : null;
+            const gapText = gapPt
+                ? `${Number(gapPt.gap) >= 0 ? '+' : ''}${Number(gapPt.gap).toFixed(3)} s`
+                : '--';
+            const rows = [
+                ['Distance', `${Math.round(anchorD)} m`],
+                ['Speed', `${fmt(mainSample, 'speed', ' km/h')} / ${fmt(refSample, 'speed', ' km/h')}`],
+                ['Gear', `${gearOf(mainSample)} / ${gearOf(refSample)}`],
+                ['Throttle', `${fmt(mainSample, 'throttle', '%')} / ${fmt(refSample, 'throttle', '%')}`],
+                ['Brake', `${fmt(mainSample, 'brake', '%')} / ${fmt(refSample, 'brake', '%')}`],
+                ['Gap', gapText]
+            ];
+            tooltip.innerHTML = `
+                <div class="chart-tooltip-header">${escapeHtml(mainLabel)} vs ${escapeHtml(refLabel)}</div>
+                ${rows.map(([label, value]) => `
+                    <div style="display:flex;justify-content:space-between;gap:14px;margin-bottom:2px;font-size:10px;">
+                        <span style="color:var(--text-muted)">${escapeHtml(label)}:</span>
+                        <span>${escapeHtml(value)}</span>
+                    </div>
+                `).join('')}
+            `;
+            tooltip.style.display = "block";
+            tooltip.style.left = `${event.pageX + 14}px`;
+            tooltip.style.top = `${event.pageY - tooltip.clientHeight / 2}px`;
+        });
+
+        ctx.overlay.addEventListener("mouseleave", hideAll);
+    });
+}
+
+function renderTelemetryCompareStats(mainSamples, refSamples) {
+    if (!DOM.telemetryStats) return;
+
+    const statOf = (samples) => {
+        const speeds = samples.map(s => Number(s.speed)).filter(Number.isFinite);
+        const topSpeed = speeds.length ? Math.max(...speeds) : null;
+        const avgSpeed = speeds.length ? speeds.reduce((acc, v) => acc + v, 0) / speeds.length : null;
+        const throttleValues = samples.map(s => Number(s.throttle)).filter(Number.isFinite);
+        const fullThrottle = throttleValues.length
+            ? (throttleValues.filter(v => v >= 98).length / throttleValues.length) * 100 : null;
+        const brakeValues = samples.map(s => Number(s.brake)).filter(Number.isFinite);
+        const braking = brakeValues.length
+            ? (brakeValues.filter(v => v > 0).length / brakeValues.length) * 100 : null;
+        let drsZones = 0, drsOpen = false;
+        samples.forEach(s => {
+            const active = isTelemetryDrsActive(s.drs);
+            if (active && !drsOpen) drsZones++;
+            drsOpen = active;
+        });
+        return {
+            topSpeed: topSpeed !== null ? Math.round(topSpeed) : null,
+            avgSpeed: avgSpeed !== null ? Math.round(avgSpeed) : null,
+            fullThrottle: fullThrottle !== null ? Math.round(fullThrottle) : null,
+            braking: braking !== null ? Math.round(braking) : null,
+            drsZones
+        };
+    };
+
+    const m = statOf(mainSamples);
+    const r = statOf(refSamples);
+    const pair = (a, b) => `${a === null ? '--' : a} / ${b === null ? '--' : b}`;
+    const chips = [
+        { label: 'Top Speed', value: `${pair(m.topSpeed, r.topSpeed)} km/h` },
+        { label: 'Avg Speed', value: `${pair(m.avgSpeed, r.avgSpeed)} km/h` },
+        { label: 'Full Throttle', value: `${pair(m.fullThrottle, r.fullThrottle)}%` },
+        { label: 'Braking', value: `${pair(m.braking, r.braking)}%` },
+        { label: 'DRS Zones', value: pair(m.drsZones, r.drsZones) }
+    ];
+
+    DOM.telemetryStats.innerHTML = chips.map(chip => `
+        <div class="telemetry-stat-chip">
+            <span class="stat-chip-label">${escapeHtml(chip.label)}</span>
+            <span class="stat-chip-value">${escapeHtml(chip.value)}</span>
+        </div>
+    `).join('');
+    DOM.telemetryStats.style.display = 'flex';
+}
+
+function renderTelemetryCompareLegend(mainHex, refHex, mainLabel, refLabel) {
+    const legend = getTelemetryLegendEl();
+    if (!legend) return;
+    // mainHex/refHex come from getDriverTeamHex (validated hex) so they are inline-style safe
+    legend.innerHTML =
+        `<span><span class="telemetry-legend-swatch" style="background:#${mainHex}"></span>${escapeHtml(mainLabel)}</span>` +
+        `<span><span class="telemetry-legend-swatch ref" style="color:#${refHex}"></span>${escapeHtml(refLabel)}</span>` +
+        '<span><span class="telemetry-legend-swatch throttle"></span>Throttle</span>' +
+        '<span><span class="telemetry-legend-swatch brake"></span>Brake</span>';
+}
+
+function renderTelemetryComparison(payload) {
+    if (!DOM.telemetrySpeedChart || !DOM.telemetryInputsChart) return;
+
+    const main = payload.main || {};
+    const ref = payload.ref || {};
+    const mainSamples = (main.telemetry || []).filter(s => Number.isFinite(Number(s.d)));
+    const refSamples = (ref.telemetry || []).filter(s => Number.isFinite(Number(s.d)));
+    if (mainSamples.length < 2 || refSamples.length < 2) {
+        renderTelemetryMessage('Not enough telemetry samples to compare.');
+        return;
+    }
+
+    const mainDriver = state.drivers.find(d => Number(d.driver_number) === Number(main.driver_number));
+    const refDriver = state.drivers.find(d => Number(d.driver_number) === Number(ref.driver_number));
+    const mainHex = getDriverTeamHex(mainDriver, 'ff1801');
+    const mainRgb = getRGBColor(mainHex);
+    const refHex = getDriverTeamHex(refDriver, '9aa4b2');
+    const mainLabel = `${(mainDriver && mainDriver.name_acronym) || `#${main.driver_number}`} L${main.lap_number}`;
+    const refLabel = `${(refDriver && refDriver.name_acronym) || `#${ref.driver_number}`} L${ref.lap_number}`;
+
+    const lastD = (samples) => Number(samples[samples.length - 1].d) || 0;
+    const maxX = Math.max(lastD(mainSamples), lastD(refSamples));
+    const fmtXLabel = (d) => `${Math.round(d)}m`;
+
+    renderTelemetryCompareStats(mainSamples, refSamples);
+    renderTelemetryCompareLegend(mainHex, refHex, mainLabel, refLabel);
+
+    // Speed chart — distance x-axis so corners align; DRS shading from the main lap only
+    const toSpeedPoints = (samples) => samples
+        .filter(s => Number.isFinite(Number(s.speed)))
+        .map(s => [Number(s.d), Number(s.speed)]);
+    const mainSpeed = toSpeedPoints(mainSamples);
+    const refSpeed = toSpeedPoints(refSamples);
+    const maxSpeed = Math.max(
+        mainSpeed.length ? Math.max(...mainSpeed.map(p => p[1])) : 0,
+        refSpeed.length ? Math.max(...refSpeed.map(p => p[1])) : 0
+    );
+    const speedYMax = Math.max(Math.ceil(maxSpeed / 50) * 50, 50);
+    const mainDrsZones = buildDrsZonesByDistance(mainSamples, maxX);
+
+    const speedCtx = buildTelemetryChart(DOM.telemetrySpeedChart, 260, maxX, speedYMax, [
+        { points: refSpeed, className: 'telemetry-ref-speed-line', style: { '--ref-team-color': `#${refHex}` } },
+        {
+            points: mainSpeed,
+            className: 'telemetry-speed-line',
+            style: { '--team-color': `#${mainHex}`, '--team-color-glow': `rgba(${mainRgb}, 0.35)` }
+        }
+    ], { drsZones: mainDrsZones, formatYLabel: (v) => `${Math.round(v)}`, formatXLabel: fmtXLabel });
+
+    // Inputs chart — ref lines drawn underneath the main lines
+    const clampPct = (value) => Math.max(0, Math.min(100, Number(value)));
+    const toInputPoints = (samples, key) => samples
+        .filter(s => Number.isFinite(Number(s[key])))
+        .map(s => [Number(s.d), clampPct(s[key])]);
+
+    const inputsCtx = buildTelemetryChart(DOM.telemetryInputsChart, 170, maxX, 100, [
+        { points: toInputPoints(refSamples, 'throttle'), className: 'telemetry-ref-throttle-line' },
+        { points: toInputPoints(refSamples, 'brake'), className: 'telemetry-ref-brake-line' },
+        { points: toInputPoints(mainSamples, 'throttle'), className: 'telemetry-throttle-line' },
+        { points: toInputPoints(mainSamples, 'brake'), className: 'telemetry-brake-line' }
+    ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, formatXLabel: fmtXLabel });
+
+    // Delta chart
+    const contexts = [speedCtx, inputsCtx];
+    const deltaSamples = (payload.delta || [])
+        .filter(pt => Number.isFinite(Number(pt.d)) && Number.isFinite(Number(pt.gap)));
+    if (DOM.telemetryDeltaWrapper && DOM.telemetryDeltaChart && deltaSamples.length >= 2) {
+        DOM.telemetryDeltaWrapper.style.display = 'block';
+        if (DOM.telemetryDeltaHeading) {
+            DOM.telemetryDeltaHeading.textContent = `Gap (s) — above zero = ${mainLabel} behind ${refLabel}`;
+        }
+        const deltaCtx = buildTelemetryDeltaChart(DOM.telemetryDeltaChart, 150, maxX, deltaSamples, fmtXLabel);
+        contexts.push(deltaCtx);
+    } else if (DOM.telemetryDeltaWrapper) {
+        DOM.telemetryDeltaWrapper.style.display = 'none';
+    }
+
+    attachTelemetryCompareCrosshair(contexts, mainSamples, refSamples, deltaSamples, mainLabel, refLabel);
 }
 
 // Helper: Show full dashboard loading

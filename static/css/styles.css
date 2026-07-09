@@ -3846,6 +3846,17 @@ body {
     margin-bottom: 28px;
 }
 
+/* Three selects in compare mode overflow the nowrap chart-header */
+.telemetry-section .chart-header {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    justify-content: flex-start;
+}
+
+.telemetry-section .chart-header h5 {
+    margin-right: auto;
+}
+
 .telemetry-lap-select-wrapper {
     align-items: center;
     color: var(--text-muted);
@@ -3995,6 +4006,78 @@ body {
 
 .telemetry-legend-swatch.brake {
     background: #ff523d;
+}
+
+/* ----- Lap Telemetry Compare (two-lap overlay) ----- */
+.telemetry-compare-select-wrapper select {
+    max-width: 200px;
+}
+
+/* Ref lap uses dashed lines as the differentiator; colour may coincide with the
+   main lap for teammates / same-driver comparisons */
+.telemetry-ref-speed-line {
+    fill: none;
+    stroke: var(--ref-team-color, #9aa4b2);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 6 4;
+    opacity: 0.85;
+}
+
+.telemetry-ref-throttle-line {
+    fill: none;
+    stroke: #34d27b;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+    stroke-dasharray: 6 4;
+    opacity: 0.75;
+}
+
+.telemetry-ref-brake-line {
+    fill: none;
+    stroke: #ff523d;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
+    stroke-dasharray: 6 4;
+    opacity: 0.75;
+}
+
+.telemetry-delta-heading {
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+#telemetryDeltaChart {
+    width: 100%;
+    height: 150px;
+    position: relative;
+}
+
+.telemetry-delta-line {
+    fill: none;
+    stroke: #4dc3ff;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.telemetry-delta-zero {
+    pointer-events: none;
+    stroke: rgba(255, 255, 255, 0.28);
+    stroke-dasharray: 4 3;
+    stroke-width: 1;
+}
+
+.telemetry-legend-swatch.ref {
+    height: 0;
+    border-top: 3px dashed currentColor;
+    background: transparent;
+    opacity: 0.9;
 }
 
 .telemetry-chart-message {

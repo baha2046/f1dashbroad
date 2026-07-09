@@ -189,10 +189,22 @@ function setupEventListeners() {
         });
     }
 
-    // Telemetry Lap Selector
+    // Telemetry Lap Selector (re-fetches the comparison when one is active)
     if (DOM.telemetryLapSelect) {
         DOM.telemetryLapSelect.addEventListener('change', () => {
-            loadSelectedLapTelemetry();
+            maybeAutoLoadTelemetry();
+        });
+    }
+
+    // Telemetry Compare Selectors
+    if (DOM.telemetryCompareDriverSelect) {
+        DOM.telemetryCompareDriverSelect.addEventListener('change', () => {
+            onTelemetryCompareDriverChange();
+        });
+    }
+    if (DOM.telemetryCompareLapSelect) {
+        DOM.telemetryCompareLapSelect.addEventListener('change', () => {
+            onTelemetryCompareLapChange();
         });
     }
 

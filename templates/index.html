@@ -318,6 +318,14 @@
                                             <span>Lap</span>
                                             <select id="telemetryLapSelect" aria-label="Select lap for telemetry"></select>
                                         </label>
+                                        <label class="telemetry-lap-select-wrapper telemetry-compare-select-wrapper">
+                                            <span>vs</span>
+                                            <select id="telemetryCompareDriverSelect" aria-label="Select comparison driver"></select>
+                                        </label>
+                                        <label class="telemetry-lap-select-wrapper telemetry-compare-select-wrapper" id="telemetryCompareLapWrapper" style="display: none;">
+                                            <span>Lap</span>
+                                            <select id="telemetryCompareLapSelect" aria-label="Select comparison lap"></select>
+                                        </label>
                                     </div>
                                     <div class="telemetry-stats" id="telemetryStats" style="display: none;"></div>
                                     <div class="chart-container-wrapper glass telemetry-chart-wrapper">
@@ -332,6 +340,12 @@
                                         <div class="telemetry-legend">
                                             <span><span class="telemetry-legend-swatch throttle"></span>Throttle</span>
                                             <span><span class="telemetry-legend-swatch brake"></span>Brake</span>
+                                        </div>
+                                    </div>
+                                    <div class="chart-container-wrapper glass telemetry-chart-wrapper" id="telemetryDeltaWrapper" style="display: none;">
+                                        <div class="telemetry-delta-heading" id="telemetryDeltaHeading">Time Delta</div>
+                                        <div id="telemetryDeltaChart">
+                                            <!-- SVG time-delta chart generated dynamically -->
                                         </div>
                                     </div>
                                 </div>

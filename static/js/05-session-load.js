@@ -23,6 +23,7 @@ async function selectSession(session) {
     state.laps = {};
     state.allSessionLaps = null;
     state.telemetryCache = {};
+    state.telemetryCompare = null;
     resetReplay();
     state.selectedDriverStats = null;
     state.selectedCompareDrivers = [];
