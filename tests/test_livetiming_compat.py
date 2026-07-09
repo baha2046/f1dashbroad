@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from livetiming_compat import (
+    align_stints_with_lap_runs,
     flatten_car_data_z,
     flatten_position_z,
     normalize_livetiming_drivers,
@@ -528,6 +529,83 @@ class LivetimingCompatibilityTests(unittest.TestCase):
         self.assertFalse(by_lap[12]["is_pit_out_lap"])
         # Contiguous laps chain their start to the previous crossing
         self.assertEqual(by_lap[12]["date_start"], "2026-07-05T14:01:45Z")
+
+    def test_normalize_laps_pit_out_with_crossing_flags_the_lap_starting_there(self):
+        # Qualifying garage exits bump NumberOfLaps in the same record as the
+        # PitOut delta: the lap completed by that record is the in-lap (plus
+        # garage time), and the lap *starting* at the pit exit is the out-lap.
+        rows = normalize_livetiming_laps([
+            ("01:00:00.000", {"Lines": {"12": {"NumberOfLaps": 3, "LastLapTime": {"Value": "1:29.000"}}}}),
+            ("01:00:40.000", {"Lines": {"12": {"InPit": True}}}),
+            ("01:04:00.000", {"Lines": {"12": {"InPit": False, "PitOut": True, "NumberOfLaps": 4}}}),
+            ("01:05:40.000", {"Lines": {"12": {"NumberOfLaps": 5, "LastLapTime": {"Value": "1:40.000"}}}}),
+            ("01:07:10.000", {"Lines": {"12": {"NumberOfLaps": 6, "LastLapTime": {"Value": "1:29.500"}}}}),
+        ], session_key=11322, stream_start_utc="2026-07-04T14:00:00Z")
+
+        by_lap = {row["lap_number"]: row for row in rows}
+        # The in-lap that ends at the pit exit is not the out-lap
+        self.assertFalse(by_lap[4]["is_pit_out_lap"])
+        self.assertTrue(by_lap[5]["is_pit_out_lap"])
+        self.assertFalse(by_lap[6]["is_pit_out_lap"])
+        # The in-lap window covers crossing-to-pit-exit including garage time
+        self.assertEqual(by_lap[4]["lap_duration"], 240.0)
+        self.assertEqual(by_lap[5]["date_start"], "2026-07-04T15:04:00Z")
+
+    def test_normalize_laps_out_lap_duration_prefers_wall_clock_over_garage_time(self):
+        # After a garage stay the upstream LastLapTime measures from pit entry,
+        # overshooting the lap's real pit-exit-to-crossing span; the wall clock
+        # wins so lap windows never overlap the next lap.
+        rows = normalize_livetiming_laps([
+            ("01:04:00.000", {"Lines": {"12": {"PitOut": True, "NumberOfLaps": 4}}}),
+            ("01:05:40.190", {"Lines": {"12": {"NumberOfLaps": 5, "LastLapTime": {"Value": "4:26.533"}}}}),
+            ("01:07:10.190", {"Lines": {"12": {"NumberOfLaps": 6, "LastLapTime": {"Value": "1:30.000"}}}}),
+        ], session_key=11322, stream_start_utc="2026-07-04T14:00:00Z")
+
+        by_lap = {row["lap_number"]: row for row in rows}
+        self.assertEqual(by_lap[5]["lap_duration"], 100.19)
+        # An honest LastLapTime within tolerance of the wall clock is kept
+        self.assertEqual(by_lap[6]["lap_duration"], 90.0)
+
+    def test_align_stints_with_lap_runs_uses_pit_out_boundaries(self):
+        stints = [
+            {"driver_number": 12, "stint_number": 1, "lap_start": 1, "lap_end": 3, "compound": "SOFT"},
+            {"driver_number": 12, "stint_number": 2, "lap_start": 4, "lap_end": 6, "compound": "SOFT"},
+            # Run/stint count mismatch: keeps the accumulated range
+            {"driver_number": 44, "stint_number": 1, "lap_start": 1, "lap_end": 5, "compound": "MEDIUM"},
+        ]
+        laps = [
+            # Lap 1 is the counter-initialization phantom (no date_start); the
+            # pit-out flag on lap 2 must not split it into its own run
+            {"driver_number": 12, "lap_number": 1},
+            {"driver_number": 12, "lap_number": 2, "date_start": "2026-07-04T15:04:35Z", "is_pit_out_lap": True},
+            {"driver_number": 12, "lap_number": 3, "date_start": "2026-07-04T15:06:31Z"},
+            {"driver_number": 12, "lap_number": 4, "date_start": "2026-07-04T15:08:00Z"},
+            {"driver_number": 12, "lap_number": 5, "date_start": "2026-07-04T15:12:41Z", "is_pit_out_lap": True},
+            {"driver_number": 12, "lap_number": 6, "date_start": "2026-07-04T15:14:21Z"},
+            {"driver_number": 12, "lap_number": 7, "date_start": "2026-07-04T15:15:52Z"},
+            {"driver_number": 44, "lap_number": 1, "date_start": "2026-07-04T15:04:00Z"},
+            {"driver_number": 44, "lap_number": 2, "date_start": "2026-07-04T15:06:00Z", "is_pit_out_lap": True},
+            {"driver_number": 44, "lap_number": 3, "date_start": "2026-07-04T15:08:00Z", "is_pit_out_lap": True},
+        ]
+
+        aligned = align_stints_with_lap_runs(stints, laps)
+
+        by_key = {(row["driver_number"], row["stint_number"]): row for row in aligned}
+        self.assertEqual(by_key[(12, 1)]["lap_start"], 1)
+        self.assertEqual(by_key[(12, 1)]["lap_end"], 4)
+        self.assertEqual(by_key[(12, 2)]["lap_start"], 5)
+        self.assertEqual(by_key[(12, 2)]["lap_end"], 7)
+        self.assertEqual(by_key[(12, 2)]["compound"], "SOFT")
+        self.assertEqual(by_key[(44, 1)]["lap_start"], 1)
+        self.assertEqual(by_key[(44, 1)]["lap_end"], 5)
+        # Inputs are not mutated
+        self.assertEqual(stints[0]["lap_end"], 3)
+
+    def test_align_stints_with_lap_runs_handles_missing_or_invalid_inputs(self):
+        stints = [{"driver_number": 12, "stint_number": 1, "lap_start": 1, "lap_end": 3}]
+        self.assertEqual(align_stints_with_lap_runs(stints, None), stints)
+        self.assertEqual(align_stints_with_lap_runs(stints, []), stints)
+        self.assertEqual(align_stints_with_lap_runs(None, [{"driver_number": 12, "lap_number": 1}]), [])
 
     def test_flatten_car_data_z_decodes_channel_rows(self):
         payload = (self.root / "tests" / "fixtures" / "livetiming" / "car_data_z_stream_sample.json").read_text(encoding="utf-8")

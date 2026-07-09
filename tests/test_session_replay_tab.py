@@ -1018,5 +1018,127 @@ class ReplayDeferredEnhancementTests(unittest.TestCase):
         self.assertEqual(self._run_node(script), ["7", "N", "—", "3"])
 
 
+class ReplayQualiBestTimeTowerTests(unittest.TestCase):
+    """Qualifying side tower: current best-time order at the playhead,
+    the qualifying counterpart of the race Running Order tower."""
+
+    def setUp(self):
+        self.root = Path(__file__).resolve().parents[1]
+        self.index_html = (self.root / "templates" / "index.html").read_text(encoding="utf-8")
+        self.dashboard_js = read_dashboard_js(self.root)
+
+    def _extract_function(self, function_name):
+        marker = f"function {function_name}"
+        start = self.dashboard_js.find(marker)
+        self.assertNotEqual(start, -1, f"{function_name} is missing from dashboard JS")
+
+        body_start = self.dashboard_js.find("{", start)
+        self.assertNotEqual(body_start, -1, f"{function_name} has no function body")
+
+        depth = 0
+        for index in range(body_start, len(self.dashboard_js)):
+            char = self.dashboard_js[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.dashboard_js[start:index + 1]
+
+        self.fail(f"{function_name} body was not closed")
+
+    def _run_node(self, script):
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+        return json.loads(completed.stdout)
+
+    def test_replay_view_has_tower_heading_ids(self):
+        replay_view = extract_section(self.index_html, "replay-view")
+        self.assertIsNotNone(replay_view, "replay-view section missing")
+        self.assertIn('id="replayTowerOrderHeading"', replay_view)
+        self.assertIn('id="replayTowerValueHeading"', replay_view)
+
+    def test_dom_map_wires_tower_headings(self):
+        for snippet in (
+            "replayTowerOrderHeading: document.getElementById('replayTowerOrderHeading')",
+            "replayTowerValueHeading: document.getElementById('replayTowerValueHeading')",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_js_defines_quali_tower_helpers(self):
+        for snippet in (
+            "function replayContextSessionMode",
+            "function buildReplayQualiOrder",
+            "function formatReplayQualiGap",
+            "function updateReplayQualiTower",
+            "function setReplayTowerHeadings",
+            "setReplayTowerHeadings('Best Times', 'Time')",
+            "setReplayTowerHeadings('Running Order', 'Gaps')",
+        ):
+            self.assertIn(snippet, self.dashboard_js)
+
+    def test_all_session_laps_load_for_quali_context_too(self):
+        # The laps memo gate keys on the context mode, not full-race support,
+        # so qualifying sessions fetch the whole field's laps for the tower
+        self.assertIn(
+            "if (!state.selectedSession || replayContextSessionMode() === null || Array.isArray(state.allSessionLaps)) return null;",
+            self.dashboard_js,
+        )
+
+    def test_quali_order_ranks_later_phase_times_ahead_of_carried_times(self):
+        script = textwrap.dedent(f"""
+            {self._extract_function("buildReplayQualiOrder")}
+
+            const phases = [
+                {{ label: "Q1", startMs: Date.parse("2026-07-04T10:00:00Z"), endMs: Date.parse("2026-07-04T10:18:00Z") }},
+                {{ label: "Q2", startMs: Date.parse("2026-07-04T10:25:00Z"), endMs: Date.parse("2026-07-04T10:40:00Z") }}
+            ];
+            const laps = [
+                // Q1: 44 fastest, 1 second
+                {{ driver_number: 44, lap_duration: 90.0, date_start: "2026-07-04T10:05:00Z" }},
+                {{ driver_number: 1, lap_duration: 92.0, date_start: "2026-07-04T10:06:00Z" }},
+                // Q2: 1 and 16 set times; 44 has not run yet
+                {{ driver_number: 1, lap_duration: 91.0, date_start: "2026-07-04T10:27:00Z" }},
+                {{ driver_number: 16, lap_duration: 93.5, date_start: "2026-07-04T10:28:00Z" }},
+                // Pit-out laps never count as times
+                {{ driver_number: 16, lap_duration: 89.0, date_start: "2026-07-04T10:29:00Z", is_pit_out_lap: true }},
+                // Still on track at the playhead: not a time yet
+                {{ driver_number: 5, lap_duration: 88.0, date_start: "2026-07-04T10:30:00Z" }}
+            ];
+            const order = buildReplayQualiOrder(laps, phases, Date.parse("2026-07-04T10:31:00Z"));
+            console.log(JSON.stringify(order.map(row => [row.driverNumber, row.position, row.phaseLabel, row.seconds])));
+        """)
+        self.assertEqual(self._run_node(script), [
+            [1, 1, "Q2", 91.0],
+            [16, 2, "Q2", 93.5],
+            [44, 3, "Q1", 90.0],
+        ])
+
+    def test_quali_gap_shows_leader_time_same_phase_gap_and_carried_time(self):
+        helpers = "\n\n".join([
+            self._extract_function("formatLapTime"),
+            self._extract_function("formatReplayQualiGap"),
+        ])
+        script = textwrap.dedent(f"""
+            {helpers}
+
+            const leader = {{ position: 1, phaseIndex: 1, seconds: 91.0 }};
+            const values = [
+                formatReplayQualiGap(leader, leader),
+                formatReplayQualiGap({{ position: 2, phaseIndex: 1, seconds: 93.5 }}, leader),
+                formatReplayQualiGap({{ position: 3, phaseIndex: 0, seconds: 90.0 }}, leader),
+                formatReplayQualiGap({{ position: 4, phaseIndex: -1, seconds: null }}, leader)
+            ];
+            console.log(JSON.stringify(values));
+        """)
+        self.assertEqual(self._run_node(script), ["1:31.000", "+2.500", "1:30.000", "—"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4459,6 +4459,11 @@ body {
     display: none;
 }
 
+/* No compound known (e.g. driver in the garage): hide the hollow pill outline */
+.replay-tower-tyre:empty {
+    border-color: transparent;
+}
+
 .replay-tower-tyre.compound-soft {
     background: #ff3b30;
     border-color: rgba(255, 59, 48, 0.65);

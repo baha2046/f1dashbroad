@@ -4,6 +4,10 @@ from urllib.parse import urljoin
 
 from livetiming_client import LIVETIMING_STATIC_BASE, decode_z_payload
 
+# A LastLapTime exceeding the crossing-to-crossing wall clock by more than
+# this is garage-polluted (measured from pit entry) and gets replaced by it
+LAP_DURATION_OVERSHOOT_SECONDS = 3.0
+
 
 def to_float(value):
     try:
@@ -463,6 +467,58 @@ def normalize_livetiming_stints(records, session_key=None, stream_start_utc=None
     return sorted(rows, key=lambda row: (row["driver_number"], row["stint_number"], row["lap_start"]))
 
 
+def align_stints_with_lap_runs(stints, laps):
+    """Realign stint lap ranges to the runs visible in the lap stream.
+
+    TyreStintSeries carries per-stint lap counts from the timing lap counter,
+    which drifts from the lap records in qualifying-style sessions (the first
+    out-lap is never counted), landing every stint boundary one lap early and
+    leaving the final lap uncovered. The lap stream knows the real run
+    boundaries — a run starts at lap 1 or at a pit-out lap — so when a
+    driver's stint count matches their run count, each stint takes its run's
+    lap range. Drivers whose counts disagree keep the accumulated ranges.
+    """
+    runs_by_driver = {}
+    run_has_timed_lap = {}
+    ordered_laps = sorted(
+        (lap for lap in (laps if isinstance(laps, list) else []) if isinstance(lap, dict)),
+        key=lambda lap: (to_int(lap.get("driver_number")) or 0, to_int(lap.get("lap_number")) or 0),
+    )
+    for lap in ordered_laps:
+        driver_number = to_int(lap.get("driver_number"))
+        lap_number = to_int(lap.get("lap_number"))
+        if driver_number is None or lap_number is None:
+            continue
+        runs = runs_by_driver.setdefault(driver_number, [])
+        # A pit-out lap starts a new run — except when the run so far is only
+        # the counter-initialization phantom (date-less lap 1): the first
+        # out-lap belongs with it so stint 1 stays anchored at lap 1.
+        starts_new_run = bool(lap.get("is_pit_out_lap")) and run_has_timed_lap.get(driver_number, False)
+        if not runs or starts_new_run:
+            runs.append([lap_number, lap_number])
+            run_has_timed_lap[driver_number] = False
+        else:
+            runs[-1][1] = max(runs[-1][1], lap_number)
+        if lap.get("date_start") is not None:
+            run_has_timed_lap[driver_number] = True
+
+    rows = [dict(stint) if isinstance(stint, dict) else stint for stint in (stints if isinstance(stints, list) else [])]
+    stints_by_driver = {}
+    for row in rows:
+        if isinstance(row, dict):
+            stints_by_driver.setdefault(to_int(row.get("driver_number")), []).append(row)
+
+    for driver_number, driver_rows in stints_by_driver.items():
+        runs = runs_by_driver.get(driver_number)
+        if not runs or len(runs) != len(driver_rows):
+            continue
+        driver_rows.sort(key=lambda row: (row.get("stint_number") or 0, row.get("lap_start") or 0))
+        for row, (run_start, run_end) in zip(driver_rows, runs):
+            row["lap_start"] = run_start
+            row["lap_end"] = run_end
+    return rows
+
+
 def normalize_livetiming_pit(records, session_key=None, stream_start_utc=None):
     rows = []
     for timestamp, payload in records or []:
@@ -569,10 +625,11 @@ def normalize_livetiming_laps(records, session_key=None, stream_start_utc=None, 
             state = states.setdefault(driver_number, {})
             tracker = trackers.setdefault(driver_number, {"lap": 0, "completed_at": None, "pit_out": False})
             merge_timing_delta(state, delta)
-            if delta.get("PitOut"):
-                tracker["pit_out"] = True
+            pit_out_here = bool(delta.get("PitOut"))
             lap_count = to_int(state.get("NumberOfLaps"))
             if lap_count is None or lap_count <= tracker["lap"]:
+                if pit_out_here:
+                    tracker["pit_out"] = True
                 continue
 
             # The driver just completed lap `lap_count` at `event_time`.
@@ -586,8 +643,15 @@ def normalize_livetiming_laps(records, session_key=None, stream_start_utc=None, 
                 date_start = race_start
             elif event_time is not None and lap_duration is not None:
                 date_start = event_time - timedelta(seconds=lap_duration)
-            if lap_duration is None and date_start is not None and event_time is not None:
-                lap_duration = round((event_time - date_start).total_seconds(), 3)
+            if date_start is not None and event_time is not None:
+                # After a garage stay, upstream LastLapTime is measured from
+                # pit entry — before this lap's start at pit exit — so it
+                # overshoots the crossing-to-crossing wall clock and makes the
+                # lap window overlap the next lap. The wall clock wins then.
+                wall_clock = round((event_time - date_start).total_seconds(), 3)
+                overshoots = lap_duration is not None and lap_duration > wall_clock + LAP_DURATION_OVERSHOOT_SECONDS
+                if wall_clock > 0 and (lap_duration is None or overshoots):
+                    lap_duration = wall_clock
 
             rows.append({
                 "session_key": session_key,
@@ -606,7 +670,10 @@ def normalize_livetiming_laps(records, session_key=None, stream_start_utc=None, 
             })
             tracker["lap"] = lap_count
             tracker["completed_at"] = event_time
-            tracker["pit_out"] = False
+            # A PitOut delivered with the crossing itself marks this event as
+            # the pit exit (quali garage exits bump the lap counter with the
+            # PitOut delta), so the lap *starting* here is the out-lap.
+            tracker["pit_out"] = pit_out_here
     return sorted(rows, key=lambda row: (row["driver_number"], row["lap_number"]))
 
 

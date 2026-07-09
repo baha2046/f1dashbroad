@@ -100,6 +100,8 @@ const DOM = {
     replayStateChip: document.getElementById('replayStateChip'),
     replaySpeedToggle: document.getElementById('replaySpeedToggle'),
     replayRaceContext: document.getElementById('replayRaceContext'),
+    replayTowerOrderHeading: document.getElementById('replayTowerOrderHeading'),
+    replayTowerValueHeading: document.getElementById('replayTowerValueHeading'),
     replayRaceTower: document.getElementById('replayRaceTower'),
     replayTowerBody: document.getElementById('replayTowerBody'),
     replayMapContent: document.getElementById('replayMapContent'),

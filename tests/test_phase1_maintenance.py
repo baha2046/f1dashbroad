@@ -26,15 +26,11 @@ class SessionEndpointFactoryTests(unittest.TestCase):
         self.assertEqual(dashboard_app.RESULTS_ENDPOINT_CONFIG["cache_prefix"], "results_v2")
 
     def test_stints_route_reads_livetiming_keyframe(self):
-        self.assertEqual(
-            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["stints"]["feed"],
-            "TyreStintSeries",
-        )
-        self.assertFalse(dashboard_app.LIVETIMING_SESSION_ENDPOINTS["stints"]["stream"])
-        self.assertEqual(
-            dashboard_app.LIVETIMING_SESSION_ENDPOINTS["stints"]["cache_prefix"],
-            "stints_v2",
-        )
+        # /api/stints left the factory dict for a bespoke handler (lap-run
+        # alignment) but must keep the same feed/cache contract
+        self.assertEqual(dashboard_app.STINTS_ENDPOINT_CONFIG["feed"], "TyreStintSeries")
+        self.assertFalse(dashboard_app.STINTS_ENDPOINT_CONFIG["stream"])
+        self.assertEqual(dashboard_app.STINTS_ENDPOINT_CONFIG["cache_prefix"], "stints_v2")
 
 
 class ApiResponseHeaderTests(unittest.IsolatedAsyncioTestCase):
@@ -48,7 +44,7 @@ class ApiResponseHeaderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_large_api_response_is_gzipped_with_cache_control(self):
         payload = [{"lap_number": i, "lap_duration": 90.0 + i} for i in range(200)]
-        (self.cache_dir / "laps_4242.json").write_text(json.dumps(payload), encoding="utf-8")
+        (self.cache_dir / "laps_v2_4242.json").write_text(json.dumps(payload), encoding="utf-8")
 
         with patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)):
             client = dashboard_app.app.test_client()
@@ -65,7 +61,7 @@ class ApiResponseHeaderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_small_or_non_gzip_requests_are_not_compressed(self):
         payload = [{"lap_number": 1}]
-        (self.cache_dir / "laps_4242.json").write_text(json.dumps(payload), encoding="utf-8")
+        (self.cache_dir / "laps_v2_4242.json").write_text(json.dumps(payload), encoding="utf-8")
 
         with patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)):
             client = dashboard_app.app.test_client()

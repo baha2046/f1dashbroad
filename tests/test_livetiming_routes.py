@@ -87,8 +87,8 @@ class LivetimingCoreRouteTests(unittest.IsolatedAsyncioTestCase):
             "date_start": "2026-07-05T15:00:00Z",
             "lap_duration": 2.0,
         }]
-        (self.cache_dir / "laps_11326_44.json").write_text(json.dumps(laps), encoding="utf-8")
-        (self.cache_dir / "laps_11326.json").write_text(json.dumps(laps), encoding="utf-8")
+        (self.cache_dir / "laps_v2_11326_44.json").write_text(json.dumps(laps), encoding="utf-8")
+        (self.cache_dir / "laps_v2_11326.json").write_text(json.dumps(laps), encoding="utf-8")
 
     async def test_sessions_endpoint_uses_livetiming_year_index_without_key(self):
         fetch_year = AsyncMock(return_value=year_index_fixture())

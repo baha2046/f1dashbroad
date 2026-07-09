@@ -89,6 +89,76 @@ function buildReplayRaceOrder(positionIndex, ms) {
     ));
 }
 
+// Qualifying "running order": each driver's best lap completed at-or-before
+// the playhead, ranked phase-aware like the broadcast tower — any time set in
+// a later phase outranks times carried from earlier phases, so the Q1 order
+// seeds Q2 until Q2 laps land. Pit-out laps never count as times.
+function buildReplayQualiOrder(laps, phases, ms) {
+    const phaseList = Array.isArray(phases) ? phases : [];
+    const phaseIndexAt = (t) => {
+        let index = -1;
+        for (let i = 0; i < phaseList.length; i++) {
+            if (t >= phaseList[i].startMs) index = i;
+            else break;
+        }
+        return index;
+    };
+
+    const best = new Map(); // driverNumber -> { phaseIndex, seconds }
+    (Array.isArray(laps) ? laps : []).forEach(lap => {
+        const driverNumber = Number(lap && lap.driver_number);
+        const duration = Number(lap && lap.lap_duration);
+        const startMs = lap && lap.date_start ? new Date(lap.date_start).getTime() : NaN;
+        if (!Number.isFinite(driverNumber) || !Number.isFinite(startMs)) return;
+        if (!Number.isFinite(duration) || duration <= 0) return;
+        if (lap.is_pit_out_lap === true) return;
+        if (!Number.isFinite(ms) || startMs + duration * 1000 > ms) return;
+
+        // A lap belongs to the phase it started in: flying laps crossing the
+        // line after a phase's chequered flag still count to that phase
+        const phaseIndex = phaseIndexAt(startMs);
+        const current = best.get(driverNumber);
+        if (!current ||
+            phaseIndex > current.phaseIndex ||
+            (phaseIndex === current.phaseIndex && duration < current.seconds)) {
+            best.set(driverNumber, { phaseIndex, seconds: duration });
+        }
+    });
+
+    const rows = [];
+    best.forEach((entry, driverNumber) => {
+        rows.push({
+            driverNumber,
+            phaseIndex: entry.phaseIndex,
+            phaseLabel: entry.phaseIndex >= 0 && phaseList[entry.phaseIndex]
+                ? phaseList[entry.phaseIndex].label
+                : null,
+            seconds: entry.seconds
+        });
+    });
+
+    rows.sort((a, b) => (
+        b.phaseIndex - a.phaseIndex ||
+        a.seconds - b.seconds ||
+        a.driverNumber - b.driverNumber
+    ));
+    rows.forEach((row, index) => {
+        row.position = index + 1;
+    });
+    return rows;
+}
+
+// Leader shows the absolute best time; same-phase rivals show their deficit;
+// times carried from an earlier phase show absolute again (cross-phase gaps
+// are meaningless); no time yet is an em dash.
+function formatReplayQualiGap(row, leader) {
+    if (!row || !Number.isFinite(row.seconds)) return '—';
+    if (!leader || row.position === 1 || row.phaseIndex !== leader.phaseIndex) {
+        return formatLapTime(row.seconds);
+    }
+    return `+${(row.seconds - leader.seconds).toFixed(3)}`;
+}
+
 function deriveDriverLapAt(laps, ms, driverNumber = null) {
     if (!Array.isArray(laps) || !Number.isFinite(ms)) return null;
 
@@ -369,6 +439,7 @@ function clearReplayRaceContext() {
         state.replay.intervalIndex = null;
         state.replay.stintIndex = null;
         state.replay.pitWindows = null;
+        state.replay.qualiPhases = null;
         state.replay.highlightedDriverNumber = null;
         state.replay.lastContextTickMs = 0;
         state.replay.lastContextAbsMs = null;
@@ -430,12 +501,33 @@ function prepareReplayRaceContext() {
     state.replay.intervalIndex = buildDriverDateIndex(state.intervals);
     state.replay.stintIndex = buildReplayStintIndex(state.stints);
     state.replay.pitWindows = buildReplayPitWindows(state.pitStops, state.replay.timeline);
+    state.replay.qualiPhases = replayContextSessionMode() === 'quali' && typeof extractQualifyingPhases === 'function'
+        ? extractQualifyingPhases()
+        : null;
     state.replay.lastContextTickMs = 0;
     updateReplayLapChip();
 }
 
+// Which side-tower the session gets: 'race' towers follow the position
+// stream, 'quali' towers rank drivers by current best lap time
+function replayContextSessionMode() {
+    if (replaySupportsFullRace()) return 'race';
+    if (typeof isQualifyingSession === 'function' && isQualifyingSession(state.selectedSession)) return 'quali';
+    return null;
+}
+
 function replayRaceContextAvailable() {
-    return replaySupportsFullRace() && state.replay.timeline && state.replay.timeline.segments.length > 0;
+    return replayContextSessionMode() !== null &&
+        state.replay.timeline && state.replay.timeline.segments.length > 0;
+}
+
+function setReplayTowerHeadings(orderText, valueText) {
+    if (DOM.replayTowerOrderHeading && DOM.replayTowerOrderHeading.textContent !== orderText) {
+        DOM.replayTowerOrderHeading.textContent = orderText;
+    }
+    if (DOM.replayTowerValueHeading && DOM.replayTowerValueHeading.textContent !== valueText) {
+        DOM.replayTowerValueHeading.textContent = valueText;
+    }
 }
 
 async function ensureReplayIntervalsLoaded() {
@@ -469,7 +561,7 @@ async function ensureReplayIntervalsLoaded() {
 }
 
 async function ensureReplayAllSessionLapsLoaded() {
-    if (!state.selectedSession || !replaySupportsFullRace() || Array.isArray(state.allSessionLaps)) return null;
+    if (!state.selectedSession || replayContextSessionMode() === null || Array.isArray(state.allSessionLaps)) return null;
 
     const sessionKey = state.selectedSession.session_key;
     try {
@@ -660,6 +752,12 @@ function updateReplayRaceContext(force = false) {
     const allowRowFlash = Number.isFinite(previousAbsoluteMs) &&
         Math.abs(absoluteMs - previousAbsoluteMs) <= REPLAY_ROW_FLASH_MAX_JUMP_MS;
 
+    if (replayContextSessionMode() === 'quali') {
+        updateReplayQualiTower(absoluteMs, allowRowFlash);
+        return;
+    }
+    setReplayTowerHeadings('Running Order', 'Gaps');
+
     const positionIndex = state.replay.positionIndex || buildDriverDateIndex(state.position);
     const intervalIndex = state.replay.intervalIndex || buildDriverDateIndex(state.intervals);
     const stintIndex = state.replay.stintIndex || buildReplayStintIndex(state.stints);
@@ -720,6 +818,84 @@ function updateReplayRaceContext(force = false) {
         row.gap.textContent = retired
             ? '\u2014'
             : formatReplayGap(gapValue, isLeader);
+    });
+
+    Object.entries(state.replay.contextRows || {}).forEach(([driverNumber, row]) => {
+        row.row.hidden = !activeDrivers.has(driverNumber);
+    });
+    applyReplayHighlight();
+}
+
+// Qualifying side tower: rows rank by current best lap time instead of the
+// position stream. Drivers yet to set a time hold the tower's tail so the
+// field is visible from the green light; times carried from an earlier phase
+// are tagged with that phase's label (Q1/Q2) in the status column.
+function updateReplayQualiTower(absoluteMs, allowRowFlash) {
+    const phases = state.replay.qualiPhases ||
+        (typeof extractQualifyingPhases === 'function' ? extractQualifyingPhases() : []);
+    state.replay.qualiPhases = phases;
+    const stintIndex = state.replay.stintIndex || buildReplayStintIndex(state.stints);
+    state.replay.stintIndex = stintIndex;
+
+    const order = buildReplayQualiOrder(state.allSessionLaps, phases, absoluteMs);
+    const timedDrivers = new Set(order.map(row => row.driverNumber));
+    (Array.isArray(state.drivers) ? state.drivers : [])
+        .map(driver => Number(driver.driver_number))
+        .filter(driverNumber => Number.isFinite(driverNumber) && !timedDrivers.has(driverNumber))
+        .sort((a, b) => a - b)
+        .forEach(driverNumber => {
+            order.push({
+                driverNumber,
+                position: order.length + 1,
+                phaseIndex: -1,
+                phaseLabel: null,
+                seconds: null
+            });
+        });
+
+    if (order.length === 0) {
+        DOM.replayRaceContext.hidden = true;
+        clearReplayRaceControlTicker();
+        return;
+    }
+
+    DOM.replayRaceContext.hidden = false;
+    setReplayTowerHeadings('Best Times', 'Time');
+    const activeDrivers = new Set(order.map(row => String(row.driverNumber)));
+    const shownDrivers = new Set(order.map(row => Number(row.driverNumber)));
+    updateReplayRaceControlTicker(absoluteMs, shownDrivers);
+
+    const leader = order[0] && Number.isFinite(order[0].seconds) ? order[0] : null;
+    order.forEach((qualiRow, index) => {
+        const row = ensureReplayTowerRow(qualiRow.driverNumber);
+        if (!row) return;
+
+        const wasVisible = !row.row.hidden;
+        if (allowRowFlash && wasVisible) {
+            applyReplayRowFlash(row.row, replayPositionFlashClass(row.lastPosition, qualiRow.position));
+        }
+        row.lastPosition = qualiRow.position;
+
+        const driver = getReplayDriver(qualiRow.driverNumber);
+        const lapRecord = deriveDriverLapAt(state.allSessionLaps, absoluteMs, qualiRow.driverNumber);
+        const stint = lapRecord ? stintForDriverLap(stintIndex, qualiRow.driverNumber, lapRecord.lapNumber) : null;
+        const tyre = formatReplayTyreCompound(stint && stint.compound);
+        // A best time carried over from an earlier phase gets that phase's tag
+        const stalePhase = leader && Number.isFinite(qualiRow.seconds) && qualiRow.phaseIndex < leader.phaseIndex;
+
+        row.row.hidden = false;
+        row.row.style.order = String(index);
+        row.row.classList.remove('out', 'in-pit');
+        row.color.style.background = `#${getDriverTeamHex(driver)}`;
+        row.pos.textContent = String(qualiRow.position);
+        row.driver.textContent = getReplayDriverCode(qualiRow.driverNumber);
+        row.tyre.textContent = tyre ? tyre.label : '';
+        row.tyre.title = tyre ? tyre.title : '';
+        row.tyre.className = tyre ? `replay-tower-tyre ${tyre.className}` : 'replay-tower-tyre';
+        row.status.textContent = stalePhase ? (qualiRow.phaseLabel || '') : '';
+        row.status.className = 'replay-tower-status';
+        row.gap.textContent = formatReplayQualiGap(qualiRow, leader);
+        row.gap.title = Number.isFinite(qualiRow.seconds) ? formatLapTime(qualiRow.seconds) : 'No time set';
     });
 
     Object.entries(state.replay.contextRows || {}).forEach(([driverNumber, row]) => {

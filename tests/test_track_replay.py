@@ -58,7 +58,7 @@ class TrackReplayEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         self.cache_dir.mkdir(parents=True)
-        (self.cache_dir / "laps_4242_1.json").write_text(
+        (self.cache_dir / "laps_v2_4242_1.json").write_text(
             json.dumps(LAP_FIXTURES), encoding="utf-8"
         )
 
@@ -141,7 +141,7 @@ class TrackReplayEndpointTests(unittest.IsolatedAsyncioTestCase):
         ])
         first = await self.request(fetch_mock)
         self.assertEqual(first.status_code, 200)
-        cache_file = self.cache_dir / "track_replay_4242_1_5.json"
+        cache_file = self.cache_dir / "track_replay_v2_4242_1_5.json"
         self.assertTrue(cache_file.exists())
 
         second = await self.request(fetch_mock)
@@ -198,7 +198,7 @@ class TrackReplayFullRaceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         self.cache_dir.mkdir(parents=True)
-        (self.cache_dir / "laps_4242.json").write_text(
+        (self.cache_dir / "laps_v2_4242.json").write_text(
             json.dumps(RACE_LAP_FIXTURES), encoding="utf-8"
         )
 
@@ -254,7 +254,7 @@ class TrackReplayFullRaceEndpointTests(unittest.IsolatedAsyncioTestCase):
         ])
         first = await self.request(fetch_mock)
         self.assertEqual(first.status_code, 200)
-        self.assertTrue((self.cache_dir / "track_replay_4242_race_5.json").exists())
+        self.assertTrue((self.cache_dir / "track_replay_v2_4242_race_5.json").exists())
 
         second = await self.request(fetch_mock)
         self.assertEqual(second.status_code, 200)
@@ -317,7 +317,7 @@ class TrackReplayWindowEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         start_ms = int(datetime(2026, 5, 23, 14, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
         end_ms = int(datetime(2026, 5, 23, 14, 2, 0, tzinfo=timezone.utc).timestamp() * 1000)
-        cache_file = self.cache_dir / f"track_replay_4242_window_{start_ms}_{end_ms}.json"
+        cache_file = self.cache_dir / f"track_replay_v2_4242_window_{start_ms}_{end_ms}.json"
         self.assertTrue(cache_file.exists())
 
         second = await self.request(fetch_mock)

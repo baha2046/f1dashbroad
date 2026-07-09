@@ -63,7 +63,7 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         self.cache_dir.mkdir(parents=True)
-        (self.cache_dir / "laps_4242_1.json").write_text(
+        (self.cache_dir / "laps_v2_4242_1.json").write_text(
             json.dumps(LAP_FIXTURES), encoding="utf-8"
         )
 
@@ -160,7 +160,7 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
         fetch_mock = AsyncMock(return_value=[car_sample("2026-05-24T13:03:10+00:00")])
         first = await self.request(fetch_mock)
         self.assertEqual(first.status_code, 200)
-        cache_file = self.cache_dir / "car_telemetry_4242_1_5.json"
+        cache_file = self.cache_dir / "car_telemetry_v2_4242_1_5.json"
         self.assertTrue(cache_file.exists())
 
         second = await self.request(fetch_mock)

@@ -18,6 +18,7 @@ from livetiming_client import (
     resolve_livetiming_session_ref,
 )
 from livetiming_compat import (
+    align_stints_with_lap_runs,
     derive_session_started_utc,
     derive_stream_start_utc,
     flatten_car_data_z,
@@ -844,7 +845,6 @@ async def api_drivers():
 # Cache file names stay "<route>_<session_key>.json" to preserve local caches.
 LIVETIMING_SESSION_ENDPOINTS = {
     "weather": {"feed": "WeatherData", "normalizer": normalize_livetiming_weather},
-    "stints": {"feed": "TyreStintSeries", "normalizer": normalize_livetiming_stints, "stream": False, "cache_prefix": "stints_v2"},
     "pit": {"feed": "PitLaneTimeCollection", "normalizer": normalize_livetiming_pit},
     "position": {"feed": "TimingData", "normalizer": normalize_livetiming_position},
     "intervals": {"feed": "TimingData", "normalizer": normalize_livetiming_intervals},
@@ -1035,6 +1035,13 @@ async def api_results():
     data = await enrich_results_with_jolpica(data, session_key, year=year)
     return await session_response(data, session_key, year=year)
 
+# Bumped to v2 when lap normalization fixed garage-polluted out-lap durations
+# and pit-out flags landing on the in-lap; older laps_* files carry bad values
+def laps_cache_name(session_key, driver_number=None):
+    if driver_number is None:
+        return f"laps_v2_{session_key}.json"
+    return f"laps_v2_{session_key}_{driver_number}.json"
+
 async def fetch_livetiming_laps_payload(session_key, driver_number=None, year=None):
     if year is None:
         year = await find_session_year(session_key)
@@ -1089,9 +1096,7 @@ async def api_laps():
         driver_number = parse_int_param(driver_number)
         if driver_number is None:
             return invalid_param_response("driver_number")
-        cache_name = f"laps_{session_key}_{driver_number}.json"
-    else:
-        cache_name = f"laps_{session_key}.json"
+    cache_name = laps_cache_name(session_key, driver_number)
 
     data = await get_cached_livetiming(
         cache_name,
@@ -1099,6 +1104,39 @@ async def api_laps():
         session_key=session_key,
         year=year,
     )
+    return await session_response(data, session_key, year=year)
+
+# /api/stints is bespoke: TyreStintSeries lap counts drift from the lap
+# records in qualifying-style sessions (the first out-lap is never counted),
+# so stint lap ranges are realigned to the laps payload's runs per request.
+STINTS_ENDPOINT_CONFIG = {
+    "feed": "TyreStintSeries",
+    "normalizer": normalize_livetiming_stints,
+    "stream": False,
+    "cache_prefix": "stints_v2",
+}
+
+@app.route("/api/stints")
+async def api_stints():
+    session_key = parse_int_param(request.args.get("session_key"))
+    if session_key is None:
+        return invalid_param_response("session_key")
+    year, year_error = parse_optional_year_param()
+    if year_error is not None:
+        return year_error
+
+    data = await get_livetiming_session_payload("stints", STINTS_ENDPOINT_CONFIG, session_key, year=year)
+    try:
+        laps = await get_cached_livetiming(
+            laps_cache_name(session_key),
+            lambda: fetch_livetiming_laps_payload(session_key, year=year),
+            session_key=session_key,
+            year=year,
+        )
+        data = align_stints_with_lap_runs(data, laps)
+    except Exception as e:
+        # Alignment is best-effort: without laps the accumulated ranges stand
+        logger.warning(f"Stint/lap alignment unavailable for session {session_key}: {e}")
     return await session_response(data, session_key, year=year)
 
 def parse_iso_utc(value):
@@ -1206,7 +1244,8 @@ async def api_car_telemetry():
     if year_error is not None:
         return year_error
 
-    cache_name = f"car_telemetry_{session_key}_{driver_number}_{lap_number}.json"
+    # v2: windows derive from the laps payload, rebuilt when laps moved to v2
+    cache_name = f"car_telemetry_v2_{session_key}_{driver_number}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
     session = await asyncio.to_thread(get_session_info, session_key, year)
     ttl = None if is_historical(session) else 300
@@ -1221,7 +1260,7 @@ async def api_car_telemetry():
             return await session_response(cached, session_key, year=year)
 
         laps = await get_cached_livetiming(
-            f"laps_{session_key}_{driver_number}.json",
+            laps_cache_name(session_key, driver_number),
             lambda: fetch_livetiming_laps_payload(session_key, driver_number, year=year),
             session_key=session_key,
             year=year,
@@ -1325,13 +1364,15 @@ async def api_track_replay():
     if year_error is not None:
         return year_error
 
+    # v2: lap-scoped windows derive from the laps payload, rebuilt when laps
+    # moved to v2 (explicit windows share the prefix for tidy cache naming)
     if window_start is not None:
         start_token = int(window_start.timestamp() * 1000)
         end_token = int(window_end.timestamp() * 1000)
-        cache_name = f"track_replay_{session_key}_window_{start_token}_{end_token}.json"
+        cache_name = f"track_replay_v2_{session_key}_window_{start_token}_{end_token}.json"
     else:
         replay_scope = "race" if driver_number is None else driver_number
-        cache_name = f"track_replay_{session_key}_{replay_scope}_{lap_number}.json"
+        cache_name = f"track_replay_v2_{session_key}_{replay_scope}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
     session = await asyncio.to_thread(get_session_info, session_key, year)
     ttl = None if is_historical(session) else 300
@@ -1350,12 +1391,8 @@ async def api_track_replay():
             start, end = window_start, window_end
             lap_duration = None
         else:
-            if driver_number is None:
-                laps_cache_name = f"laps_{session_key}.json"
-            else:
-                laps_cache_name = f"laps_{session_key}_{driver_number}.json"
             laps = await get_cached_livetiming(
-                laps_cache_name,
+                laps_cache_name(session_key, driver_number),
                 lambda: fetch_livetiming_laps_payload(session_key, driver_number, year=year),
                 session_key=session_key,
                 year=year,

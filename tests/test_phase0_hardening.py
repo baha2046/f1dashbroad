@@ -134,7 +134,7 @@ class CacheBehaviorTests(unittest.IsolatedAsyncioTestCase):
             response = await client.get("/api/laps?session_key=4242")
 
         self.assertEqual(response.status_code, 200)
-        cache_file = self.cache_dir / "laps_4242.json"
+        cache_file = self.cache_dir / "laps_v2_4242.json"
         self.assertTrue(cache_file.exists())
         cached = json.loads(cache_file.read_text(encoding="utf-8"))
         self.assertEqual(cached[0]["driver_number"], 44)
