@@ -57,6 +57,7 @@ function createReplayState() {
         rafId: null,
         lastFrameTs: null,
         carNodes: {},      // driver_number -> { group, samples } for the built SVG
+        sectorNodes: {},   // marshal sector number -> { path, badge } for the built SVG
         lastContextTickMs: 0,
         lastContextAbsMs: null, // playhead position at the previous context tick (row-flash jump guard)
         contextRows: {},

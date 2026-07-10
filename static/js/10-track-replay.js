@@ -169,6 +169,80 @@ function extractCircuitStatePeriods(records) {
     return { periods: mergeYellowPeriods(periods), chequeredMs };
 }
 
+// Per-sector yellow spans from race control messages ("YELLOW IN TRACK
+// SECTOR 8" ... sector-scope CLEAR), keeping the sector identity that
+// extractCircuitStatePeriods merges away — the map's marshal-sector
+// highlights need to know *which* sector is yellow. Closure rules mirror
+// extractCircuitStatePeriods: a sector-scope CLEAR/GREEN ends that sector,
+// a track-scope CLEAR/GREEN or a red flag ends every open sector yellow.
+function extractSectorYellowPeriods(records) {
+    const sorted = (Array.isArray(records) ? records : [])
+        .map(record => ({ record, ms: record && record.date ? new Date(record.date).getTime() : NaN }))
+        .filter(item => Number.isFinite(item.ms))
+        .sort((a, b) => a.ms - b.ms);
+
+    const periods = [];
+    const open = new Map(); // sector number -> { startMs, double }
+
+    const closeSector = (sector, endMs) => {
+        const entry = open.get(sector);
+        if (!entry) return;
+        periods.push({ sector, double: entry.double, startMs: entry.startMs, endMs });
+        open.delete(sector);
+    };
+    const closeAll = (endMs) => {
+        [...open.keys()].forEach(sector => closeSector(sector, endMs));
+    };
+
+    // The sector number rides on the record when the normalizer kept it;
+    // older cached rows only carry it in the message text ("... TRACK SECTOR 8")
+    const sectorOf = (record, message) => {
+        // Number(null) is 0, so a missing field must not look like sector 0
+        const fromField = record.sector === null || record.sector === undefined
+            ? NaN
+            : Number(record.sector);
+        if (Number.isFinite(fromField)) return fromField;
+        const match = message.match(/TRACK SECTOR (\d+)/);
+        return match ? Number(match[1]) : NaN;
+    };
+
+    sorted.forEach(({ record, ms }) => {
+        const message = (record.message || '').toUpperCase();
+        const flag = (record.flag || '').toUpperCase();
+        const scope = (record.scope || '').toUpperCase();
+        const sector = sectorOf(record, message);
+        const isSectorScope = scope === 'SECTOR' && Number.isFinite(sector);
+
+        if (flag === 'RED' || message.startsWith('RED FLAG')) {
+            closeAll(ms);
+            return;
+        }
+        if ((flag === 'YELLOW' || flag === 'DOUBLE YELLOW') && isSectorScope) {
+            const double = flag === 'DOUBLE YELLOW';
+            const existing = open.get(sector);
+            if (!existing) {
+                open.set(sector, { startMs: ms, double });
+            } else if (double && !existing.double) {
+                // Escalation: the single yellow ends where the double begins
+                closeSector(sector, ms);
+                open.set(sector, { startMs: ms, double: true });
+            }
+            return;
+        }
+        if (flag === 'CLEAR' || flag === 'GREEN') {
+            if (isSectorScope) {
+                closeSector(sector, ms);
+                return;
+            }
+            closeAll(ms);
+        }
+    });
+
+    // Sectors still yellow (live session, feed gap) run to the timeline edge
+    closeAll(Infinity);
+    return periods;
+}
+
 // SessionData StatusSeries track-status values mapped to replay band types.
 // TrackStatus is a single track-wide state machine: each value replaces the
 // previous one, and the *Ending values keep the same band open until AllClear.
@@ -242,11 +316,14 @@ function extractCircuitStatePeriodsFromStatus(rows) {
 // StatusSeries, fall back to race-control message parsing when a session has
 // no usable status feed.
 function getReplayCircuitStates() {
+    // Sector-level yellows always come from race control — the StatusSeries
+    // is a single track-wide state machine with no sector granularity.
+    const sectorYellows = extractSectorYellowPeriods(state.raceControl);
     const fromStatus = extractCircuitStatePeriodsFromStatus(state.sessionStatusSeries);
     if (fromStatus.periods.length > 0 || fromStatus.chequeredMs !== null) {
-        return fromStatus;
+        return { ...fromStatus, sectorYellows };
     }
-    return extractCircuitStatePeriods(state.raceControl);
+    return { ...extractCircuitStatePeriods(state.raceControl), sectorYellows };
 }
 
 function resetReplay() {
@@ -1001,6 +1078,86 @@ async function loadTrackReplay(driverNumber, lapNumber, options = {}) {
     }
 }
 
+// Split the closed track polyline into per-marshal-sector segments. Each
+// sector starts at the polyline point nearest its trackPosition and runs in
+// polyline direction (wrapping past the start/finish line) to the next
+// sector's start — MultiViewer orders both the polyline and the sector
+// numbers in racing direction. Badge points sit just outside the racing line
+// so the sector numbers don't cover the track.
+function buildMarshalSectorSegments(trackPoints, marshalSectors) {
+    const points = Array.isArray(trackPoints) ? trackPoints : [];
+    const sectors = (Array.isArray(marshalSectors) ? marshalSectors : [])
+        .filter(s => s && s.trackPosition)
+        .map(s => ({ number: Number(s.number), x: Number(s.trackPosition.x), y: Number(s.trackPosition.y) }))
+        .filter(s => Number.isFinite(s.number) && Number.isFinite(s.x) && Number.isFinite(s.y))
+        .sort((a, b) => a.number - b.number);
+    if (points.length < 4 || sectors.length < 2) return [];
+
+    const nearestIndex = (x, y) => {
+        let best = 0;
+        let bestDist = Infinity;
+        points.forEach(([px, py], i) => {
+            const dist = (px - x) * (px - x) + (py - y) * (py - y);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+            }
+        });
+        return best;
+    };
+
+    // Loop orientation (signed area) decides which perpendicular points
+    // off-track; badge offset scales with the track's own extent.
+    let area = 0;
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+    points.forEach(([x, y], i) => {
+        const [nx, ny] = points[(i + 1) % points.length];
+        area += x * ny - nx * y;
+        if (x < xMin) xMin = x;
+        if (x > xMax) xMax = x;
+        if (y < yMin) yMin = y;
+        if (y > yMax) yMax = y;
+    });
+    const orientation = area >= 0 ? 1 : -1;
+    const badgeOffset = Math.max(xMax - xMin, yMax - yMin) * 0.05;
+
+    const starts = sectors.map(sector => ({ number: sector.number, index: nearestIndex(sector.x, sector.y) }));
+    return starts.map((sector, i) => {
+        const next = starts[(i + 1) % starts.length];
+        const segment = [points[sector.index]];
+        for (let idx = sector.index; idx !== next.index;) {
+            idx = (idx + 1) % points.length;
+            segment.push(points[idx]);
+        }
+
+        const [px, py] = points[sector.index];
+        const [ax, ay] = points[(sector.index - 1 + points.length) % points.length];
+        const [bx, by] = points[(sector.index + 1) % points.length];
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len = Math.hypot(dx, dy) || 1;
+        const badge = [
+            px + orientation * (dy / len) * badgeOffset,
+            py - orientation * (dx / len) * badgeOffset
+        ];
+        return { number: sector.number, points: segment, badge };
+    });
+}
+
+// Sector number -> 'yellow' | 'double-yellow' for the sector yellows active
+// at an absolute session time (double yellow wins when spans overlap).
+function activeSectorYellowsAt(sectorYellows, ms) {
+    const active = new Map();
+    if (ms === null || !Number.isFinite(ms)) return active;
+    (Array.isArray(sectorYellows) ? sectorYellows : []).forEach(period => {
+        if (ms < period.startMs || ms >= period.endMs) return;
+        if (period.double || !active.has(period.sector)) {
+            active.set(period.sector, period.double ? 'double-yellow' : 'yellow');
+        }
+    });
+    return active;
+}
+
 // Fit-to-bounds projection into a square viewBox (same math as renderCircuitTab)
 function buildReplayProjection(bounds, viewBoxSize, padding) {
     const width = Math.max(bounds.xMax - bounds.xMin, 1);
@@ -1070,6 +1227,45 @@ function buildReplayScene(payload, cacheKey, options = {}) {
     trackPath.setAttribute("d", pathD);
     trackPath.setAttribute("class", "replay-track-path");
     svg.appendChild(trackPath);
+
+    // Marshal-sector overlay: a per-sector copy of the racing line plus a
+    // numbered badge, lit by updateReplayCircuitState while race control has
+    // a yellow in that track sector (the map mirror of "YELLOW IN TRACK
+    // SECTOR n"). Only the circuit_info outline knows the sector geometry —
+    // the racing-line fallback draws no overlay.
+    state.replay.sectorNodes = {};
+    const marshalSegments = closePath && info
+        ? buildMarshalSectorSegments(trackPoints, info.marshalSectors)
+        : [];
+    marshalSegments.forEach(segment => {
+        if (segment.points.length < 2) return;
+        const sectorPath = document.createElementNS(svgNamespace, "path");
+        sectorPath.setAttribute("d", segment.points
+            .map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${mapX(x).toFixed(1)} ${mapY(y).toFixed(1)}`)
+            .join(' '));
+        sectorPath.setAttribute("class", "replay-sector-path");
+        sectorPath.setAttribute("data-sector", String(segment.number));
+        svg.appendChild(sectorPath);
+
+        const badge = document.createElementNS(svgNamespace, "g");
+        badge.setAttribute("class", "replay-sector-badge");
+        badge.setAttribute("data-sector", String(segment.number));
+        badge.setAttribute("transform", `translate(${mapX(segment.badge[0]).toFixed(1)}, ${mapY(segment.badge[1]).toFixed(1)})`);
+        const box = document.createElementNS(svgNamespace, "rect");
+        box.setAttribute("x", -17);
+        box.setAttribute("y", -13);
+        box.setAttribute("width", 34);
+        box.setAttribute("height", 26);
+        box.setAttribute("rx", 6);
+        badge.appendChild(box);
+        const number = document.createElementNS(svgNamespace, "text");
+        number.setAttribute("dy", 5.5);
+        number.textContent = String(segment.number);
+        badge.appendChild(number);
+        svg.appendChild(badge);
+
+        state.replay.sectorNodes[segment.number] = { path: sectorPath, badge };
+    });
 
     // Reference driver drawn last so it stays on top
     const orderedDrivers = [...payload.drivers].sort((a, b) => (
@@ -1201,18 +1397,36 @@ function updateReplayCircuitState() {
     const ms = state.replay.data ? getReplayAbsoluteMs(state.replay.t) : null;
     const stateType = timeline ? circuitStateAt(timeline.states, ms) : null;
 
+    // Light the marshal-sector overlay for sector-scope yellows at the playhead
+    const activeSectors = timeline && timeline.states
+        ? activeSectorYellowsAt(timeline.states.sectorYellows, ms)
+        : new Map();
+
     if (DOM.replayStateChip) {
         DOM.replayStateChip.hidden = !stateType;
         DOM.replayStateChip.textContent = stateType ? (REPLAY_STATE_LABELS[stateType] || stateType) : '';
         DOM.replayStateChip.className = stateType ? `replay-state-chip state-${stateType}` : 'replay-state-chip';
     }
+    // A yellow with known sectors lights only those sectors (like the F1 app);
+    // the track-wide tint is kept for yellows with no sector info and for
+    // SC/VSC/red, which really do cover the whole circuit.
+    const suppressTrackTint = stateType === 'yellow'
+        && activeSectors.size > 0
+        && Object.keys(state.replay.sectorNodes || {}).length > 0;
     if (DOM.replayMapContent) {
-        if (stateType) {
+        if (stateType && !suppressTrackTint) {
             DOM.replayMapContent.dataset.circuitState = stateType;
         } else {
             delete DOM.replayMapContent.dataset.circuitState;
         }
     }
+    Object.entries(state.replay.sectorNodes || {}).forEach(([sector, node]) => {
+        const level = activeSectors.get(Number(sector));
+        node.path.classList.toggle('sector-yellow', level === 'yellow');
+        node.path.classList.toggle('sector-double-yellow', level === 'double-yellow');
+        node.badge.classList.toggle('sector-yellow', level === 'yellow');
+        node.badge.classList.toggle('sector-double-yellow', level === 'double-yellow');
+    });
 }
 
 // Live mode refreshed state.raceControl: recompute the bands and re-render

@@ -306,6 +306,7 @@ def normalize_livetiming_race_control(records, session_key=None, stream_start_ut
                 "category": message.get("Category"),
                 "flag": message.get("Flag"),
                 "scope": message.get("Scope"),
+                "sector": to_int(message.get("Sector")),
                 "message": text,
                 "driver_number": driver_number,
             })

@@ -4804,6 +4804,68 @@ body {
     stroke-width: 14;
 }
 
+/* Marshal-sector overlay: lit while race control has a yellow in that sector */
+.replay-sector-path {
+    fill: none;
+    opacity: 0;
+    pointer-events: none;
+    stroke: transparent;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 18;
+    transition: opacity var(--transition-fast);
+}
+
+.replay-sector-path.sector-yellow {
+    opacity: 1;
+    stroke: rgba(255, 214, 0, 0.85);
+}
+
+.replay-sector-path.sector-double-yellow {
+    opacity: 1;
+    stroke: rgba(255, 152, 0, 0.95);
+}
+
+.replay-sector-badge {
+    opacity: 0.5;
+    pointer-events: none;
+    transition: opacity var(--transition-fast);
+}
+
+.replay-sector-badge rect {
+    fill: rgba(24, 24, 30, 0.92);
+    stroke: rgba(255, 255, 255, 0.22);
+    stroke-width: 1.5;
+}
+
+.replay-sector-badge text {
+    fill: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    font-weight: 800;
+    text-anchor: middle;
+}
+
+.replay-sector-badge.sector-yellow,
+.replay-sector-badge.sector-double-yellow {
+    opacity: 1;
+}
+
+.replay-sector-badge.sector-yellow rect {
+    fill: rgba(255, 214, 0, 0.95);
+    stroke: rgba(255, 214, 0, 1);
+}
+
+.replay-sector-badge.sector-double-yellow rect {
+    fill: rgba(255, 152, 0, 0.95);
+    stroke: rgba(255, 152, 0, 1);
+}
+
+.replay-sector-badge.sector-yellow text,
+.replay-sector-badge.sector-double-yellow text {
+    fill: #16161c;
+}
+
 .replay-car-dot {
     stroke: rgba(6, 6, 9, 0.9);
     stroke-width: 3;
