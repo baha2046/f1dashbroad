@@ -155,6 +155,9 @@ async function selectSession(session) {
         renderCompareDriverSelector();
         renderCompareLapChart();
         renderCircuitTab();
+        if (state.currentTab === 'circuit-view') {
+            maybeLoadCircuitSectorBenchmarks();
+        }
         setupReplaySection();
         renderResultsTab();
         renderRaceStandingsTables();
@@ -245,12 +248,20 @@ async function fetchDriverLaps(sessionKey, driverNumber) {
 async function fetchAllSessionLaps(sessionKey) {
     if (Array.isArray(state.allSessionLaps)) return state.allSessionLaps;
 
+    const sessionSnapshot = state.selectedSession;
+    const requestedSessionKey = Number(sessionKey);
+
     try {
-        const response = await customFetch(`/api/laps?session_key=${sessionKey}${sessionYearParam()}`);
+        const response = await customFetch(`/api/laps?session_key=${sessionKey}${sessionYearParam(sessionSnapshot)}`);
         if (response.ok) {
             const laps = await response.json();
             if (Array.isArray(laps)) {
-                state.allSessionLaps = laps;
+                if (
+                    state.selectedSession &&
+                    Number(state.selectedSession.session_key) === requestedSessionKey
+                ) {
+                    state.allSessionLaps = laps;
+                }
                 return laps;
             }
         }

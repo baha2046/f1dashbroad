@@ -691,60 +691,148 @@
 
                 <!-- Circuit Details View -->
                 <section class="tab-view" id="circuit-view" aria-label="Circuit details data">
-                    <div class="circuit-layout">
-                        <!-- Left Panel: Circuit stats card -->
-                        <div class="circuit-info-card glass">
-                            <div class="circuit-card-header">
-                                <span class="material-icons-round circuit-info-icon">info</span>
-                                <h3>Circuit Information</h3>
-                            </div>
-                            <div class="circuit-details-grid">
-                                <div class="detail-tile">
-                                    <span class="detail-label">Official Event Name</span>
-                                    <span class="detail-value" id="circuitOfficialName">--</span>
-                                </div>
-                                <div class="detail-tile">
-                                    <span class="detail-label">Circuit Short Name</span>
-                                    <span class="detail-value" id="circuitShortName">--</span>
-                                </div>
-                                <div class="detail-tile">
-                                    <span class="detail-label">Location / City</span>
-                                    <span class="detail-value" id="circuitLocation">--</span>
-                                </div>
-                                <div class="detail-tile">
-                                    <span class="detail-label">Country</span>
-                                    <span class="detail-value" id="circuitCountry">--</span>
-                                </div>
-                                <div class="detail-tile">
-                                    <span class="detail-label">Track Type</span>
-                                    <span class="detail-value" id="circuitType">--</span>
-                                </div>
-                                <div class="detail-tile">
-                                    <span class="detail-label">Local Timezone Offset</span>
-                                    <span class="detail-value" id="circuitGmtOffset">--</span>
-                                </div>
-                                <div class="detail-tile">
-                                    <span class="detail-label">Event Start Date</span>
-                                    <span class="detail-value" id="circuitStartDate">--</span>
-                                </div>
-                                <div class="detail-tile">
-                                    <span class="detail-label">Event End Date</span>
-                                    <span class="detail-value" id="circuitEndDate">--</span>
+                    <div class="circuit-dashboard">
+                        <header class="circuit-profile-hero glass">
+                            <div class="circuit-hero-copy">
+                                <span class="circuit-eyebrow">
+                                    <span class="circuit-hero-flag" id="circuitHeroFlag" aria-hidden="true">🏁</span>
+                                    Track profile
+                                    <span class="circuit-round-chip" id="circuitRoundChip">Season circuit</span>
+                                </span>
+                                <h2 id="circuitShortName">--</h2>
+                                <p id="circuitOfficialName">--</p>
+                                <div class="circuit-location-line">
+                                    <span class="material-icons-round" aria-hidden="true">location_on</span>
+                                    <strong id="circuitLocation">--</strong>
+                                    <span class="circuit-location-dot" aria-hidden="true"></span>
+                                    <span id="circuitCountry">--</span>
                                 </div>
                             </div>
-                        </div>
+                            <div class="circuit-event-window" aria-label="Event window">
+                                <div class="circuit-event-window-heading">
+                                    <span>Event window · track time</span>
+                                    <span class="material-icons-round" aria-hidden="true">calendar_month</span>
+                                </div>
+                                <div class="circuit-event-date">
+                                    <span class="circuit-event-date-marker start" aria-hidden="true"></span>
+                                    <div>
+                                        <small>Starts</small>
+                                        <strong id="circuitStartDate">--</strong>
+                                    </div>
+                                </div>
+                                <span class="circuit-event-date-rail" aria-hidden="true"></span>
+                                <div class="circuit-event-date">
+                                    <span class="circuit-event-date-marker finish" aria-hidden="true"></span>
+                                    <div>
+                                        <small>Ends</small>
+                                        <strong id="circuitEndDate">--</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </header>
 
-                        <!-- Right Panel: Circuit visualization -->
-                        <div class="circuit-map-card glass">
-                            <div class="circuit-card-header">
-                                <span class="material-icons-round circuit-map-icon">map</span>
-                                <h3>Track Layout</h3>
+                        <div class="circuit-layout">
+                            <div class="circuit-map-card glass">
+                                <div class="circuit-map-toolbar">
+                                    <div>
+                                        <span class="circuit-section-kicker">Interactive map</span>
+                                        <h3>Track layout</h3>
+                                        <p>Explore the corner sequence and official marshal sectors.</p>
+                                    </div>
+                                    <div class="circuit-layer-switcher" role="group" aria-label="Track map layer">
+                                        <button type="button" class="circuit-layer-btn active" data-circuit-layer-toggle="sectors" aria-pressed="true">
+                                            <span class="material-icons-round" aria-hidden="true">grid_view</span>
+                                            Sectors
+                                        </button>
+                                        <button type="button" class="circuit-layer-btn" data-circuit-layer-toggle="corners" aria-pressed="false">
+                                            <span class="material-icons-round" aria-hidden="true">pin_drop</span>
+                                            Corners
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="circuit-map-content" id="circuitMapContent" data-layer="sectors">
+                                    <!-- Dynamically rendered SVG track map or F1 fallback image -->
+                                </div>
+                                <div class="circuit-map-footer">
+                                    <div class="circuit-map-status" aria-live="polite">
+                                        <span class="material-icons-round" id="circuitMapStatusIcon" aria-hidden="true">touch_app</span>
+                                        <div>
+                                            <strong id="circuitMapStatusTitle">Explore the track</strong>
+                                            <span id="circuitMapStatusText">Hover, focus, or select a sector to inspect it.</span>
+                                        </div>
+                                    </div>
+                                    <div class="circuit-map-legend" aria-label="Track map legend">
+                                        <span><i class="legend-start"></i>Start / finish</span>
+                                        <span><i class="legend-sector"></i>Marshal sector</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="circuit-map-content" id="circuitMapContent">
-                                <!-- Dynamically rendered SVG track map or F1 fallback image -->
-                            </div>
-                        </div>
 
+                            <aside class="circuit-side-stack" aria-label="Circuit insights">
+                                <section class="circuit-snapshot-card glass">
+                                    <div class="circuit-side-heading">
+                                        <div>
+                                            <span class="circuit-section-kicker">At a glance</span>
+                                            <h3>Track DNA</h3>
+                                        </div>
+                                        <span class="material-icons-round" aria-hidden="true">query_stats</span>
+                                    </div>
+                                    <div class="circuit-stat-grid">
+                                        <div class="circuit-stat-card corners">
+                                            <span class="material-icons-round" aria-hidden="true">conversion_path</span>
+                                            <strong id="circuitCornerCount">--</strong>
+                                            <small>Corners</small>
+                                        </div>
+                                        <div class="circuit-stat-card sectors">
+                                            <span class="material-icons-round" aria-hidden="true">grid_view</span>
+                                            <strong id="circuitMarshalSectorCount">--</strong>
+                                            <small>Marshal sectors</small>
+                                        </div>
+                                        <div class="circuit-stat-card direction">
+                                            <span class="material-icons-round" aria-hidden="true">rotate_right</span>
+                                            <strong id="circuitDirection">--</strong>
+                                            <small>Direction</small>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="circuit-sector-card glass">
+                                    <div class="circuit-side-heading">
+                                        <div>
+                                            <span class="circuit-section-kicker">Session pace</span>
+                                            <h3>Sector benchmarks</h3>
+                                        </div>
+                                        <span class="material-icons-round" aria-hidden="true">timer</span>
+                                    </div>
+                                    <p class="circuit-side-description">Fastest recorded split from every driver in this session.</p>
+                                    <div class="circuit-sector-benchmarks" id="circuitSectorBenchmarks" aria-live="polite">
+                                        <!-- Session benchmark cards generated dynamically -->
+                                    </div>
+                                </section>
+
+                                <section class="circuit-facts-card glass">
+                                    <div class="circuit-side-heading">
+                                        <div>
+                                            <span class="circuit-section-kicker">Circuit details</span>
+                                            <h3>Local context</h3>
+                                        </div>
+                                        <span class="material-icons-round" aria-hidden="true">public</span>
+                                    </div>
+                                    <div class="circuit-facts-grid">
+                                        <div>
+                                            <span class="material-icons-round" aria-hidden="true">route</span>
+                                            <small>Track type</small>
+                                            <strong id="circuitType">--</strong>
+                                        </div>
+                                        <div>
+                                            <span class="material-icons-round" aria-hidden="true">schedule</span>
+                                            <small>Timezone</small>
+                                            <strong id="circuitGmtOffset">--</strong>
+                                        </div>
+                                    </div>
+                                </section>
+                            </aside>
+                        </div>
                     </div>
                 </section>
 

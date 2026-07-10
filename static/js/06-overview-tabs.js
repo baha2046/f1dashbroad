@@ -173,10 +173,210 @@ function renderWeather() {
     renderWeatherTrendChart(trends);
 }
 
+function formatCircuitEventDate(value, gmtOffset) {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return '--';
+    const offsetMatch = String(gmtOffset || '').match(/^(-)?(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    const offsetMs = offsetMatch
+        ? (offsetMatch[1] ? -1 : 1) * (
+            Number(offsetMatch[2]) * 3600 + Number(offsetMatch[3]) * 60 + Number(offsetMatch[4] || 0)
+        ) * 1000
+        : 0;
+    const trackLocalDate = new Date(date.getTime() + offsetMs);
+    return trackLocalDate.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'UTC'
+    });
+}
+
+function circuitTrackDirection(trackPoints) {
+    if (!Array.isArray(trackPoints) || trackPoints.length < 3) return '--';
+    let signedArea = 0;
+    trackPoints.forEach(([x, y], index) => {
+        const [nextX, nextY] = trackPoints[(index + 1) % trackPoints.length];
+        signedArea += x * nextY - nextX * y;
+    });
+    return signedArea <= 0 ? 'Clockwise' : 'Anti-clockwise';
+}
+
+function buildCircuitSectorBenchmarks(laps, drivers) {
+    const best = [null, null, null];
+    (Array.isArray(laps) ? laps : []).forEach((lap) => {
+        for (let sectorIndex = 0; sectorIndex < 3; sectorIndex += 1) {
+            const time = Number(lap[`duration_sector_${sectorIndex + 1}`]);
+            if (!Number.isFinite(time) || time <= 0) continue;
+            if (!best[sectorIndex] || time < best[sectorIndex].time) {
+                const driverNumber = Number(lap.driver_number);
+                const driver = (Array.isArray(drivers) ? drivers : []).find(item => (
+                    Number(item.driver_number) === driverNumber
+                ));
+                best[sectorIndex] = {
+                    time,
+                    driverNumber,
+                    lapNumber: Number(lap.lap_number),
+                    acronym: driver && driver.name_acronym ? driver.name_acronym : `#${driverNumber}`,
+                    driverName: driver && driver.full_name ? driver.full_name : `Driver #${driverNumber}`,
+                    teamHex: getDriverTeamHex(driver)
+                };
+            }
+        }
+    });
+    return best;
+}
+
+function renderCircuitSectorBenchmarks(laps = state.allSessionLaps, loading = false) {
+    if (!DOM.circuitSectorBenchmarks) return;
+    if (loading) {
+        DOM.circuitSectorBenchmarks.innerHTML = [1, 2, 3].map(sector => `
+            <div class="circuit-sector-benchmark sector-${sector} is-loading">
+                <span class="sector-benchmark-index">S${sector}</span>
+                <div>
+                    <span class="circuit-benchmark-skeleton"></span>
+                    <small>Scanning lap data...</small>
+                </div>
+            </div>
+        `).join('');
+        return;
+    }
+
+    const benchmarks = buildCircuitSectorBenchmarks(laps, state.drivers);
+    DOM.circuitSectorBenchmarks.innerHTML = benchmarks.map((benchmark, index) => {
+        const sector = index + 1;
+        if (!benchmark) {
+            return `
+                <div class="circuit-sector-benchmark sector-${sector} is-empty">
+                    <span class="sector-benchmark-index">S${sector}</span>
+                    <div>
+                        <strong>--</strong>
+                        <small>No recorded split</small>
+                    </div>
+                </div>
+            `;
+        }
+        const lapLabel = Number.isFinite(benchmark.lapNumber) ? ` · Lap ${benchmark.lapNumber}` : '';
+        return `
+            <div class="circuit-sector-benchmark sector-${sector}" style="--benchmark-driver-rgb:${getRGBColor(benchmark.teamHex)}">
+                <span class="sector-benchmark-index">S${sector}</span>
+                <div>
+                    <strong>${benchmark.time.toFixed(3)}<small>s</small></strong>
+                    <span title="${escapeHtml(benchmark.driverName)}">${escapeHtml(benchmark.acronym)}${lapLabel}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+let circuitSectorLoadSequence = 0;
+
+async function maybeLoadCircuitSectorBenchmarks() {
+    if (!(state.currentTab === 'circuit-view' && state.selectedSession)) return;
+    if (Array.isArray(state.allSessionLaps)) {
+        renderCircuitSectorBenchmarks(state.allSessionLaps);
+        return;
+    }
+
+    const requestId = ++circuitSectorLoadSequence;
+    const sessionKey = Number(state.selectedSession.session_key);
+    renderCircuitSectorBenchmarks(null, true);
+    const laps = await fetchAllSessionLaps(sessionKey);
+    if (
+        requestId !== circuitSectorLoadSequence ||
+        !state.selectedSession ||
+        Number(state.selectedSession.session_key) !== sessionKey
+    ) return;
+    renderCircuitSectorBenchmarks(laps);
+}
+
+function updateCircuitMapStatus(icon, title, text) {
+    if (DOM.circuitMapStatusIcon) DOM.circuitMapStatusIcon.textContent = icon;
+    if (DOM.circuitMapStatusTitle) DOM.circuitMapStatusTitle.textContent = title;
+    if (DOM.circuitMapStatusText) DOM.circuitMapStatusText.textContent = text;
+}
+
+function setupCircuitMapInteractions(cornerCount, sectorCount) {
+    if (!DOM.circuitMapContent) return;
+    const layerButtons = document.querySelectorAll('[data-circuit-layer-toggle]');
+    let selectedFeature = null;
+
+    const showLayerStatus = (layer) => {
+        if (layer === 'corners') {
+            updateCircuitMapStatus('pin_drop', `${cornerCount} numbered corners`, 'Select a corner marker to identify it on the lap.');
+        } else {
+            updateCircuitMapStatus('grid_view', `${sectorCount} marshal sectors`, 'Select a numbered sector to trace its race-control zone.');
+        }
+    };
+
+    const showFeature = (feature) => {
+        const kind = feature.dataset.featureKind || 'Track feature';
+        const label = feature.dataset.featureLabel || 'Selected';
+        const detail = feature.dataset.featureDetail || 'Selected on the circuit map.';
+        updateCircuitMapStatus(kind === 'Corner' ? 'pin_drop' : 'grid_view', label, detail);
+    };
+
+    const syncLayerAccessibility = (layer) => {
+        DOM.circuitMapContent.querySelectorAll('.circuit-map-feature').forEach((feature) => {
+            const featureLayer = feature.dataset.featureKind === 'Corner' ? 'corners' : 'sectors';
+            const visible = featureLayer === layer;
+            feature.setAttribute('tabindex', visible ? '0' : '-1');
+            feature.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        });
+    };
+
+    layerButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const layer = button.dataset.circuitLayerToggle;
+            DOM.circuitMapContent.dataset.layer = layer;
+            selectedFeature = null;
+            DOM.circuitMapContent.querySelectorAll('.circuit-map-feature.is-active').forEach(node => node.classList.remove('is-active'));
+            layerButtons.forEach((candidate) => {
+                const active = candidate === button;
+                candidate.classList.toggle('active', active);
+                candidate.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+            syncLayerAccessibility(layer);
+            showLayerStatus(layer);
+        });
+    });
+
+    DOM.circuitMapContent.querySelectorAll('.circuit-map-feature').forEach((feature) => {
+        feature.addEventListener('pointerenter', () => showFeature(feature));
+        feature.addEventListener('pointerleave', () => {
+            if (selectedFeature) showFeature(selectedFeature);
+            else showLayerStatus(DOM.circuitMapContent.dataset.layer || 'sectors');
+        });
+        feature.addEventListener('focus', () => showFeature(feature));
+        feature.addEventListener('blur', () => {
+            if (selectedFeature) showFeature(selectedFeature);
+        });
+        feature.addEventListener('click', () => {
+            const isAlreadySelected = selectedFeature === feature;
+            DOM.circuitMapContent.querySelectorAll('.circuit-map-feature.is-active').forEach(node => node.classList.remove('is-active'));
+            selectedFeature = isAlreadySelected ? null : feature;
+            if (selectedFeature) {
+                selectedFeature.classList.add('is-active');
+                showFeature(selectedFeature);
+            } else {
+                showLayerStatus(DOM.circuitMapContent.dataset.layer || 'sectors');
+            }
+        });
+        feature.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            feature.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+    });
+
+    syncLayerAccessibility(DOM.circuitMapContent.dataset.layer || 'sectors');
+    showLayerStatus(DOM.circuitMapContent.dataset.layer || 'sectors');
+}
+
 // Render Circuit Tab Details
 function renderCircuitTab() {
     if (!state.currentMeeting || !state.currentMeeting.meeting) {
-        // Clear elements
         DOM.circuitOfficialName.textContent = '--';
         DOM.circuitShortName.textContent = '--';
         DOM.circuitLocation.textContent = '--';
@@ -185,128 +385,150 @@ function renderCircuitTab() {
         DOM.circuitGmtOffset.textContent = '--';
         DOM.circuitStartDate.textContent = '--';
         DOM.circuitEndDate.textContent = '--';
+        if (DOM.circuitCornerCount) DOM.circuitCornerCount.textContent = '--';
+        if (DOM.circuitMarshalSectorCount) DOM.circuitMarshalSectorCount.textContent = '--';
+        if (DOM.circuitDirection) DOM.circuitDirection.textContent = '--';
+        if (DOM.circuitRoundChip) DOM.circuitRoundChip.textContent = 'Season circuit';
+        renderCircuitSectorBenchmarks([]);
         showNoTrackMapState();
         return;
     }
 
     const m = state.currentMeeting.meeting;
     const info = state.currentMeeting.circuit_info;
+    const flagCode = m.country_code || (state.selectedSession && state.selectedSession.country_code);
 
-    // Render metadata
     DOM.circuitOfficialName.textContent = m.meeting_official_name || m.meeting_name || '--';
-    DOM.circuitShortName.textContent = m.circuit_short_name || '--';
+    DOM.circuitShortName.textContent = m.circuit_short_name || (info && info.circuitName) || '--';
     DOM.circuitLocation.textContent = m.location || '--';
     DOM.circuitCountry.textContent = m.country_name || '--';
     DOM.circuitType.textContent = m.circuit_type || 'Permanent';
     DOM.circuitGmtOffset.textContent = m.gmt_offset ? `GMT ${m.gmt_offset}` : '--';
-    
-    DOM.circuitStartDate.textContent = m.date_start ? new Date(m.date_start).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    }) : '--';
+    DOM.circuitStartDate.textContent = formatCircuitEventDate(m.date_start, m.gmt_offset);
+    DOM.circuitEndDate.textContent = formatCircuitEventDate(m.date_end, m.gmt_offset);
+    if (DOM.circuitHeroFlag) DOM.circuitHeroFlag.textContent = COUNTRY_FLAGS[flagCode] || '🏁';
+    if (DOM.circuitRoundChip) {
+        const round = info && info.round !== null && info.round !== undefined ? Number(info.round) : NaN;
+        DOM.circuitRoundChip.textContent = Number.isFinite(round)
+            ? `Round ${round}`
+            : `${(state.selectedSession && state.selectedSession.year) || state.selectedYear} season`;
+    }
 
-    DOM.circuitEndDate.textContent = m.date_end ? new Date(m.date_end).toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    }) : '--';
+    const hasTrackCoordinates = info && Array.isArray(info.x) && Array.isArray(info.y) && info.x.length > 2;
+    const corners = hasTrackCoordinates && Array.isArray(info.corners)
+        ? info.corners.filter(corner => (
+            corner && corner.trackPosition &&
+            Number.isFinite(Number(corner.number)) &&
+            Number.isFinite(Number(corner.trackPosition.x)) &&
+            Number.isFinite(Number(corner.trackPosition.y))
+        ))
+        : [];
+    const marshalSectors = hasTrackCoordinates && Array.isArray(info.marshalSectors) ? info.marshalSectors : [];
+    const trackPoints = hasTrackCoordinates
+        ? info.x.map((x, index) => [Number(x), Number(info.y[index])]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
+        : [];
+    const marshalSegments = typeof buildMarshalSectorSegments === 'function'
+        ? buildMarshalSectorSegments(trackPoints, marshalSectors)
+        : [];
 
-    // Render track map
-    if (info && Array.isArray(info.x) && info.x.length > 0) {
-        const xCoords = info.x;
-        const yCoords = info.y;
-        const corners = info.corners || [];
-        const rotation = 0 //info.rotation || 0;
+    if (DOM.circuitCornerCount) DOM.circuitCornerCount.textContent = corners.length || '--';
+    if (DOM.circuitMarshalSectorCount) DOM.circuitMarshalSectorCount.textContent = marshalSegments.length || '--';
+    if (DOM.circuitDirection) DOM.circuitDirection.textContent = circuitTrackDirection(trackPoints);
+    renderCircuitSectorBenchmarks();
 
+    if (trackPoints.length > 2) {
+        const xCoords = trackPoints.map(point => point[0]);
+        const yCoords = trackPoints.map(point => point[1]);
         const xMin = Math.min(...xCoords);
         const xMax = Math.max(...xCoords);
         const yMin = Math.min(...yCoords);
         const yMax = Math.max(...yCoords);
-
-        const width = xMax - xMin;
-        const height = yMax - yMin;
-
-        // Establish viewBox size
+        const width = Math.max(xMax - xMin, 1);
+        const height = Math.max(yMax - yMin, 1);
         const viewBoxSize = 1000;
-        const padding = 100; // Margin around the track trace
+        const padding = 125;
         const drawSize = viewBoxSize - 2 * padding;
-
-        // Calculate scaling factor to preserve aspect ratio
         const scale = Math.min(drawSize / width, drawSize / height);
-
-        // Recenter offsets
         const offsetX = padding + (drawSize - width * scale) / 2;
         const offsetY = padding + (drawSize - height * scale) / 2;
+        const mapX = x => (x - xMin) * scale + offsetX;
+        const mapY = y => (yMax - y) * scale + offsetY;
+        const pathForPoints = (points, close = false) => {
+            if (!points.length) return '';
+            const commands = points.map(([x, y], index) => (
+                `${index === 0 ? 'M' : 'L'} ${mapX(x).toFixed(1)} ${mapY(y).toFixed(1)}`
+            ));
+            return `${commands.join(' ')}${close ? ' Z' : ''}`;
+        };
+        const pathD = pathForPoints(trackPoints, true);
 
-        // Invert Y coordinate
-        function mapX(x) {
-            return (x - xMin) * scale + offsetX;
-        }
-        function mapY(y) {
-            return (yMax - y) * scale + offsetY;
-        }
+        const cornerHTML = corners.map((corner) => {
+            const cx = mapX(Number(corner.trackPosition.x)).toFixed(1);
+            const cy = mapY(Number(corner.trackPosition.y)).toFixed(1);
+            const number = Number(corner.number);
+            return `
+                <g class="corner-marker-group circuit-map-feature" data-feature-kind="Corner" data-feature-label="Turn ${number}" data-feature-detail="Corner ${number} in the lap sequence." tabindex="0" role="button" aria-label="Turn ${number}">
+                    <circle cx="${cx}" cy="${cy}" r="22" class="corner-circle" />
+                    <text x="${cx}" y="${cy}" dy="6" class="corner-text">${number}</text>
+                </g>
+            `;
+        }).join('');
 
-        // Generate track path string
-        let pathD = '';
-        for (let i = 0; i < xCoords.length; i++) {
-            const sx = mapX(xCoords[i]).toFixed(1);
-            const sy = mapY(yCoords[i]).toFixed(1);
-            if (i === 0) {
-                pathD += `M ${sx} ${sy}`;
-            } else {
-                pathD += ` L ${sx} ${sy}`;
-            }
-        }
-        pathD += ' Z'; // Close track path loop
-
-        const centerVal = viewBoxSize / 2;
-
-        // Build corner badges
-        let cornerHTML = '';
-        corners.forEach(c => {
-            if (c.trackPosition) {
-                const cx = mapX(c.trackPosition.x).toFixed(1);
-                const cy = mapY(c.trackPosition.y).toFixed(1);
-                cornerHTML += `
-                    <g class="corner-marker-group" data-corner="${c.number}">
-                        <circle cx="${cx}" cy="${cy}" r="24" class="corner-circle" />
-                        <text x="${cx}" y="${cy}" dy="6" class="corner-text">${c.number}</text>
+        const sectorHTML = marshalSegments.map((segment) => {
+            const number = Number(segment.number);
+            const badgeX = mapX(segment.badge[0]).toFixed(1);
+            const badgeY = mapY(segment.badge[1]).toFixed(1);
+            return `
+                <g class="circuit-sector-group circuit-map-feature" data-feature-kind="Sector" data-feature-label="Marshal sector ${number}" data-feature-detail="Race-control zone ${number} along the circuit." tabindex="0" role="button" aria-label="Marshal sector ${number}">
+                    <path d="${pathForPoints(segment.points)}" class="circuit-sector-path" />
+                    <g class="circuit-sector-badge">
+                        <circle cx="${badgeX}" cy="${badgeY}" r="18"></circle>
+                        <text x="${badgeX}" y="${badgeY}" dy="5">${number}</text>
                     </g>
-                `;
-            }
-        });
+                </g>
+            `;
+        }).join('');
 
-        // Render dynamic SVG layout
+        const start = [mapX(trackPoints[0][0]), mapY(trackPoints[0][1])];
+        const next = [mapX(trackPoints[1][0]), mapY(trackPoints[1][1])];
+        const tangentX = next[0] - start[0];
+        const tangentY = next[1] - start[1];
+        const tangentLength = Math.hypot(tangentX, tangentY) || 1;
+        const normalX = -(tangentY / tangentLength) * 30;
+        const normalY = (tangentX / tangentLength) * 30;
+
+        DOM.circuitMapContent.dataset.layer = 'sectors';
         DOM.circuitMapContent.innerHTML = `
-            <svg viewBox="0 0 ${viewBoxSize} ${viewBoxSize}" xmlns="http://www.w3.org/2000/svg">
+            <span class="circuit-map-compass" aria-hidden="true"><i></i>N</span>
+            <svg viewBox="0 0 ${viewBoxSize} ${viewBoxSize}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Interactive ${escapeHtml(m.circuit_short_name || 'circuit')} track map">
                 <defs>
-                    <filter id="track-glow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur stdDeviation="8" result="blur" />
+                    <filter id="circuit-track-glow" x="-30%" y="-30%" width="160%" height="160%">
+                        <feGaussianBlur stdDeviation="7" result="blur" />
                         <feMerge>
                             <feMergeNode in="blur" />
                             <feMergeNode in="SourceGraphic" />
                         </feMerge>
                     </filter>
                 </defs>
-                <g transform="rotate(${rotation}, ${centerVal}, ${centerVal})">
-                    <path d="${pathD}" class="track-path" filter="url(#track-glow)" />
-                    ${cornerHTML}
+                <path d="${pathD}" class="circuit-track-shadow" />
+                <path d="${pathD}" class="track-path" filter="url(#circuit-track-glow)" />
+                <g class="circuit-layer circuit-layer-sectors">${sectorHTML}</g>
+                <g class="circuit-layer circuit-layer-corners">${cornerHTML}</g>
+                <g class="circuit-start-finish" aria-label="Start finish line">
+                    <line x1="${(start[0] - normalX).toFixed(1)}" y1="${(start[1] - normalY).toFixed(1)}" x2="${(start[0] + normalX).toFixed(1)}" y2="${(start[1] + normalY).toFixed(1)}"></line>
+                    <circle cx="${start[0].toFixed(1)}" cy="${start[1].toFixed(1)}" r="8"></circle>
                 </g>
             </svg>
         `;
+        setupCircuitMapInteractions(corners.length, marshalSegments.length);
     } else if (m.circuit_image) {
-        // Fallback to official Formula 1 circuit graphic
         DOM.circuitMapContent.innerHTML = `
             <div class="fallback-track-img-wrapper">
                 <img src="${safeUrl(m.circuit_image)}" class="fallback-track-img" alt="${escapeHtml(m.circuit_short_name)} track map">
                 <span class="fallback-label">Official Formula 1 Circuit Graphic</span>
             </div>
         `;
+        updateCircuitMapStatus('image', 'Official circuit artwork', 'Interactive geometry is not available for this event.');
     } else {
         showNoTrackMapState();
     }
@@ -315,11 +537,13 @@ function renderCircuitTab() {
 // Fallback state if no track map coordinates or images are found
 function showNoTrackMapState() {
     DOM.circuitMapContent.innerHTML = `
-        <div class="loading-state" style="flex-direction:column;gap:12px;">
-            <span class="material-icons-round" style="font-size:48px;color:var(--text-muted)">map</span>
-            <p style="color:var(--text-muted);font-weight:500;">No track map layout available</p>
+        <div class="circuit-map-empty">
+            <span class="material-icons-round">map</span>
+            <strong>No track layout available</strong>
+            <p>The event metadata loaded, but this circuit has no map geometry yet.</p>
         </div>
     `;
+    updateCircuitMapStatus('info', 'Map data unavailable', 'Circuit facts and session sector benchmarks remain available.');
 }
 
 // Render Results Tab

@@ -314,6 +314,12 @@ function setupEventListeners() {
             if (targetTab === 'replay-view') {
                 maybeAutoLoadReplay();
             }
+
+            // Sector benchmarks are loaded on demand because practice and
+            // qualifying sessions do not otherwise need every driver's laps.
+            if (targetTab === 'circuit-view') {
+                maybeLoadCircuitSectorBenchmarks();
+            }
         });
     });
 
