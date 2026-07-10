@@ -147,6 +147,12 @@ function setupEventListeners() {
     DOM.driverSearch.addEventListener('input', () => {
         renderDriversGrid();
     });
+    if (DOM.driversModeTeamsBtn) {
+        DOM.driversModeTeamsBtn.addEventListener('click', () => setDriversViewMode('teams'));
+    }
+    if (DOM.driversModeDriversBtn) {
+        DOM.driversModeDriversBtn.addEventListener('click', () => setDriversViewMode('drivers'));
+    }
 
     // Show Blue Flags Toggle
     if (DOM.showBlueFlags) {

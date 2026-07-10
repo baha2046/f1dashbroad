@@ -8,6 +8,7 @@ async function selectSession(session) {
     stopLiveMode();
     state.selectedSession = session;
     state.drivers = [];
+    state.constructorRoster = null;
     state.weather = [];
     state.stints = [];
     state.results = [];
@@ -58,8 +59,12 @@ async function selectSession(session) {
         const progressionRequest = isRaceStandingsSession(session) && (!state.seasonProgression || state.seasonProgression.season !== progressionYear)
             ? customFetch(`/api/season_progression?year=${encodeURIComponent(progressionYear)}`)
             : Promise.resolve(null);
-        const [driversRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, sessionStatusRes, teamRadioRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
+        const constructorRosterRequest = customFetch(
+            `/api/constructors?year=${encodeURIComponent(session.year || state.selectedYear)}&date=${encodeURIComponent(getSessionDateToken(session))}`
+        );
+        const [driversRes, constructorRosterRes, weatherRes, meetingRes, stintsRes, resultsRes, raceControlRes, sessionStatusRes, teamRadioRes, pitStopsRes, lapsRes, positionRes, raceStandingsRes, progressionRes] = await Promise.all([
             customFetch(`/api/drivers?session_key=${session.session_key}${sessionYearParam(session)}`),
+            constructorRosterRequest,
             customFetch(`/api/weather?session_key=${session.session_key}${sessionYearParam(session)}`),
             customFetch(`/api/meetings?meeting_key=${session.meeting_key}&year=${encodeURIComponent(session.year || state.selectedYear)}`),
             customFetch(`/api/stints?session_key=${session.session_key}${sessionYearParam(session)}`),
@@ -80,11 +85,12 @@ async function selectSession(session) {
         // load must not interleave its writes with a newer selection's
         const parseJson = (res) => (res && res.ok ? res.json() : null);
         const [
-            drivers, weather, meeting, stints, results, raceControl,
+            drivers, constructorRoster, weather, meeting, stints, results, raceControl,
             statusSeries, teamRadio, pitStops, allLaps, position,
             raceStandings, seasonProgression
         ] = await Promise.all([
             driversRes.json(),
+            parseJson(constructorRosterRes),
             parseJson(weatherRes),
             parseJson(meetingRes),
             parseJson(stintsRes),
@@ -102,6 +108,7 @@ async function selectSession(session) {
         if (isStale()) return;
 
         state.drivers = drivers;
+        if (constructorRoster) state.constructorRoster = constructorRoster;
         if (weather) state.weather = weather;
         if (meeting) state.currentMeeting = meeting;
         if (stints) state.stints = stints;

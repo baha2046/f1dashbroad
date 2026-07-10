@@ -273,38 +273,90 @@
                 </nav>
 
                 <!-- Drivers View -->
-                <section class="tab-view active" id="drivers-view" aria-label="Drivers grid">
-                    <!-- Live Timing (shown only while the session is live) -->
-                    <div class="live-timing-card glass" id="liveTimingCard" style="display: none;">
-                        <div class="live-timing-header">
-                            <h3>Live Timing</h3>
-                            <span class="live-timing-updated" id="liveTimingUpdated"></span>
+                <section class="tab-view active" id="drivers-view" aria-label="Drivers and constructors">
+                    <div class="drivers-dashboard">
+                        <header class="drivers-hero glass">
+                            <div class="drivers-hero-copy">
+                                <span class="drivers-eyebrow">
+                                    <span class="material-icons-round" aria-hidden="true">garage</span>
+                                    Paddock directory
+                                </span>
+                                <h2 id="driversHeroTitle">Grid &amp; constructors</h2>
+                                <p id="driversHeroSubtitle">Session drivers matched with their official constructor identities.</p>
+                                <div class="drivers-roster-meta">
+                                    <span class="drivers-round-badge" id="driversRosterRound">Season roster</span>
+                                    <span class="drivers-source-badge">
+                                        <span class="material-icons-round" aria-hidden="true">database</span>
+                                        Constructor data · Jolpica
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="drivers-hero-stats" aria-label="Paddock summary">
+                                <article>
+                                    <span class="material-icons-round" aria-hidden="true">sports_motorsports</span>
+                                    <div><strong id="driversCount">--</strong><small>Drivers</small></div>
+                                </article>
+                                <article>
+                                    <span class="material-icons-round" aria-hidden="true">factory</span>
+                                    <div><strong id="driversConstructorCount">--</strong><small>Constructors</small></div>
+                                </article>
+                                <article>
+                                    <span class="material-icons-round" aria-hidden="true">public</span>
+                                    <div><strong id="driversNationalityCount">--</strong><small>Nationalities</small></div>
+                                </article>
+                            </div>
+                        </header>
+
+                        <!-- Live Timing (shown only while the session is live) -->
+                        <div class="live-timing-card glass" id="liveTimingCard" style="display: none;">
+                            <div class="live-timing-header">
+                                <h3>Live Timing</h3>
+                                <span class="live-timing-updated" id="liveTimingUpdated"></span>
+                            </div>
+                            <div class="live-timing-table-wrapper">
+                                <table class="live-timing-table" aria-label="Live timing order">
+                                    <thead>
+                                        <tr>
+                                            <th class="live-timing-pos">Pos</th>
+                                            <th>Driver</th>
+                                            <th>Interval</th>
+                                            <th>Gap to Leader</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="liveTimingTableBody">
+                                        <!-- Loaded dynamically while live -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                        <div class="live-timing-table-wrapper">
-                            <table class="live-timing-table" aria-label="Live timing order">
-                                <thead>
-                                    <tr>
-                                        <th class="live-timing-pos">Pos</th>
-                                        <th>Driver</th>
-                                        <th>Interval</th>
-                                        <th>Gap to Leader</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="liveTimingTableBody">
-                                    <!-- Loaded dynamically while live -->
-                                </tbody>
-                            </table>
+
+                        <div class="drivers-toolbar glass">
+                            <div class="drivers-toolbar-heading">
+                                <span class="drivers-section-kicker">Session lineup</span>
+                                <h3 id="driversViewTitle">Constructor roster</h3>
+                                <p id="driversVisibleCount">Loading the paddock…</p>
+                            </div>
+                            <div class="drivers-toolbar-controls">
+                                <div class="drivers-mode-toggle" role="group" aria-label="Driver tab view">
+                                    <button type="button" id="driversModeTeamsBtn" class="active" aria-pressed="true">
+                                        <span class="material-icons-round" aria-hidden="true">factory</span>
+                                        Teams
+                                    </button>
+                                    <button type="button" id="driversModeDriversBtn" aria-pressed="false">
+                                        <span class="material-icons-round" aria-hidden="true">person</span>
+                                        Drivers
+                                    </button>
+                                </div>
+                                <label class="drivers-search-wrapper" for="driverSearch">
+                                    <span class="material-icons-round search-icon" aria-hidden="true">search</span>
+                                    <input type="text" id="driverSearch" placeholder="Search driver, team or nation…" aria-label="Filter drivers and constructors">
+                                </label>
+                            </div>
                         </div>
-                    </div>
-                    <div class="drivers-header">
-                        <h3>DRIVERS LIST</h3>
-                        <div class="drivers-search-wrapper">
-                            <span class="material-icons-round search-icon">search</span>
-                            <input type="text" id="driverSearch" placeholder="Filter by driver or team..." aria-label="Filter drivers">
+
+                        <div class="drivers-grid constructor-grid" id="driversGrid" aria-live="polite">
+                            <!-- Loaded dynamically -->
                         </div>
-                    </div>
-                    <div class="drivers-grid" id="driversGrid">
-                        <!-- Loaded dynamically -->
                     </div>
                 </section>
 

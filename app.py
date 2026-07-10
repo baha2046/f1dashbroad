@@ -652,6 +652,16 @@ def extract_jolpica_standings(data, standings_key):
         return []
     return standings_lists[0].get(standings_key, [])
 
+def extract_jolpica_constructors(data):
+    if not isinstance(data, dict):
+        return []
+    constructors = (
+        data.get("MRData", {})
+        .get("ConstructorTable", {})
+        .get("Constructors", [])
+    )
+    return constructors if isinstance(constructors, list) else []
+
 def race_matches_date(race, target_date):
     if race.get("date") == target_date:
         return True
@@ -1743,6 +1753,66 @@ async def api_season_progression():
         "rounds": rounds,
         "drivers": finalize_series(driver_series),
         "constructors": finalize_series(constructor_series),
+    })
+
+@app.route("/api/constructors")
+async def api_constructors():
+    year = parse_int_param(request.args.get("year") or request.args.get("season") or str(current_season_year()))
+    if year is None:
+        return invalid_param_response("year")
+
+    selected_date = request.args.get("date")
+    round_number = request.args.get("round")
+    if round_number is not None:
+        round_number = parse_int_param(round_number)
+        if round_number is None:
+            return invalid_param_response("round")
+
+    race = None
+    if not round_number:
+        if not selected_date:
+            return jsonify({"error": "date or round is required"}), 400
+
+        selected_date = selected_date[:10]
+        if not DATE_PARAM_RE.match(selected_date):
+            return jsonify({"error": "date must be in YYYY-MM-DD format"}), 400
+
+        races_url = f"https://api.jolpi.ca/ergast/f1/{year}/races/?format=json"
+        races_data = await get_cached_jolpica_api(
+            races_url,
+            f"jolpica_races_{year}.json",
+            year=year,
+        )
+        race = find_jolpica_race_by_date(extract_jolpica_races(races_data), selected_date)
+        if not race:
+            return jsonify({"error": "round not found for selected date"}), 404
+        round_number = race.get("round")
+
+    constructors_url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/constructors/?format=json"
+    constructors_data = await get_cached_jolpica_api(
+        constructors_url,
+        f"jolpica_constructors_{year}_{round_number}.json",
+        year=year,
+    )
+
+    if not race:
+        races_url = f"https://api.jolpi.ca/ergast/f1/{year}/races/?format=json"
+        races_data = await get_cached_jolpica_api(
+            races_url,
+            f"jolpica_races_{year}.json",
+            year=year,
+        )
+        race = next(
+            (item for item in extract_jolpica_races(races_data) if item.get("round") == str(round_number)),
+            None,
+        )
+
+    return jsonify({
+        "season": str(year),
+        "round": str(round_number),
+        "race_name": race.get("raceName") if race else None,
+        "date": race.get("date") if race else selected_date,
+        "constructors": extract_jolpica_constructors(constructors_data),
     })
 
 @app.route("/api/race_standings")

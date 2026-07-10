@@ -5,6 +5,8 @@ const state = {
     filteredSessions: [],
     selectedSession: null,
     drivers: [],
+    constructorRoster: null,
+    driversViewMode: 'teams',
     weather: [],
     stints: [],
     results: [],

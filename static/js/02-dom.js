@@ -46,6 +46,16 @@ const DOM = {
     // Drivers Grid
     driverSearch: document.getElementById('driverSearch'),
     driversGrid: document.getElementById('driversGrid'),
+    driversHeroTitle: document.getElementById('driversHeroTitle'),
+    driversHeroSubtitle: document.getElementById('driversHeroSubtitle'),
+    driversRosterRound: document.getElementById('driversRosterRound'),
+    driversCount: document.getElementById('driversCount'),
+    driversConstructorCount: document.getElementById('driversConstructorCount'),
+    driversNationalityCount: document.getElementById('driversNationalityCount'),
+    driversViewTitle: document.getElementById('driversViewTitle'),
+    driversVisibleCount: document.getElementById('driversVisibleCount'),
+    driversModeTeamsBtn: document.getElementById('driversModeTeamsBtn'),
+    driversModeDriversBtn: document.getElementById('driversModeDriversBtn'),
 
     // Live Timing (live sessions only)
     liveTimingCard: document.getElementById('liveTimingCard'),
