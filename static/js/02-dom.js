@@ -148,6 +148,7 @@ const DOM = {
     replayRaceTower: document.getElementById('replayRaceTower'),
     replayTowerBody: document.getElementById('replayTowerBody'),
     replayMapContent: document.getElementById('replayMapContent'),
+    replayViewToggle: document.getElementById('replayViewToggle'),
     replayStageStatus: document.getElementById('replayStageStatus'),
     replayStageStatusText: document.getElementById('replayStageStatusText'),
     replayTelemetryStrip: document.getElementById('replayTelemetryStrip'),

@@ -33,6 +33,20 @@ const REPLAY_SESSION_SLICE_SECONDS = 120;
 // covers drivers finishing their final flying lap and returning to the pits
 const REPLAY_PHASE_COOLDOWN_MS = 180000;
 
+// Map projection: square viewBox shared by the 2D and 3D views
+const REPLAY_VIEWBOX_SIZE = 1000;
+const REPLAY_MAP_PADDING = 100;
+
+// 3D view: the depth axis is foreshortened by this factor (cos of the fixed
+// camera tilt), drags rotate this many degrees per pixel, and the extruded
+// track base sits this many view units below the outline
+const REPLAY_3D_DEPTH_SCALE = 0.52;
+const REPLAY_3D_YAW_PER_PIXEL = 0.4;
+const REPLAY_3D_BASE_DROP = 24;
+// Drags travelling further than this swallow the release click so rotating
+// doesn't toggle a car's focus highlight
+const REPLAY_3D_DRAG_CLICK_THRESHOLD_PX = 4;
+
 // Circuit-state precedence when periods overlap (e.g. sector yellows under SC)
 const REPLAY_STATE_PRIORITY = ['red', 'sc', 'vsc', 'yellow'];
 
@@ -400,6 +414,8 @@ function renderReplayMessage(text, status = 'idle') {
     if (DOM.replayMapContent) {
         DOM.replayMapContent.innerHTML = `<div class="replay-message">${escapeHtml(text)}</div>`;
     }
+    // The message replaced the SVG, so the scene's nodes are gone from the DOM
+    if (state.replay) state.replay.scene = null;
     const statusText = {
         idle: 'Waiting for replay data',
         loading: 'Loading track positions',
@@ -1186,6 +1202,180 @@ function buildReplayProjection(bounds, viewBoxSize, padding) {
     };
 }
 
+// World → camera transform for the active view mode. The 3D view spins the
+// circuit by the user's yaw and foreshortens the depth axis like a TV
+// helicopter shot; 2D is the identity, so one projection path serves both.
+// Fit-to-bounds runs after this, so the rotation needs no explicit pivot.
+function replayViewTransform() {
+    if (state.replayMapView.mode !== '3d') return (x, y) => [x, y];
+    const yaw = (Number(state.replayMapView.yawDeg) || 0) * Math.PI / 180;
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
+    return (x, y) => [
+        x * cosYaw - y * sinYaw,
+        (x * sinYaw + y * cosYaw) * REPLAY_3D_DEPTH_SCALE
+    ];
+}
+
+// Project the scene's world-space geometry into the viewBox for the active
+// view mode and rewrite node geometry in place. Runs at scene build and again
+// on every 2D/3D switch or 3D rotation, so node identity (focus highlights,
+// lit sectors) and playback state survive view changes.
+function applyReplayMapProjection() {
+    const scene = state.replay.scene;
+    if (!scene) return;
+
+    const view = replayViewTransform();
+
+    // Bounds cover the track and every car sample so nothing clips off-screen.
+    // FIA cars are excluded: they stream (0,0) while parked between
+    // deployments, which would drag the bounds off the circuit.
+    const bounds = { xMin: Infinity, xMax: -Infinity, yMin: Infinity, yMax: -Infinity };
+    const extend = ([x, y]) => {
+        if (x < bounds.xMin) bounds.xMin = x;
+        if (x > bounds.xMax) bounds.xMax = x;
+        if (y < bounds.yMin) bounds.yMin = y;
+        if (y > bounds.yMax) bounds.yMax = y;
+    };
+    scene.trackPoints.forEach(([x, y]) => extend(view(x, y)));
+    scene.cars.forEach(car => {
+        if (car.fia) return;
+        car.samples.forEach(s => extend(view(s[1], s[2])));
+    });
+
+    const { mapX, mapY } = buildReplayProjection(bounds, REPLAY_VIEWBOX_SIZE, REPLAY_MAP_PADDING);
+    const toView = (x, y) => {
+        const [vx, vy] = view(x, y);
+        return [mapX(vx), mapY(vy)];
+    };
+    const pathFrom = (points, close) => points
+        .map(([x, y], i) => {
+            const [px, py] = toView(x, y);
+            return `${i === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)}`;
+        })
+        .join(' ') + (close ? ' Z' : '');
+
+    const trackD = pathFrom(scene.trackPoints, scene.closePath);
+    scene.trackPath.setAttribute('d', trackD);
+    scene.trackBasePath.setAttribute('d', trackD);
+
+    scene.marshalSegments.forEach(({ segment, path, badge }) => {
+        path.setAttribute('d', pathFrom(segment.points, false));
+        const [badgeX, badgeY] = toView(segment.badge[0], segment.badge[1]);
+        badge.setAttribute('transform', `translate(${badgeX.toFixed(1)}, ${badgeY.toFixed(1)})`);
+    });
+
+    if (scene.startFinish) {
+        const [startX, startY] = toView(scene.trackPoints[0][0], scene.trackPoints[0][1]);
+        const [nextX, nextY] = toView(scene.trackPoints[1][0], scene.trackPoints[1][1]);
+        const tangentX = nextX - startX;
+        const tangentY = nextY - startY;
+        const tangentLength = Math.hypot(tangentX, tangentY) || 1;
+        const normalX = -(tangentY / tangentLength) * 30;
+        const normalY = (tangentX / tangentLength) * 30;
+        scene.startFinish.line.setAttribute('x1', (startX - normalX).toFixed(1));
+        scene.startFinish.line.setAttribute('y1', (startY - normalY).toFixed(1));
+        scene.startFinish.line.setAttribute('x2', (startX + normalX).toFixed(1));
+        scene.startFinish.line.setAttribute('y2', (startY + normalY).toFixed(1));
+        scene.startFinish.marker.setAttribute('cx', startX.toFixed(1));
+        scene.startFinish.marker.setAttribute('cy', startY.toFixed(1));
+    }
+
+    // Pre-project samples so per-frame interpolation stays in view space
+    scene.cars.forEach(car => {
+        const node = state.replay.carNodes[car.driverNumber];
+        if (!node) return;
+        node.samples = car.samples.map(s => {
+            const [px, py] = toView(s[1], s[2]);
+            return [s[0], px, py];
+        });
+    });
+}
+
+// Switch the track map between the flat 2D projection and the rotatable 3D
+// view. Reprojects the already-built scene in place, so it works mid-playback;
+// with no scene loaded the next build simply uses the new mode.
+function setReplayMapViewMode(mode) {
+    const next = mode === '3d' ? '3d' : '2d';
+    if (state.replayMapView.mode === next) return;
+    state.replayMapView.mode = next;
+    updateReplayMapViewControls();
+    applyReplayMapProjection();
+    if (state.replay.scene && state.replay.data) renderReplayFrame(state.replay.t);
+}
+
+function updateReplayMapViewControls() {
+    const mode = state.replayMapView.mode;
+    if (DOM.replayViewToggle) {
+        DOM.replayViewToggle.querySelectorAll('button[data-map-view]').forEach(btn => {
+            const isActive = btn.dataset.mapView === mode;
+            btn.classList.toggle('active', isActive);
+            btn.setAttribute('aria-pressed', String(isActive));
+        });
+    }
+    if (DOM.replayMapContent) {
+        DOM.replayMapContent.dataset.viewMode = mode;
+    }
+}
+
+// Drag-to-rotate for the 3D view: horizontal drags spin the circuit around
+// its vertical axis. Reprojection is coalesced to one per animation frame,
+// and a drag past the click threshold swallows the release click so rotating
+// doesn't toggle a car's focus highlight.
+function setupReplayMapRotation() {
+    const content = DOM.replayMapContent;
+    if (!content) return;
+
+    let drag = null;
+    let swallowNextClick = false;
+    let reprojectQueued = false;
+
+    const reproject = () => {
+        reprojectQueued = false;
+        applyReplayMapProjection();
+        // Playback repaints every frame anyway; repaint manually while paused
+        if (state.replay.data && !state.replay.playing) renderReplayFrame(state.replay.t);
+    };
+
+    content.addEventListener('pointerdown', (event) => {
+        swallowNextClick = false;
+        if (state.replayMapView.mode !== '3d' || !state.replay.scene) return;
+        if (event.button !== 0) return;
+        drag = { pointerId: event.pointerId, lastX: event.clientX, travel: 0 };
+        content.classList.add('is-rotating');
+        if (content.setPointerCapture) content.setPointerCapture(event.pointerId);
+    });
+
+    content.addEventListener('pointermove', (event) => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        const dx = event.clientX - drag.lastX;
+        if (dx === 0) return;
+        drag.lastX = event.clientX;
+        drag.travel += Math.abs(dx);
+        state.replayMapView.yawDeg = ((Number(state.replayMapView.yawDeg) || 0) + dx * REPLAY_3D_YAW_PER_PIXEL) % 360;
+        if (!reprojectQueued) {
+            reprojectQueued = true;
+            requestAnimationFrame(reproject);
+        }
+    });
+
+    const endDrag = (event) => {
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        swallowNextClick = drag.travel > REPLAY_3D_DRAG_CLICK_THRESHOLD_PX;
+        drag = null;
+        content.classList.remove('is-rotating');
+    };
+    content.addEventListener('pointerup', endDrag);
+    content.addEventListener('pointercancel', endDrag);
+
+    content.addEventListener('click', (event) => {
+        if (!swallowNextClick) return;
+        swallowNextClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+}
+
 function buildReplayScene(payload, cacheKey, options = {}) {
     if (!DOM.replayMapContent) return;
 
@@ -1194,9 +1384,7 @@ function buildReplayScene(payload, cacheKey, options = {}) {
     state.replay.loadedKey = cacheKey;
     state.replay.t = 0;
     state.replay.carNodes = {};
-
-    const viewBoxSize = 1000;
-    const padding = 100;
+    state.replay.scene = null;
 
     // Track outline: prefer the circuit_info map so the layout matches the
     // Circuit tab; fall back to the reference driver's own racing line.
@@ -1216,36 +1404,36 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         return;
     }
 
-    // Bounds cover the track and every car sample so nothing clips off-screen
-    const bounds = { xMin: Infinity, xMax: -Infinity, yMin: Infinity, yMax: -Infinity };
-    const extend = (x, y) => {
-        if (x < bounds.xMin) bounds.xMin = x;
-        if (x > bounds.xMax) bounds.xMax = x;
-        if (y < bounds.yMin) bounds.yMin = y;
-        if (y > bounds.yMax) bounds.yMax = y;
-    };
-    trackPoints.forEach(([x, y]) => extend(x, y));
-    payload.drivers.forEach(driver => {
-        // FIA cars stream (0,0) while parked between deployments; those are
-        // not real positions and would drag the bounds off the circuit.
-        if (getFiaCarInfo(driver.driver_number)) return;
-        driver.samples.forEach(s => extend(s[1], s[2]));
-    });
-
-    const { mapX, mapY } = buildReplayProjection(bounds, viewBoxSize, padding);
-
     const svgNamespace = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNamespace, "svg");
-    svg.setAttribute("viewBox", `0 0 ${viewBoxSize} ${viewBoxSize}`);
+    svg.setAttribute("viewBox", `0 0 ${REPLAY_VIEWBOX_SIZE} ${REPLAY_VIEWBOX_SIZE}`);
     svg.setAttribute("xmlns", svgNamespace);
 
+    // World-space geometry + node refs; applyReplayMapProjection() turns this
+    // into viewBox coordinates for the active view mode, and again on every
+    // 2D/3D switch or 3D rotation without rebuilding the nodes.
+    const scene = {
+        trackPoints,
+        closePath,
+        trackPath: null,
+        trackBasePath: null,
+        marshalSegments: [],
+        startFinish: null,
+        cars: []
+    };
+
+    // 3D depth cue: a darker copy of the outline dropped below the track.
+    // Present in both modes; CSS shows it only in the 3D view.
+    const trackBasePath = document.createElementNS(svgNamespace, "path");
+    trackBasePath.setAttribute("class", "replay-track-base");
+    trackBasePath.setAttribute("transform", `translate(0, ${REPLAY_3D_BASE_DROP})`);
+    svg.appendChild(trackBasePath);
+    scene.trackBasePath = trackBasePath;
+
     const trackPath = document.createElementNS(svgNamespace, "path");
-    const pathD = trackPoints
-        .map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${mapX(x).toFixed(1)} ${mapY(y).toFixed(1)}`)
-        .join(' ') + (closePath ? ' Z' : '');
-    trackPath.setAttribute("d", pathD);
     trackPath.setAttribute("class", "replay-track-path");
     svg.appendChild(trackPath);
+    scene.trackPath = trackPath;
 
     // Marshal-sector overlay: a per-sector copy of the racing line plus a
     // numbered badge, lit by updateReplayCircuitState while race control has
@@ -1259,9 +1447,6 @@ function buildReplayScene(payload, cacheKey, options = {}) {
     marshalSegments.forEach(segment => {
         if (segment.points.length < 2) return;
         const sectorPath = document.createElementNS(svgNamespace, "path");
-        sectorPath.setAttribute("d", segment.points
-            .map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${mapX(x).toFixed(1)} ${mapY(y).toFixed(1)}`)
-            .join(' '));
         sectorPath.setAttribute("class", "replay-sector-path");
         sectorPath.setAttribute("data-sector", String(segment.number));
         svg.appendChild(sectorPath);
@@ -1269,7 +1454,6 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         const badge = document.createElementNS(svgNamespace, "g");
         badge.setAttribute("class", "replay-sector-badge");
         badge.setAttribute("data-sector", String(segment.number));
-        badge.setAttribute("transform", `translate(${mapX(segment.badge[0]).toFixed(1)}, ${mapY(segment.badge[1]).toFixed(1)})`);
         const box = document.createElementNS(svgNamespace, "rect");
         box.setAttribute("x", -17);
         box.setAttribute("y", -13);
@@ -1283,6 +1467,7 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         badge.appendChild(number);
         svg.appendChild(badge);
 
+        scene.marshalSegments.push({ segment, path: sectorPath, badge });
         state.replay.sectorNodes[segment.number] = { path: sectorPath, badge };
     });
 
@@ -1290,29 +1475,16 @@ function buildReplayScene(payload, cacheKey, options = {}) {
     // Only drawn for the circuit_info outline — the racing-line fallback
     // starts wherever the reference driver's samples begin, not at the line.
     if (closePath) {
-        const startX = mapX(trackPoints[0][0]);
-        const startY = mapY(trackPoints[0][1]);
-        const tangentX = mapX(trackPoints[1][0]) - startX;
-        const tangentY = mapY(trackPoints[1][1]) - startY;
-        const tangentLength = Math.hypot(tangentX, tangentY) || 1;
-        const normalX = -(tangentY / tangentLength) * 30;
-        const normalY = (tangentX / tangentLength) * 30;
-
         const startFinish = document.createElementNS(svgNamespace, "g");
         startFinish.setAttribute("class", "replay-start-finish");
         startFinish.setAttribute("aria-label", "Start finish line");
         const startLine = document.createElementNS(svgNamespace, "line");
-        startLine.setAttribute("x1", (startX - normalX).toFixed(1));
-        startLine.setAttribute("y1", (startY - normalY).toFixed(1));
-        startLine.setAttribute("x2", (startX + normalX).toFixed(1));
-        startLine.setAttribute("y2", (startY + normalY).toFixed(1));
         startFinish.appendChild(startLine);
         const startMarker = document.createElementNS(svgNamespace, "circle");
-        startMarker.setAttribute("cx", startX.toFixed(1));
-        startMarker.setAttribute("cy", startY.toFixed(1));
         startMarker.setAttribute("r", 8);
         startFinish.appendChild(startMarker);
         svg.appendChild(startFinish);
+        scene.startFinish = { line: startLine, marker: startMarker };
     }
 
     // Reference driver drawn last so it stays on top
@@ -1366,12 +1538,14 @@ function buildReplayScene(payload, cacheKey, options = {}) {
 
         svg.appendChild(group);
 
-        // Pre-project samples so per-frame interpolation stays in view space
-        state.replay.carNodes[driverSeries.driver_number] = {
-            group,
-            samples: samples.map(s => [s[0], mapX(s[1]), mapY(s[2])])
-        };
+        scene.cars.push({ driverNumber: driverSeries.driver_number, group, samples, fia: Boolean(fiaCar) });
+        // Samples stay in world space here; applyReplayMapProjection() fills
+        // the view-space copies that per-frame interpolation reads.
+        state.replay.carNodes[driverSeries.driver_number] = { group, samples: [] };
     });
+
+    state.replay.scene = scene;
+    applyReplayMapProjection();
 
     DOM.replayMapContent.innerHTML = '';
     DOM.replayMapContent.appendChild(svg);

@@ -27,6 +27,7 @@ const state = {
     telemetryCompare: null, // { driverNumber, lapNumber } of the active comparison lap, or null when off
     replayCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/track_replay payload
     replay: createReplayState(),
+    replayMapView: { mode: '2d', yawDeg: 0 }, // track-map projection ('2d' | '3d') + 3D rotation; survives resetReplay()
     selectedDriverStats: null,
     selectedCompareDrivers: [],
     compareView: createCompareViewState(),
@@ -60,6 +61,7 @@ function createReplayState() {
         lastFrameTs: null,
         carNodes: {},      // driver_number -> { group, samples } for the built SVG
         sectorNodes: {},   // marshal sector number -> { path, badge } for the built SVG
+        scene: null,       // world-space geometry + node refs, reprojected on 2D/3D view changes
         lastContextTickMs: 0,
         lastContextAbsMs: null, // playhead position at the previous context tick (row-flash jump guard)
         contextRows: {},

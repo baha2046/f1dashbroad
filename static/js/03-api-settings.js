@@ -232,7 +232,16 @@ function setupEventListeners() {
         DOM.replayMapContent.addEventListener('keydown', (e) => {
             onReplayDriverHighlightKeydown(e);
         });
+        setupReplayMapRotation();
     }
+    if (DOM.replayViewToggle) {
+        DOM.replayViewToggle.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-map-view]');
+            if (!btn) return;
+            setReplayMapViewMode(btn.dataset.mapView);
+        });
+    }
+    updateReplayMapViewControls();
     if (DOM.replayTowerBody) {
         DOM.replayTowerBody.addEventListener('click', (e) => {
             onReplayDriverHighlightClick(e);

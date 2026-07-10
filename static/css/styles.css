@@ -6762,6 +6762,43 @@ body {
     stroke-width: 14;
 }
 
+/* 3D view: extruded base under the outline sells the camera tilt */
+.replay-track-base {
+    display: none;
+    fill: none;
+    stroke: rgba(0, 0, 0, 0.6);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 15;
+}
+
+.replay-map-content[data-view-mode="3d"] .replay-track-base {
+    display: block;
+}
+
+.replay-map-content[data-view-mode="3d"] {
+    cursor: grab;
+    touch-action: pan-y pinch-zoom;
+}
+
+.replay-map-content[data-view-mode="3d"].is-rotating {
+    cursor: grabbing;
+}
+
+.replay-map-content[data-view-mode="3d"]:has(svg)::after {
+    bottom: 10px;
+    color: var(--text-muted);
+    content: 'Drag to rotate';
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    opacity: 0.7;
+    pointer-events: none;
+    position: absolute;
+    right: 14px;
+    text-transform: uppercase;
+}
+
 /* Marshal-sector overlay: lit while race control has a yellow in that sector */
 .replay-sector-path {
     fill: none;
@@ -7431,7 +7468,8 @@ body {
     outline-offset: 2px;
 }
 
-.replay-speed-toggle button:focus-visible {
+.replay-speed-toggle button:focus-visible,
+.replay-view-toggle button:focus-visible {
     box-shadow: inset 0 0 0 2px var(--replay-cyan);
     outline: none;
 }
@@ -7668,6 +7706,40 @@ body {
     font-size: 15px;
     font-weight: 780;
     margin: 4px 0 0;
+}
+
+.replay-stage-tools {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    gap: 12px;
+}
+
+/* 2D / 3D projection switch for the track map */
+.replay-view-toggle {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    display: inline-flex;
+    overflow: hidden;
+}
+
+.replay-view-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    padding: 5px 11px;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.replay-view-toggle button.active {
+    background: rgba(255, 24, 1, 0.18);
+    color: var(--text-primary);
 }
 
 .replay-stage-status {

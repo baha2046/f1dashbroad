@@ -872,9 +872,15 @@
                                                 <span class="replay-stage-kicker">Live positions</span>
                                                 <h3 id="replayStageTitle">Track map</h3>
                                             </div>
-                                            <div class="replay-stage-status" id="replayStageStatus" data-state="idle">
-                                                <span aria-hidden="true"></span>
-                                                <span id="replayStageStatusText">Waiting for replay data</span>
+                                            <div class="replay-stage-tools">
+                                                <div class="replay-view-toggle" id="replayViewToggle" role="group" aria-label="Track map view">
+                                                    <button type="button" data-map-view="2d" class="active" aria-pressed="true">2D</button>
+                                                    <button type="button" data-map-view="3d" aria-pressed="false">3D</button>
+                                                </div>
+                                                <div class="replay-stage-status" id="replayStageStatus" data-state="idle">
+                                                    <span aria-hidden="true"></span>
+                                                    <span id="replayStageStatusText">Waiting for replay data</span>
+                                                </div>
                                             </div>
                                         </div>
                                         <div class="replay-map-content" id="replayMapContent">
