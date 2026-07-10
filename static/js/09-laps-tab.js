@@ -657,6 +657,50 @@ function renderLapChart(laps) {
         tooltip.style.display = "none";
         document.body.appendChild(tooltip);
     }
+    tooltip.classList.remove("compare-unified-tooltip", "compare-strategy-tooltip");
+
+    const lapCircles = new Map();
+    let activeLapNumber = null;
+
+    const clearLapChartHover = () => {
+        if (activeLapNumber === null) return;
+
+        const activeCircle = lapCircles.get(activeLapNumber);
+        if (activeCircle) {
+            activeCircle.classList.remove("active");
+            if (!activeCircle.classList.contains("chart-outlier-dot")) {
+                activeCircle.style.fill = "#0c0c12";
+            }
+        }
+
+        const activeRow = document.getElementById(`lap-row-${activeLapNumber}`);
+        if (activeRow) activeRow.classList.remove("lap-row-highlight");
+        activeLapNumber = null;
+    };
+
+    const renderLapChartTooltip = (tooltip, lap, pitAnnotation, isOutlier) => {
+        tooltip.innerHTML = `
+            <div class="chart-tooltip-header">${escapeHtml(getQualifyingLapLabel(lap, qualifyingAxis))}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span style="color:var(--text-muted)">Time:</span>
+                <strong style="color:var(--text-primary)">${formatLapTime(lap.lap_duration)}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px;font-size:10px;">
+                <span style="color:var(--text-muted)">S1:</span>
+                <span>${lap.duration_sector_1 ? lap.duration_sector_1.toFixed(3) + 's' : '--'}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px;font-size:10px;">
+                <span style="color:var(--text-muted)">S2:</span>
+                <span>${lap.duration_sector_2 ? lap.duration_sector_2.toFixed(3) + 's' : '--'}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;">
+                <span style="color:var(--text-muted)">S3:</span>
+                <span>${lap.duration_sector_3 ? lap.duration_sector_3.toFixed(3) + 's' : '--'}</span>
+            </div>
+            ${renderPitTooltipRows(pitAnnotation)}
+            ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT/SLOW LAP)</div>' : ''}
+        `;
+    };
 
     // Plot data points
     validLaps.forEach(lap => {
@@ -685,69 +729,64 @@ function renderLapChart(laps) {
             circle.setAttribute("class", `chart-dot${pitDotClasses ? ` ${pitDotClasses}` : ''}`);
             circle.style.stroke = `#${teamHex}`;
         }
+        lapCircles.set(lap.lap_number, circle);
+        svg.appendChild(circle);
+    });
 
-        // Hover interactions
-        circle.addEventListener("mouseenter", () => {
-            circle.classList.add("active");
-            if (!isOutlier) {
-                circle.style.fill = `#${teamHex}`;
+    // A full plot-area target makes lap details available without requiring a
+    // user to land on the tiny SVG marker for a lap.
+    const overlay = document.createElementNS(svgNamespace, "rect");
+    overlay.setAttribute("x", padding.left);
+    overlay.setAttribute("y", padding.top);
+    overlay.setAttribute("width", chartWidth);
+    overlay.setAttribute("height", chartHeight);
+    overlay.setAttribute("class", "lap-chart-interaction-overlay");
+    overlay.setAttribute("fill", "transparent");
+
+    overlay.addEventListener("mousemove", event => {
+        const svgRect = svg.getBoundingClientRect();
+        const viewX = (event.clientX - svgRect.left) * (width / (svgRect.width || width));
+        const nearestLap = validLaps.reduce((nearest, lap) => {
+            const nearestX = getX(getLapXValue(nearest, qualifyingAxis));
+            const lapX = getX(getLapXValue(lap, qualifyingAxis));
+            return Math.abs(lapX - viewX) < Math.abs(nearestX - viewX) ? lap : nearest;
+        });
+
+        if (activeLapNumber !== nearestLap.lap_number) {
+            clearLapChartHover();
+            activeLapNumber = nearestLap.lap_number;
+
+            const activeCircle = lapCircles.get(activeLapNumber);
+            if (activeCircle) {
+                activeCircle.classList.add("active");
+                if (!activeCircle.classList.contains("chart-outlier-dot")) {
+                    activeCircle.style.fill = `#${teamHex}`;
+                }
             }
-            
-            // Show Tooltip
-            tooltip.style.display = "block";
-            tooltip.innerHTML = `
-                <div class="chart-tooltip-header">${escapeHtml(getQualifyingLapLabel(lap, qualifyingAxis))}</div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                    <span style="color:var(--text-muted)">Time:</span>
-                    <strong style="color:var(--text-primary)">${formatLapTime(lap.lap_duration)}</strong>
-                </div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:2px;font-size:10px;">
-                    <span style="color:var(--text-muted)">S1:</span>
-                    <span>${lap.duration_sector_1 ? lap.duration_sector_1.toFixed(3) + 's' : '--'}</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:2px;font-size:10px;">
-                    <span style="color:var(--text-muted)">S2:</span>
-                    <span>${lap.duration_sector_2 ? lap.duration_sector_2.toFixed(3) + 's' : '--'}</span>
-                </div>
-                <div style="display:flex;justify-content:space-between;font-size:10px;">
-                    <span style="color:var(--text-muted)">S3:</span>
-                    <span>${lap.duration_sector_3 ? lap.duration_sector_3.toFixed(3) + 's' : '--'}</span>
-                </div>
-                ${renderPitTooltipRows(pitAnnotation)}
-                ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT/SLOW LAP)</div>' : ''}
-            `;
-            
-            const rect = DOM.lapsChartContainer.getBoundingClientRect();
-            const circleX = rect.left + window.scrollX + x;
-            const circleY = rect.top + window.scrollY + y;
-            
-            tooltip.style.left = `${circleX - 80}px`;
-            tooltip.style.top = `${circleY - tooltip.clientHeight - 12}px`;
 
-            // Highlight row in table
-            const row = document.getElementById(`lap-row-${lap.lap_number}`);
+            const nearestPitAnnotation = getLapPitAnnotation(state.selectedDriverStats, nearestLap.lap_number);
+            const nearestIsOutlier = hideOutliers && nearestLap.lap_duration > outlierThreshold;
+            renderLapChartTooltip(tooltip, nearestLap, nearestPitAnnotation, nearestIsOutlier);
+
+            const row = document.getElementById(`lap-row-${nearestLap.lap_number}`);
             if (row) {
                 row.classList.add("lap-row-highlight");
                 row.style.setProperty('--team-color', `#${teamHex}`);
                 row.scrollIntoView({ behavior: "smooth", block: "nearest" });
             }
-        });
+        }
 
-        circle.addEventListener("mouseleave", () => {
-            circle.classList.remove("active");
-            if (!isOutlier) {
-                circle.style.fill = "#0c0c12";
-            }
-            tooltip.style.display = "none";
-            
-            const row = document.getElementById(`lap-row-${lap.lap_number}`);
-            if (row) {
-                row.classList.remove("lap-row-highlight");
-            }
-        });
-
-        svg.appendChild(circle);
+        tooltip.style.display = "block";
+        tooltip.style.left = `${event.pageX - 80}px`;
+        tooltip.style.top = `${event.pageY - tooltip.clientHeight - 12}px`;
     });
+
+    const hideTooltip = () => {
+        clearLapChartHover();
+        tooltip.style.display = "none";
+    };
+    overlay.addEventListener("mouseleave", hideTooltip);
+    svg.appendChild(overlay);
 
     DOM.lapsChartContainer.appendChild(svg);
 }

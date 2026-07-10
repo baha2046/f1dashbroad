@@ -1796,6 +1796,11 @@ body {
     stroke-width: 3;
 }
 
+.lap-chart-interaction-overlay {
+    cursor: crosshair;
+    pointer-events: all;
+}
+
 .chart-outlier-dot {
     fill: rgba(255, 255, 255, 0.05);
     stroke: rgba(255, 255, 255, 0.25);
@@ -3843,7 +3848,7 @@ body {
 
 /* ===== Lap Telemetry (car_data deep-dive) ===== */
 .telemetry-section {
-    margin-bottom: 28px;
+    margin-top: 28px;
 }
 
 /* Three selects in compare mode overflow the nowrap chart-header */
