@@ -851,7 +851,7 @@ class ReplayRaceContextTests(unittest.TestCase):
             self.assertIn(css_class, self.styles_css)
 
     def test_tower_layout_preserves_driver_code_space(self):
-        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);", self.styles_css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(285px, 325px);", self.styles_css)
         self.assertIn("grid-template-columns: 22px 4px minmax(42px, 1fr) 22px minmax(32px, auto) minmax(58px, auto);", self.styles_css)
 
     def test_tyre_stint_helper_picks_current_compound_by_driver_lap(self):

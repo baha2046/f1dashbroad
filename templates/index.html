@@ -561,26 +561,82 @@
                 <!-- Results View -->
                 <section class="tab-view" id="results-view" aria-label="Session results data">
                     <div class="results-container">
-                        <div class="results-header">
-                            <h3>Session Results</h3>
-                        </div>
-                        <div class="results-table-wrapper glass" id="resultsTableWrapper">
-                            <table class="results-table">
-                                <thead>
-                                    <tr id="resultsTableHeadRow">
-                                        <th class="results-position-cell">Pos</th>
-                                        <th>Driver</th>
-                                        <th>Laps</th>
-                                        <th>Time / Gap</th>
-                                        <th>Status</th>
-                                        <th>Points</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="resultsTableBody">
-                                    <!-- Loaded dynamically -->
-                                </tbody>
-                            </table>
-                        </div>
+                        <header class="results-hero glass" id="resultsOverview">
+                            <div class="results-hero-heading">
+                                <div>
+                                    <span class="results-eyebrow">
+                                        <span class="material-icons-round" aria-hidden="true">verified</span>
+                                        <span id="resultsEyebrowText">Official classification</span>
+                                    </span>
+                                    <h2 id="resultsHeroTitle">Race classification</h2>
+                                    <p id="resultsHeroSubtitle">The final order, key performance and championship impact.</p>
+                                </div>
+                                <span class="results-session-badge" id="resultsSessionBadge">
+                                    <span class="results-session-dot" aria-hidden="true"></span>
+                                    <span id="resultsSessionBadgeText">Final</span>
+                                </span>
+                            </div>
+                            <div class="results-highlights" aria-label="Session result highlights">
+                                <article class="results-highlight results-highlight-lead">
+                                    <span class="material-icons-round" aria-hidden="true">emoji_events</span>
+                                    <div>
+                                        <span class="results-highlight-label" id="resultsLeadLabel">Winner</span>
+                                        <strong id="resultsLeadValue">--</strong>
+                                        <small id="resultsLeadMeta">--</small>
+                                    </div>
+                                </article>
+                                <article class="results-highlight results-highlight-pace">
+                                    <span class="material-icons-round" aria-hidden="true">speed</span>
+                                    <div>
+                                        <span class="results-highlight-label" id="resultsPaceLabel">Fastest lap</span>
+                                        <strong id="resultsPaceValue">--</strong>
+                                        <small id="resultsPaceMeta">--</small>
+                                    </div>
+                                </article>
+                                <article class="results-highlight">
+                                    <span class="material-icons-round" aria-hidden="true">groups</span>
+                                    <div>
+                                        <span class="results-highlight-label" id="resultsFieldLabel">Classified</span>
+                                        <strong id="resultsFieldValue">--</strong>
+                                        <small id="resultsFieldMeta">--</small>
+                                    </div>
+                                </article>
+                                <article class="results-highlight">
+                                    <span class="material-icons-round" aria-hidden="true">stars</span>
+                                    <div>
+                                        <span class="results-highlight-label" id="resultsPointsLabel">Points awarded</span>
+                                        <strong id="resultsPointsValue">--</strong>
+                                        <small id="resultsPointsMeta">--</small>
+                                    </div>
+                                </article>
+                            </div>
+                        </header>
+                        <section class="results-classification-panel glass" id="resultsClassificationPanel" aria-labelledby="resultsClassificationTitle">
+                            <div class="results-panel-header">
+                                <div>
+                                    <span class="results-panel-kicker">Classification</span>
+                                    <h3 id="resultsClassificationTitle">Full finishing order</h3>
+                                </div>
+                                <span class="results-entry-count" id="resultsClassificationCount">-- entries</span>
+                            </div>
+                            <div class="results-table-wrapper" id="resultsTableWrapper">
+                                <table class="results-table">
+                                    <thead>
+                                        <tr id="resultsTableHeadRow">
+                                            <th class="results-position-cell">Pos</th>
+                                            <th>Driver</th>
+                                            <th>Laps</th>
+                                            <th>Time / Gap</th>
+                                            <th>Status</th>
+                                            <th>Points</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="resultsTableBody">
+                                        <!-- Loaded dynamically -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
                         <div id="resultsEmptyState" class="results-empty glass" style="display: none;">
                             <span class="material-icons-round results-empty-icon">emoji_events</span>
                             <h4 id="resultsEmptyTitle">No Results Available</h4>
@@ -588,9 +644,12 @@
                         </div>
                         <div class="race-standings-wrapper" id="raceStandingsWrapper" style="display: none;">
                             <div class="standings-section-header">
-                                <div>
-                                    <h3>Championship Standings</h3>
-                                    <p id="raceStandingsSummary">Selected round standings</p>
+                                <div class="standings-section-title">
+                                    <span class="standings-section-icon material-icons-round" aria-hidden="true">leaderboard</span>
+                                    <div>
+                                        <h3>Championship Standings</h3>
+                                        <p id="raceStandingsSummary">Selected round standings</p>
+                                    </div>
                                 </div>
                             </div>
                             <div class="standings-grid">
@@ -639,13 +698,16 @@
                         </div>
                         <div class="progression-wrapper" id="progressionWrapper" style="display: none;">
                             <div class="standings-section-header">
-                                <div>
-                                    <h3>Championship Progression</h3>
-                                    <p id="progressionSummary">Points accumulated across the season</p>
+                                <div class="standings-section-title">
+                                    <span class="standings-section-icon material-icons-round" aria-hidden="true">show_chart</span>
+                                    <div>
+                                        <h3>Championship Progression</h3>
+                                        <p id="progressionSummary">Points accumulated across the season</p>
+                                    </div>
                                 </div>
                                 <div class="progression-toggle" role="group" aria-label="Progression series">
-                                    <button type="button" id="progressionDriversBtn" class="progression-toggle-btn active">Drivers</button>
-                                    <button type="button" id="progressionConstructorsBtn" class="progression-toggle-btn">Constructors</button>
+                                    <button type="button" id="progressionDriversBtn" class="progression-toggle-btn active" aria-pressed="true">Drivers</button>
+                                    <button type="button" id="progressionConstructorsBtn" class="progression-toggle-btn" aria-pressed="false">Constructors</button>
                                 </div>
                             </div>
                             <div class="progression-panel glass">
@@ -695,63 +757,110 @@
                 <section class="tab-view" id="replay-view" aria-label="Session replay">
                     <div class="replay-layout">
                         <div class="replay-card glass" id="replayCard">
-                            <div class="circuit-card-header">
-                                <span class="material-icons-round circuit-map-icon">play_circle</span>
-                                <h3>Session Replay</h3>
-                            </div>
-                            <div class="replay-controls">
+                            <header class="replay-header">
+                                <div class="replay-title-block">
+                                    <span class="replay-title-icon material-icons-round" aria-hidden="true">play_circle</span>
+                                    <div>
+                                        <span class="replay-kicker">Session playback</span>
+                                        <h2>Session Replay</h2>
+                                        <p>Revisit every lap, track the field and inspect the moments that shaped the session.</p>
+                                    </div>
+                                </div>
+                                <div class="replay-shortcuts" aria-label="Replay keyboard shortcuts">
+                                    <span><kbd>Space</kbd> Play / pause</span>
+                                    <span><kbd>←</kbd><kbd>→</kbd> Seek</span>
+                                </div>
+                            </header>
+                            <div class="replay-controls" aria-label="Replay transport controls">
                                 <label class="replay-select-wrapper">
-                                    <span>View</span>
+                                    <span>Replay view</span>
                                     <select id="replayDriverSelect" aria-label="Select full race, full qualifying, or a reference driver for replay"></select>
                                 </label>
-                                <button type="button" class="replay-play-btn" id="replayPlayBtn" aria-label="Play or pause replay" disabled>
-                                    <span class="material-icons-round">play_arrow</span>
-                                </button>
-                                <input type="range" class="replay-scrubber" id="replayScrubber" min="0" max="1000" step="1" value="0" aria-label="Position within current lap" disabled>
-                                <span class="replay-time-label" id="replayTimeLabel">0.0s / 0.0s</span>
-                                <span class="replay-lap-chip" id="replayLapChip" aria-live="polite" hidden>Lap -- / --</span>
-                                <span class="replay-state-chip" id="replayStateChip" aria-live="polite" hidden>Green</span>
-                                <div class="replay-speed-toggle" id="replaySpeedToggle" role="group" aria-label="Replay speed">
-                                    <button type="button" data-speed="1" class="active">1x</button>
-                                    <button type="button" data-speed="2">2x</button>
-                                    <button type="button" data-speed="4">4x</button>
+                                <div class="replay-primary-controls">
+                                    <button type="button" class="replay-play-btn" id="replayPlayBtn" aria-label="Play or pause replay" disabled>
+                                        <span class="material-icons-round">play_arrow</span>
+                                    </button>
+                                    <div class="replay-scrub-cluster">
+                                        <input type="range" class="replay-scrubber" id="replayScrubber" min="0" max="1000" step="1" value="0" aria-label="Position within current lap" disabled>
+                                        <span class="replay-time-label" id="replayTimeLabel">0.0s / 0.0s</span>
+                                    </div>
+                                </div>
+                                <div class="replay-session-state">
+                                    <span class="replay-lap-chip" id="replayLapChip" aria-live="polite" hidden>Lap -- / --</span>
+                                    <span class="replay-state-chip" id="replayStateChip" aria-live="polite" hidden>Green</span>
+                                    <div class="replay-speed-toggle" id="replaySpeedToggle" role="group" aria-label="Replay speed">
+                                        <button type="button" data-speed="1" class="active" aria-pressed="true">1x</button>
+                                        <button type="button" data-speed="2" aria-pressed="false">2x</button>
+                                        <button type="button" data-speed="4" aria-pressed="false">4x</button>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="replay-timeline" id="replayTimeline" aria-label="Session timeline">
-                                <!-- Lap segments + playhead generated dynamically -->
+                            <div class="replay-timeline-panel">
+                                <div class="replay-timeline-heading">
+                                    <div>
+                                        <span>Session timeline</span>
+                                        <small>Select a lap or phase to jump through the session.</small>
+                                    </div>
+                                    <div class="replay-timeline-legend" aria-label="Timeline state legend">
+                                        <span><i class="state-yellow"></i>Yellow</span>
+                                        <span><i class="state-sc"></i>SC / VSC</span>
+                                        <span><i class="state-red"></i>Red</span>
+                                        <span><i class="state-fastest"></i>Fastest</span>
+                                    </div>
+                                </div>
+                                <div class="replay-timeline" id="replayTimeline" aria-label="Session timeline">
+                                    <!-- Lap segments + playhead generated dynamically -->
+                                </div>
                             </div>
                             <div class="replay-context-layout">
                                 <div class="replay-map-stack">
-                                    <div class="replay-map-content" id="replayMapContent">
-                                        <!-- SVG replay map generated dynamically -->
+                                    <div class="replay-stage" role="region" aria-labelledby="replayStageTitle">
+                                        <div class="replay-stage-header">
+                                            <div>
+                                                <span class="replay-stage-kicker">Live positions</span>
+                                                <h3 id="replayStageTitle">Track map</h3>
+                                            </div>
+                                            <div class="replay-stage-status" id="replayStageStatus" data-state="idle">
+                                                <span aria-hidden="true"></span>
+                                                <span id="replayStageStatusText">Waiting for replay data</span>
+                                            </div>
+                                        </div>
+                                        <div class="replay-map-content" id="replayMapContent">
+                                            <!-- SVG replay map generated dynamically -->
+                                        </div>
+                                        <div class="replay-telemetry-strip" id="replayTelemetryStrip" aria-label="Reference driver telemetry" hidden>
+                                            <span class="replay-telemetry-driver" id="replayTelemetryDriver">--</span>
+                                            <span class="replay-telemetry-item">
+                                                <span class="replay-telemetry-value replay-telemetry-speed" id="replayTelemetrySpeed">--</span>
+                                                <span class="replay-telemetry-unit">km/h</span>
+                                            </span>
+                                            <span class="replay-telemetry-item">
+                                                <span class="replay-telemetry-unit">Gear</span>
+                                                <span class="replay-telemetry-value" id="replayTelemetryGear">-</span>
+                                            </span>
+                                            <span class="replay-telemetry-drs" id="replayTelemetryDrs">DRS</span>
+                                        </div>
                                     </div>
-                                    <div class="replay-telemetry-strip" id="replayTelemetryStrip" aria-label="Reference driver telemetry" hidden>
-                                        <span class="replay-telemetry-driver" id="replayTelemetryDriver">--</span>
-                                        <span class="replay-telemetry-item">
-                                            <span class="replay-telemetry-value replay-telemetry-speed" id="replayTelemetrySpeed">--</span>
-                                            <span class="replay-telemetry-unit">km/h</span>
-                                        </span>
-                                        <span class="replay-telemetry-item">
-                                            <span class="replay-telemetry-unit">Gear</span>
-                                            <span class="replay-telemetry-value" id="replayTelemetryGear">-</span>
-                                        </span>
-                                        <span class="replay-telemetry-drs" id="replayTelemetryDrs">DRS</span>
-                                    </div>
-                                    <div class="replay-race-control-ticker" id="replayRaceControlTicker" aria-live="polite" hidden>
-                                        <span class="replay-race-control-time" id="replayRaceControlTickerType">Race Control</span>
-                                        <span class="replay-race-control-message" id="replayRaceControlTickerMessage"></span>
-                                    </div>
-                                    <div class="replay-team-radio-ticker" id="replayTeamRadioTicker" aria-live="polite" hidden>
-                                        <button type="button" class="team-radio-play-btn" id="replayTeamRadioPlayBtn" aria-label="Play team radio clip">
-                                            <span class="material-icons-round">play_arrow</span>
-                                        </button>
-                                        <span class="replay-team-radio-label">Team Radio</span>
-                                        <span class="replay-team-radio-meta" id="replayTeamRadioMeta"></span>
+                                    <div class="replay-feed-stack" aria-label="Replay event feed">
+                                        <div class="replay-race-control-ticker" id="replayRaceControlTicker" aria-live="polite" hidden>
+                                            <span class="replay-race-control-time" id="replayRaceControlTickerType">Race Control</span>
+                                            <span class="replay-race-control-message" id="replayRaceControlTickerMessage"></span>
+                                        </div>
+                                        <div class="replay-team-radio-ticker" id="replayTeamRadioTicker" aria-live="polite" hidden>
+                                            <button type="button" class="team-radio-play-btn" id="replayTeamRadioPlayBtn" aria-label="Play team radio clip">
+                                                <span class="material-icons-round">play_arrow</span>
+                                            </button>
+                                            <span class="replay-team-radio-label">Team Radio</span>
+                                            <span class="replay-team-radio-meta" id="replayTeamRadioMeta"></span>
+                                        </div>
                                     </div>
                                 </div>
                                 <aside class="replay-race-context" id="replayRaceContext" aria-label="Replay running order" hidden>
                                     <div class="replay-context-header">
-                                        <span id="replayTowerOrderHeading">Running Order</span>
+                                        <div>
+                                            <span class="replay-stage-kicker">Timing tower</span>
+                                            <strong id="replayTowerOrderHeading">Running Order</strong>
+                                        </div>
                                         <span id="replayTowerValueHeading">Gaps</span>
                                     </div>
                                     <div class="replay-race-tower" id="replayRaceTower">

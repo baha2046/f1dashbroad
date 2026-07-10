@@ -223,10 +223,16 @@ function setupEventListeners() {
         DOM.replayMapContent.addEventListener('click', (e) => {
             onReplayDriverHighlightClick(e);
         });
+        DOM.replayMapContent.addEventListener('keydown', (e) => {
+            onReplayDriverHighlightKeydown(e);
+        });
     }
     if (DOM.replayTowerBody) {
         DOM.replayTowerBody.addEventListener('click', (e) => {
             onReplayDriverHighlightClick(e);
+        });
+        DOM.replayTowerBody.addEventListener('keydown', (e) => {
+            onReplayDriverHighlightKeydown(e);
         });
     }
     if (DOM.replayPlayBtn) {
@@ -243,8 +249,11 @@ function setupEventListeners() {
         DOM.replaySpeedToggle.addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-speed]');
             if (!btn) return;
-            DOM.replaySpeedToggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+            DOM.replaySpeedToggle.querySelectorAll('button').forEach((button) => {
+                const isActive = button === btn;
+                button.classList.toggle('active', isActive);
+                button.setAttribute('aria-pressed', String(isActive));
+            });
             state.replay.speed = Number(btn.dataset.speed) || 1;
         });
     }

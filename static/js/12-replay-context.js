@@ -405,7 +405,9 @@ function latestReplayRaceControlAt(records, ms, shownDrivers = null) {
 function resetReplaySpeedToggle() {
     if (!DOM.replaySpeedToggle) return;
     DOM.replaySpeedToggle.querySelectorAll('button[data-speed]').forEach(button => {
-        button.classList.toggle('active', button.dataset.speed === '1');
+        const isActive = button.dataset.speed === '1';
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', String(isActive));
     });
 }
 
@@ -431,7 +433,9 @@ function clearReplayRaceContext() {
     }
     if (DOM.replayTowerBody) {
         DOM.replayTowerBody.innerHTML = '';
+        DOM.replayTowerBody.classList.remove('has-driver-highlight');
     }
+    if (DOM.replayMapContent) DOM.replayMapContent.classList.remove('has-driver-highlight');
     clearReplayRaceControlTicker();
     if (state.replay) {
         state.replay.contextRows = {};
@@ -656,6 +660,10 @@ function ensureReplayTowerRow(driverNumber) {
     const row = document.createElement('div');
     row.className = 'replay-tower-row';
     row.dataset.driverNumber = String(driverNumber);
+    row.setAttribute('role', 'button');
+    row.setAttribute('tabindex', '0');
+    row.setAttribute('aria-label', `Focus ${getReplayDriverCode(driverNumber)} in replay`);
+    row.setAttribute('aria-pressed', 'false');
     row.addEventListener('animationend', (event) => {
         if (String(event.animationName).startsWith('replay-row-flash')) {
             row.classList.remove('flash-up', 'flash-down');
@@ -691,6 +699,31 @@ function ensureReplayTowerRow(driverNumber) {
     return state.replay.contextRows[driverNumber];
 }
 
+function updateReplayTowerRowAccessibleName(row) {
+    if (!row || !row.row) return;
+    const position = String(row.pos.textContent || '').trim();
+    const driver = String(row.driver.textContent || '').trim();
+    const tyre = String(row.tyre.title || '').trim();
+    const status = String(row.status.textContent || '').trim();
+    const gap = String(row.gap.textContent || '').trim();
+    const details = [
+        position ? `Position ${position}` : '',
+        driver,
+        tyre ? `${tyre.toLowerCase()} tyre` : '',
+        status,
+        gap
+    ].filter(Boolean);
+    row.row.setAttribute('aria-label', `${details.join(', ')}. Activate to focus this driver.`);
+}
+
+function placeReplayTowerRow(rowElement, index) {
+    if (!DOM.replayTowerBody || !rowElement) return;
+    const currentAtIndex = DOM.replayTowerBody.children[index] || null;
+    if (currentAtIndex !== rowElement) {
+        DOM.replayTowerBody.insertBefore(rowElement, currentAtIndex);
+    }
+}
+
 function updateReplayRaceControlTicker(absoluteMs, shownDrivers) {
     if (!DOM.replayRaceControlTicker || !DOM.replayRaceControlTickerType || !DOM.replayRaceControlTickerMessage) return;
 
@@ -712,18 +745,28 @@ function updateReplayRaceControlTicker(absoluteMs, shownDrivers) {
 
 function applyReplayHighlight() {
     if (!state.replay) return;
-    const highlighted = Number(state.replay.highlightedDriverNumber);
+    const highlightValue = state.replay.highlightedDriverNumber;
+    const highlighted = highlightValue === null || highlightValue === undefined
+        ? NaN
+        : Number(highlightValue);
     const hasHighlight = Number.isFinite(highlighted);
+
+    if (DOM.replayMapContent) DOM.replayMapContent.classList.toggle('has-driver-highlight', hasHighlight);
+    if (DOM.replayTowerBody) DOM.replayTowerBody.classList.toggle('has-driver-highlight', hasHighlight);
 
     Object.entries(state.replay.carNodes || {}).forEach(([driverNumber, node]) => {
         if (node && node.group) {
-            node.group.classList.toggle('highlighted', hasHighlight && Number(driverNumber) === highlighted);
+            const isHighlighted = hasHighlight && Number(driverNumber) === highlighted;
+            node.group.classList.toggle('highlighted', isHighlighted);
+            node.group.setAttribute('aria-pressed', String(isHighlighted));
         }
     });
 
     Object.entries(state.replay.contextRows || {}).forEach(([driverNumber, row]) => {
         if (row && row.row) {
-            row.row.classList.toggle('highlighted', hasHighlight && Number(driverNumber) === highlighted);
+            const isHighlighted = hasHighlight && Number(driverNumber) === highlighted;
+            row.row.classList.toggle('highlighted', isHighlighted);
+            row.row.setAttribute('aria-pressed', String(isHighlighted));
         }
     });
 }
@@ -746,6 +789,11 @@ function onReplayDriverHighlightClick(event) {
 
     event.preventDefault();
     highlightReplayDriver(driverNumber);
+}
+
+function onReplayDriverHighlightKeydown(event) {
+    if (!event || event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return;
+    onReplayDriverHighlightClick(event);
 }
 
 function updateReplayRaceContext(force = false) {
@@ -846,6 +894,8 @@ function updateReplayRaceContext(force = false) {
         row.gap.textContent = inactive
             ? '\u2014'
             : formatReplayGap(gapValue, isLeader);
+        updateReplayTowerRowAccessibleName(row);
+        placeReplayTowerRow(row.row, index);
     });
 
     Object.entries(state.replay.contextRows || {}).forEach(([driverNumber, row]) => {
@@ -924,6 +974,8 @@ function updateReplayQualiTower(absoluteMs, allowRowFlash) {
         row.status.className = 'replay-tower-status';
         row.gap.textContent = formatReplayQualiGap(qualiRow, leader);
         row.gap.title = Number.isFinite(qualiRow.seconds) ? formatLapTime(qualiRow.seconds) : 'No time set';
+        updateReplayTowerRowAccessibleName(row);
+        placeReplayTowerRow(row.row, index);
     });
 
     Object.entries(state.replay.contextRows || {}).forEach(([driverNumber, row]) => {

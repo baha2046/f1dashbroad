@@ -341,6 +341,7 @@ function resetReplay() {
     if (DOM.replayScrubber) {
         DOM.replayScrubber.disabled = true;
         DOM.replayScrubber.value = 0;
+        DOM.replayScrubber.setAttribute('aria-valuetext', '0.0 of 0.0 seconds');
     }
     if (DOM.replayTimeLabel) {
         DOM.replayTimeLabel.textContent = '0.0s / 0.0s';
@@ -387,12 +388,25 @@ function setReplayPlayIcon(playing) {
     if (!DOM.replayPlayBtn) return;
     const icon = DOM.replayPlayBtn.querySelector('.material-icons-round');
     if (icon) icon.textContent = playing ? 'pause' : 'play_arrow';
+    DOM.replayPlayBtn.setAttribute('aria-label', playing ? 'Pause replay' : 'Play replay');
 }
 
-function renderReplayMessage(text) {
+function setReplayStageStatus(status, text) {
+    if (DOM.replayStageStatus) DOM.replayStageStatus.dataset.state = status;
+    if (DOM.replayStageStatusText) DOM.replayStageStatusText.textContent = text;
+}
+
+function renderReplayMessage(text, status = 'idle') {
     if (DOM.replayMapContent) {
         DOM.replayMapContent.innerHTML = `<div class="replay-message">${escapeHtml(text)}</div>`;
     }
+    const statusText = {
+        idle: 'Waiting for replay data',
+        loading: 'Loading track positions',
+        unavailable: 'Position data unavailable',
+        error: 'Replay unavailable'
+    }[status] || 'Waiting for replay data';
+    setReplayStageStatus(status, statusText);
 }
 
 function setupReplaySection() {
@@ -405,7 +419,7 @@ function setupReplaySection() {
         renderReplayTimeline();
         renderReplayMessage(state.replay.timeline
             ? 'No drivers available — the timeline shows race control track states.'
-            : 'No drivers available for this session.');
+            : 'No drivers available for this session.', 'unavailable');
         return;
     }
 
@@ -469,10 +483,10 @@ async function setupReplayTimeline() {
         const missing = isFullSession ? 'session phase data' : 'lap data';
         // Keep the race-control timeline: states stay visible, playback needs windows
         if (state.replay.timeline) {
-            renderReplayMessage(`No ${missing} for ${subject} — the timeline shows race control track states.`);
+            renderReplayMessage(`No ${missing} for ${subject} — the timeline shows race control track states.`, 'unavailable');
         } else {
             DOM.replayTimeline.innerHTML = '';
-            renderReplayMessage(`No ${missing} recorded for ${subject}.`);
+            renderReplayMessage(`No ${missing} recorded for ${subject}.`, 'unavailable');
         }
         return;
     }
@@ -1058,7 +1072,7 @@ async function loadTrackReplay(driverNumber, lapNumber, options = {}) {
         return;
     }
 
-    renderReplayMessage('Loading track positions for the whole field...');
+    renderReplayMessage('Loading track positions for the whole field...', 'loading');
     if (DOM.replayPlayBtn) DOM.replayPlayBtn.disabled = true;
     if (DOM.replayScrubber) DOM.replayScrubber.disabled = true;
 
@@ -1066,14 +1080,14 @@ async function loadTrackReplay(driverNumber, lapNumber, options = {}) {
         const payload = await fetchReplayPayload(sessionKey, driverNumber, lapNumber);
         if (!isCurrentSelection()) return;
         if (!payload) {
-            renderReplayMessage('No track position data available for this lap.');
+            renderReplayMessage('No track position data available for this lap.', 'unavailable');
             return;
         }
         buildReplayScene(payload, cacheKey, options);
     } catch (e) {
         console.error('Error loading track replay:', e);
         if (isCurrentSelection()) {
-            renderReplayMessage('Failed to load track position data.');
+            renderReplayMessage('Failed to load track position data.', 'error');
         }
     }
 }
@@ -1198,7 +1212,7 @@ function buildReplayScene(payload, cacheKey, options = {}) {
     }
 
     if (!trackPoints || trackPoints.length < 2) {
-        renderReplayMessage('Not enough position data to draw the track.');
+        renderReplayMessage('Not enough position data to draw the track.', 'error');
         return;
     }
 
@@ -1283,6 +1297,10 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         const group = document.createElementNS(svgNamespace, "g");
         group.setAttribute("class", `replay-car-group${isReference ? ' reference' : ''}`);
         group.setAttribute("data-driver-number", String(driverSeries.driver_number));
+        group.setAttribute('role', 'button');
+        group.setAttribute('tabindex', '0');
+        group.setAttribute('aria-label', `Focus ${acronym} in replay`);
+        group.setAttribute('aria-pressed', 'false');
         group.style.display = 'none';
 
         const ring = document.createElementNS(svgNamespace, "circle");
@@ -1314,6 +1332,7 @@ function buildReplayScene(payload, cacheKey, options = {}) {
 
     DOM.replayMapContent.innerHTML = '';
     DOM.replayMapContent.appendChild(svg);
+    setReplayStageStatus('ready', 'Timeline synchronized');
     applyReplayHighlight();
 
     if (DOM.replayPlayBtn) DOM.replayPlayBtn.disabled = false;
@@ -1475,6 +1494,7 @@ function renderReplayFrame(t) {
     if (DOM.replayScrubber && windowSeconds > 0) {
         const max = Number(DOM.replayScrubber.max) || 1000;
         DOM.replayScrubber.value = Math.round((t / windowSeconds) * max);
+        DOM.replayScrubber.setAttribute('aria-valuetext', `${t.toFixed(1)} of ${windowSeconds.toFixed(1)} seconds`);
     }
     if (DOM.replayTimeLabel) {
         DOM.replayTimeLabel.textContent = `${t.toFixed(1)}s / ${windowSeconds.toFixed(1)}s`;
@@ -1645,6 +1665,8 @@ function isReplayKeyboardShortcutTarget(target) {
         tagName === 'INPUT' ||
         tagName === 'SELECT' ||
         tagName === 'TEXTAREA' ||
+        tagName === 'BUTTON' ||
+        (typeof target.getAttribute === 'function' && target.getAttribute('role') === 'button') ||
         target.isContentEditable
     );
 }

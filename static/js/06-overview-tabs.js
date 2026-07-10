@@ -609,9 +609,210 @@ function showNoTrackMapState() {
     updateCircuitMapStatus('info', 'Map data unavailable', 'Circuit facts and session sector benchmarks remain available.');
 }
 
+function getResultDriver(item) {
+    return state.drivers.find(driver => driver.driver_number === item.driver_number) || {
+        first_name: 'Driver',
+        last_name: `#${item.driver_number}`,
+        full_name: `Driver #${item.driver_number}`,
+        team_name: 'Independent',
+        name_acronym: `D${item.driver_number}`,
+        team_colour: '787878'
+    };
+}
+
+function formatResultPace(value) {
+    if (value === null || value === undefined || value === '') return '--';
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return formatLapTime(numeric);
+    return String(value);
+}
+
+function formatResultGap(value) {
+    if (value === null || value === undefined || value === '' || Array.isArray(value)) return '--';
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return `+${numeric.toFixed(3)}s`;
+    return String(value);
+}
+
+function getResultsSessionPhase(session) {
+    if (!session) return { label: 'Current', isFinal: false };
+    if (session.is_cancelled === true) return { label: 'Cancelled', isFinal: false };
+
+    const statuses = (Array.isArray(state.sessionStatusSeries) ? state.sessionStatusSeries : [])
+        .map(row => String((row && (row.session_status || row.status)) || '').trim().toUpperCase())
+        .filter(Boolean);
+    const latestStatus = statuses.length ? statuses[statuses.length - 1] : '';
+    if (['FINISHED', 'FINALISED', 'FINALIZED', 'ENDS', 'ENDED'].includes(latestStatus)) {
+        return { label: 'Final', isFinal: true };
+    }
+    if (['STARTED', 'ACTIVE'].includes(latestStatus)) {
+        return { label: 'Live', isFinal: false };
+    }
+
+    if (typeof getLiveSessionStatus === 'function') {
+        const liveStatus = getLiveSessionStatus(session);
+        if (liveStatus && liveStatus.text === 'Past') return { label: 'Final', isFinal: true };
+        if (liveStatus && liveStatus.text) return { label: liveStatus.text, isFinal: false };
+    }
+    return { label: 'Current', isFinal: false };
+}
+
+function updateResultsOverview(sortedResults, isQualiResults, segmentLabels, segmentBest) {
+    if (!DOM.resultsOverview || !sortedResults.length) return;
+
+    DOM.resultsOverview.style.display = 'grid';
+    if (DOM.resultsClassificationPanel) DOM.resultsClassificationPanel.style.display = 'block';
+
+    const sessionName = String(
+        (state.selectedSession && (state.selectedSession.session_name || state.selectedSession.session_type)) ||
+        (isQualiResults ? 'Qualifying' : 'Race')
+    );
+    const sessionPhase = getResultsSessionPhase(state.selectedSession);
+    const isRaceResults = isPitAnnotationSession(state.selectedSession);
+    const leadResult = sortedResults.find(item => Number(item.position) === 1) || null;
+    const leadDriver = leadResult ? getResultDriver(leadResult) : null;
+    const leadName = leadDriver
+        ? (leadDriver.full_name || [leadDriver.first_name, leadDriver.last_name].filter(Boolean).join(' '))
+        : '--';
+    const leadMeta = leadDriver
+        ? (leadDriver.team_name || leadDriver.name_acronym || '--')
+        : 'No P1 classification';
+
+    if (DOM.resultsEyebrowText) {
+        DOM.resultsEyebrowText.textContent = sessionPhase.isFinal && (isRaceResults || isQualiResults)
+            ? 'Official classification'
+            : (isRaceResults || isQualiResults ? 'Current classification' : 'Session timing summary');
+    }
+    if (DOM.resultsSessionBadgeText) DOM.resultsSessionBadgeText.textContent = `${sessionName} · ${sessionPhase.label}`;
+    if (DOM.resultsSessionBadge) {
+        DOM.resultsSessionBadge.classList.toggle('is-live', sessionPhase.label === 'Live');
+        DOM.resultsSessionBadge.classList.toggle('is-current', !sessionPhase.isFinal && sessionPhase.label !== 'Live');
+    }
+    if (DOM.resultsClassificationCount) {
+        DOM.resultsClassificationCount.textContent = `${sortedResults.length} ${sortedResults.length === 1 ? 'entry' : 'entries'}`;
+    }
+
+    if (DOM.resultsLeadValue) DOM.resultsLeadValue.textContent = leadName || '--';
+    if (DOM.resultsLeadMeta) DOM.resultsLeadMeta.textContent = leadMeta;
+
+    if (isQualiResults) {
+        const finalSegmentIndex = segmentBest[2] !== null ? 2 : (segmentBest[1] !== null ? 1 : 0);
+        const finalSegmentLabel = segmentLabels[finalSegmentIndex];
+        const finalSegmentCount = sortedResults.filter((item) => {
+            const durations = Array.isArray(item.duration) ? item.duration : [];
+            return Number.isFinite(Number(durations[finalSegmentIndex])) && Number(durations[finalSegmentIndex]) > 0;
+        }).length;
+
+        if (DOM.resultsHeroTitle) {
+            DOM.resultsHeroTitle.textContent = sessionPhase.isFinal ? 'Qualifying classification' : 'Live qualifying';
+        }
+        if (DOM.resultsHeroSubtitle) {
+            DOM.resultsHeroSubtitle.textContent = `${segmentLabels.join(' · ')} pace, elimination order and the ${sessionPhase.isFinal ? 'final' : 'provisional'} grid.`;
+        }
+        if (DOM.resultsClassificationTitle) {
+            DOM.resultsClassificationTitle.textContent = sessionPhase.isFinal ? 'Full qualifying order' : 'Current qualifying order';
+        }
+        if (DOM.resultsLeadLabel) DOM.resultsLeadLabel.textContent = sessionPhase.isFinal ? 'Pole position' : 'Provisional pole';
+        if (DOM.resultsPaceLabel) DOM.resultsPaceLabel.textContent = sessionPhase.isFinal ? 'Pole time' : 'Best time';
+        if (DOM.resultsPaceValue) DOM.resultsPaceValue.textContent = formatResultPace(segmentBest[finalSegmentIndex]);
+        if (DOM.resultsPaceMeta) {
+            const leadCode = leadDriver && (leadDriver.name_acronym || leadDriver.last_name);
+            DOM.resultsPaceMeta.textContent = `${leadCode || '--'} · ${finalSegmentLabel}`;
+        }
+        if (DOM.resultsFieldLabel) DOM.resultsFieldLabel.textContent = 'Field';
+        if (DOM.resultsFieldValue) DOM.resultsFieldValue.textContent = String(sortedResults.length);
+        if (DOM.resultsFieldMeta) DOM.resultsFieldMeta.textContent = 'drivers classified';
+        if (DOM.resultsPointsLabel) DOM.resultsPointsLabel.textContent = 'Final segment';
+        if (DOM.resultsPointsValue) DOM.resultsPointsValue.textContent = finalSegmentLabel;
+        if (DOM.resultsPointsMeta) DOM.resultsPointsMeta.textContent = `${finalSegmentCount} drivers set a time`;
+        return;
+    }
+
+    if (!isRaceResults) {
+        const secondResult = sortedResults.find(item => Number(item.position) === 2) || null;
+        const totalLaps = sortedResults.reduce((sum, item) => {
+            const laps = Number(item.number_of_laps);
+            return sum + (Number.isFinite(laps) ? laps : 0);
+        }, 0);
+        const leaderLaps = Number(leadResult && leadResult.number_of_laps);
+
+        if (DOM.resultsHeroTitle) DOM.resultsHeroTitle.textContent = `${sessionName} timing`;
+        if (DOM.resultsHeroSubtitle) {
+            DOM.resultsHeroSubtitle.textContent = 'Session order, completed running and the current benchmark across the field.';
+        }
+        if (DOM.resultsClassificationTitle) {
+            DOM.resultsClassificationTitle.textContent = sessionPhase.isFinal ? 'Final timing order' : 'Current timing order';
+        }
+        if (DOM.resultsLeadLabel) DOM.resultsLeadLabel.textContent = sessionPhase.isFinal ? 'Session leader' : 'Current leader';
+        if (DOM.resultsPaceLabel) DOM.resultsPaceLabel.textContent = 'Gap to P2';
+        if (DOM.resultsPaceValue) DOM.resultsPaceValue.textContent = secondResult
+            ? formatResultGap(secondResult.gap_to_leader)
+            : '--';
+        if (DOM.resultsPaceMeta) DOM.resultsPaceMeta.textContent = 'leader advantage';
+        if (DOM.resultsFieldLabel) DOM.resultsFieldLabel.textContent = 'Timed drivers';
+        if (DOM.resultsFieldValue) DOM.resultsFieldValue.textContent = String(sortedResults.length);
+        if (DOM.resultsFieldMeta) {
+            DOM.resultsFieldMeta.textContent = Number.isFinite(leaderLaps) ? `${leaderLaps} laps for the leader` : 'session field';
+        }
+        if (DOM.resultsPointsLabel) DOM.resultsPointsLabel.textContent = 'Running total';
+        if (DOM.resultsPointsValue) DOM.resultsPointsValue.textContent = String(totalLaps);
+        if (DOM.resultsPointsMeta) DOM.resultsPointsMeta.textContent = 'laps across the field';
+        return;
+    }
+
+    const fastestResult = sortedResults.find(item => item.fastest_lap) || null;
+    const fastestDriver = fastestResult ? getResultDriver(fastestResult) : null;
+    const classifiedCount = sortedResults.filter(item => (
+        !item.dsq && !item.dns && !item.dnf && item.position !== null && item.position !== undefined
+    )).length;
+    const pointValues = sortedResults
+        .filter(item => item.points !== null && item.points !== undefined && item.points !== '')
+        .map(item => Number(item.points))
+        .filter(Number.isFinite);
+    const totalPoints = pointValues.reduce((sum, points) => sum + points, 0);
+    const raceTitle = sessionName.toLowerCase().includes('sprint') ? 'Sprint' : 'Race';
+
+    if (DOM.resultsHeroTitle) {
+        DOM.resultsHeroTitle.textContent = sessionPhase.isFinal ? `${raceTitle} classification` : `Live ${raceTitle.toLowerCase()} classification`;
+    }
+    if (DOM.resultsHeroSubtitle) {
+        DOM.resultsHeroSubtitle.textContent = sessionPhase.isFinal
+            ? 'The final order, decisive pace and championship impact from the session.'
+            : 'The evolving running order, benchmark pace and classification from the live session.';
+    }
+    if (DOM.resultsClassificationTitle) {
+        DOM.resultsClassificationTitle.textContent = sessionPhase.isFinal ? 'Full finishing order' : 'Current running order';
+    }
+    if (DOM.resultsLeadLabel) DOM.resultsLeadLabel.textContent = sessionPhase.isFinal ? 'Winner' : 'Leader';
+    if (DOM.resultsPaceLabel) DOM.resultsPaceLabel.textContent = 'Fastest lap';
+    if (DOM.resultsPaceValue) DOM.resultsPaceValue.textContent = fastestResult
+        ? formatResultPace(fastestResult.fastest_lap_time)
+        : '--';
+    if (DOM.resultsPaceMeta) {
+        const driverCode = fastestDriver && (fastestDriver.name_acronym || fastestDriver.last_name);
+        const lapLabel = fastestResult && fastestResult.fastest_lap_number
+            ? ` · Lap ${fastestResult.fastest_lap_number}`
+            : '';
+        DOM.resultsPaceMeta.textContent = driverCode ? `${driverCode}${lapLabel}` : 'No fastest-lap data';
+    }
+    if (DOM.resultsFieldLabel) DOM.resultsFieldLabel.textContent = 'Classified';
+    if (DOM.resultsFieldValue) DOM.resultsFieldValue.textContent = `${classifiedCount} / ${sortedResults.length}`;
+    if (DOM.resultsFieldMeta) {
+        const retiredCount = sortedResults.length - classifiedCount;
+        DOM.resultsFieldMeta.textContent = retiredCount ? `${retiredCount} not classified` : 'entire field finished';
+    }
+    if (DOM.resultsPointsLabel) DOM.resultsPointsLabel.textContent = 'Points awarded';
+    if (DOM.resultsPointsValue) DOM.resultsPointsValue.textContent = pointValues.length ? String(totalPoints) : '--';
+    if (DOM.resultsPointsMeta) {
+        DOM.resultsPointsMeta.textContent = pointValues.length ? 'championship points' : 'points unavailable';
+    }
+}
+
 // Render Results Tab
 function renderResultsTab() {
     if (!state.results || state.results.length === 0) {
+        if (DOM.resultsOverview) DOM.resultsOverview.style.display = 'none';
+        if (DOM.resultsClassificationPanel) DOM.resultsClassificationPanel.style.display = 'none';
         if (DOM.resultsTableWrapper) DOM.resultsTableWrapper.style.display = 'none';
         if (DOM.resultsEmptyState) {
             DOM.resultsEmptyState.style.display = 'flex';
@@ -623,6 +824,7 @@ function renderResultsTab() {
 
     if (DOM.resultsEmptyState) DOM.resultsEmptyState.style.display = 'none';
     if (DOM.resultsTableWrapper) DOM.resultsTableWrapper.style.display = 'block';
+    if (DOM.resultsClassificationPanel) DOM.resultsClassificationPanel.style.display = 'block';
 
     // Qualifying results carry per-segment arrays: duration/gap_to_leader = [Q1, Q2, Q3]
     const isQualiResults = isQualifyingSession(state.selectedSession) &&
@@ -631,6 +833,7 @@ function renderResultsTab() {
         [state.selectedSession.session_type, state.selectedSession.session_name].some(value => (
             String(value || '').toLowerCase().includes('sprint')
         ));
+    const isRaceResults = isPitAnnotationSession(state.selectedSession);
     const segmentLabels = isSprintQuali ? ['SQ1', 'SQ2', 'SQ3'] : ['Q1', 'Q2', 'Q3'];
 
     const resultsTable = DOM.resultsTableHeadRow ? DOM.resultsTableHeadRow.closest('table') : null;
@@ -647,14 +850,20 @@ function renderResultsTab() {
                 <th>${segmentLabels[2]}</th>
                 <th>Status</th>
             `
-            : `
+            : (isRaceResults ? `
                 <th class="results-position-cell">Pos</th>
                 <th>Driver</th>
                 <th>Laps</th>
                 <th>Time / Gap</th>
                 <th>Status</th>
                 <th>Points</th>
-            `;
+            ` : `
+                <th class="results-position-cell">Pos</th>
+                <th>Driver</th>
+                <th>Laps</th>
+                <th>Gap to leader</th>
+                <th>Status</th>
+            `);
     }
 
     const segmentBest = [null, null, null];
@@ -687,17 +896,12 @@ function renderResultsTab() {
         return a.driver_number - b.driver_number;
     });
 
+    updateResultsOverview(sortedResults, isQualiResults, segmentLabels, segmentBest);
+
     if (DOM.resultsTableBody) {
         DOM.resultsTableBody.innerHTML = '';
         sortedResults.forEach((item) => {
-            const driver = state.drivers.find(d => d.driver_number === item.driver_number) || {
-                first_name: 'Driver',
-                last_name: `#${item.driver_number}`,
-                full_name: `Driver #${item.driver_number}`,
-                team_name: 'Independent',
-                name_acronym: `D${item.driver_number}`,
-                team_colour: '787878'
-            };
+            const driver = getResultDriver(item);
 
             let teamHex = getDriverTeamHex(driver);
 
@@ -780,11 +984,14 @@ function renderResultsTab() {
                 timingCells = `<td class="lap-duration-val">${escapeHtml(timeGapDisplay)}</td>`;
             }
 
-            const pointsCell = isQualiResults
+            const pointsCell = isQualiResults || !isRaceResults
                 ? ''
                 : `<td style="font-weight: 600; color: ${item.points > 0 ? 'var(--text-primary)' : 'var(--text-muted)'};">${escapeHtml(item.points && true ? item.points : '-')}</td>`;
 
             const tr = document.createElement('tr');
+            const podiumPosition = !item.dsq && !item.dns && !item.dnf ? Number(item.position) : null;
+            tr.className = `results-row results-row-${statusClass}${podiumPosition >= 1 && podiumPosition <= 3 ? ` results-row-podium-${podiumPosition}` : ''}`;
+            tr.style.setProperty('--result-team-color', `#${teamHex}`);
             tr.innerHTML = `
                 <td class="results-position-cell ${posClass}">${escapeHtml(posDisplay)}</td>
                 <td>
@@ -1057,8 +1264,11 @@ function renderChampionshipProgressionChart() {
         DOM.progressionSummary.textContent = `${data.season} season — cumulative points after ${roundLabel}`;
     }
     if (DOM.progressionDriversBtn && DOM.progressionConstructorsBtn) {
-        DOM.progressionDriversBtn.classList.toggle('active', state.progressionView !== 'constructors');
-        DOM.progressionConstructorsBtn.classList.toggle('active', state.progressionView === 'constructors');
+        const showingConstructors = state.progressionView === 'constructors';
+        DOM.progressionDriversBtn.classList.toggle('active', !showingConstructors);
+        DOM.progressionConstructorsBtn.classList.toggle('active', showingConstructors);
+        DOM.progressionDriversBtn.setAttribute('aria-pressed', String(!showingConstructors));
+        DOM.progressionConstructorsBtn.setAttribute('aria-pressed', String(showingConstructors));
     }
 
     container.innerHTML = '';
