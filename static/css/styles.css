@@ -6034,6 +6034,14 @@ body {
     cursor: pointer;
 }
 
+.replay-car-group.fia-car {
+    cursor: default;
+}
+
+.replay-car-group.fia-car .replay-car-label {
+    fill: oklch(0.85 0.15 70);
+}
+
 .replay-car-label {
     fill: var(--text-primary);
     font-family: var(--font-sans);
@@ -6867,36 +6875,39 @@ body {
     align-items: center;
     color: var(--text-muted);
     display: flex;
+    flex-shrink: 0;
     font-size: 9px;
     font-weight: 700;
     gap: 7px;
+    white-space: nowrap;
 }
 
-.replay-stage-status > span {
+.replay-stage-status > span[aria-hidden="true"] {
     background: oklch(0.73 0.18 151);
     border-radius: 50%;
     box-shadow: 0 0 10px oklch(0.73 0.18 151 / 0.5);
+    flex-shrink: 0;
     height: 6px;
     width: 6px;
 }
 
-.replay-stage-status[data-state="idle"] > span {
+.replay-stage-status[data-state="idle"] > span[aria-hidden="true"] {
     background: oklch(0.62 0.025 280);
     box-shadow: none;
 }
 
-.replay-stage-status[data-state="loading"] > span {
+.replay-stage-status[data-state="loading"] > span[aria-hidden="true"] {
     animation: statusPulse 1.4s infinite;
     background: oklch(0.82 0.16 84);
     box-shadow: 0 0 10px oklch(0.82 0.16 84 / 0.48);
 }
 
-.replay-stage-status[data-state="unavailable"] > span {
+.replay-stage-status[data-state="unavailable"] > span[aria-hidden="true"] {
     background: oklch(0.74 0.16 58);
     box-shadow: 0 0 9px oklch(0.74 0.16 58 / 0.38);
 }
 
-.replay-stage-status[data-state="error"] > span {
+.replay-stage-status[data-state="error"] > span[aria-hidden="true"] {
     background: var(--replay-red);
     box-shadow: 0 0 10px oklch(0.64 0.25 29 / 0.48);
 }
@@ -6911,6 +6922,25 @@ body {
 
 .replay-track-path {
     stroke: oklch(0.88 0.025 280 / 0.22);
+}
+
+.replay-start-finish {
+    pointer-events: none;
+}
+
+.replay-start-finish line {
+    stroke: oklch(0.98 0 0);
+    stroke-width: 7;
+    stroke-dasharray: 9 7;
+    vector-effect: non-scaling-stroke;
+    filter: drop-shadow(0 0 5px oklch(1 0 0 / 0.5));
+}
+
+.replay-start-finish circle {
+    fill: var(--replay-red);
+    stroke: oklch(0.98 0 0);
+    stroke-width: 3;
+    vector-effect: non-scaling-stroke;
 }
 
 .replay-telemetry-strip {
@@ -7174,7 +7204,7 @@ body {
     }
 
     .results-session-badge.is-live .results-session-dot,
-    .replay-stage-status[data-state="loading"] > span {
+    .replay-stage-status[data-state="loading"] > span[aria-hidden="true"] {
         animation: none;
     }
 }

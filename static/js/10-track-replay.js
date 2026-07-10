@@ -1225,7 +1225,12 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         if (y > bounds.yMax) bounds.yMax = y;
     };
     trackPoints.forEach(([x, y]) => extend(x, y));
-    payload.drivers.forEach(driver => driver.samples.forEach(s => extend(s[1], s[2])));
+    payload.drivers.forEach(driver => {
+        // FIA cars stream (0,0) while parked between deployments; those are
+        // not real positions and would drag the bounds off the circuit.
+        if (getFiaCarInfo(driver.driver_number)) return;
+        driver.samples.forEach(s => extend(s[1], s[2]));
+    });
 
     const { mapX, mapY } = buildReplayProjection(bounds, viewBoxSize, padding);
 
@@ -1281,26 +1286,64 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         state.replay.sectorNodes[segment.number] = { path: sectorPath, badge };
     });
 
+    // Start/finish line at the first outline point, mirroring the Circuit tab.
+    // Only drawn for the circuit_info outline — the racing-line fallback
+    // starts wherever the reference driver's samples begin, not at the line.
+    if (closePath) {
+        const startX = mapX(trackPoints[0][0]);
+        const startY = mapY(trackPoints[0][1]);
+        const tangentX = mapX(trackPoints[1][0]) - startX;
+        const tangentY = mapY(trackPoints[1][1]) - startY;
+        const tangentLength = Math.hypot(tangentX, tangentY) || 1;
+        const normalX = -(tangentY / tangentLength) * 30;
+        const normalY = (tangentX / tangentLength) * 30;
+
+        const startFinish = document.createElementNS(svgNamespace, "g");
+        startFinish.setAttribute("class", "replay-start-finish");
+        startFinish.setAttribute("aria-label", "Start finish line");
+        const startLine = document.createElementNS(svgNamespace, "line");
+        startLine.setAttribute("x1", (startX - normalX).toFixed(1));
+        startLine.setAttribute("y1", (startY - normalY).toFixed(1));
+        startLine.setAttribute("x2", (startX + normalX).toFixed(1));
+        startLine.setAttribute("y2", (startY + normalY).toFixed(1));
+        startFinish.appendChild(startLine);
+        const startMarker = document.createElementNS(svgNamespace, "circle");
+        startMarker.setAttribute("cx", startX.toFixed(1));
+        startMarker.setAttribute("cy", startY.toFixed(1));
+        startMarker.setAttribute("r", 8);
+        startFinish.appendChild(startMarker);
+        svg.appendChild(startFinish);
+    }
+
     // Reference driver drawn last so it stays on top
     const orderedDrivers = [...payload.drivers].sort((a, b) => (
         (a.driver_number === payload.driver_number) - (b.driver_number === payload.driver_number)
     ));
 
     orderedDrivers.forEach(driverSeries => {
-        if (!Array.isArray(driverSeries.samples) || driverSeries.samples.length === 0) return;
+        const fiaCar = getFiaCarInfo(driverSeries.driver_number);
+        // FIA cars stream (0,0) while parked; keep only real fixes so the
+        // safety/medical car is drawn only while it is actually out.
+        const samples = (Array.isArray(driverSeries.samples) ? driverSeries.samples : [])
+            .filter(s => !fiaCar || s[1] !== 0 || s[2] !== 0);
+        if (samples.length === 0) return;
 
         const driver = state.drivers.find(d => Number(d.driver_number) === Number(driverSeries.driver_number));
-        const teamHex = getDriverTeamHex(driver);
-        const acronym = (driver && driver.name_acronym) || `#${driverSeries.driver_number}`;
+        const teamHex = fiaCar ? fiaCar.hex : getDriverTeamHex(driver);
+        const acronym = fiaCar ? fiaCar.code : ((driver && driver.name_acronym) || `#${driverSeries.driver_number}`);
         const isReference = driverSeries.driver_number === payload.driver_number;
 
         const group = document.createElementNS(svgNamespace, "g");
-        group.setAttribute("class", `replay-car-group${isReference ? ' reference' : ''}`);
-        group.setAttribute("data-driver-number", String(driverSeries.driver_number));
-        group.setAttribute('role', 'button');
-        group.setAttribute('tabindex', '0');
-        group.setAttribute('aria-label', `Focus ${acronym} in replay`);
-        group.setAttribute('aria-pressed', 'false');
+        group.setAttribute("class", `replay-car-group${isReference ? ' reference' : ''}${fiaCar ? ' fia-car' : ''}`);
+        if (fiaCar) {
+            group.setAttribute('aria-label', `${fiaCar.name} on track`);
+        } else {
+            group.setAttribute("data-driver-number", String(driverSeries.driver_number));
+            group.setAttribute('role', 'button');
+            group.setAttribute('tabindex', '0');
+            group.setAttribute('aria-label', `Focus ${acronym} in replay`);
+            group.setAttribute('aria-pressed', 'false');
+        }
         group.style.display = 'none';
 
         const ring = document.createElementNS(svgNamespace, "circle");
@@ -1326,7 +1369,7 @@ function buildReplayScene(payload, cacheKey, options = {}) {
         // Pre-project samples so per-frame interpolation stays in view space
         state.replay.carNodes[driverSeries.driver_number] = {
             group,
-            samples: driverSeries.samples.map(s => [s[0], mapX(s[1]), mapY(s[2])])
+            samples: samples.map(s => [s[0], mapX(s[1]), mapY(s[2])])
         };
     });
 

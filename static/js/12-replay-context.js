@@ -462,6 +462,8 @@ function getReplayDriver(driverNumber) {
 }
 
 function getReplayDriverCode(driverNumber) {
+    const fiaCar = getFiaCarInfo(driverNumber);
+    if (fiaCar) return fiaCar.code;
     const driver = getReplayDriver(driverNumber);
     return (driver && (driver.name_acronym || driver.broadcast_name || driver.last_name)) || `#${driverNumber}`;
 }
@@ -758,7 +760,9 @@ function applyReplayHighlight() {
         if (node && node.group) {
             const isHighlighted = hasHighlight && Number(driverNumber) === highlighted;
             node.group.classList.toggle('highlighted', isHighlighted);
-            node.group.setAttribute('aria-pressed', String(isHighlighted));
+            if (node.group.getAttribute('role') === 'button') {
+                node.group.setAttribute('aria-pressed', String(isHighlighted));
+            }
         }
     });
 

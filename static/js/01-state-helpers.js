@@ -139,6 +139,19 @@ function getDriverTeamHex(driver, fallback = '787878') {
     return /^[0-9a-fA-F]{3,8}$/.test(hex) ? hex : fallback;
 }
 
+// FIA course cars in the live-timing position feed: 241 and 242 are the two
+// safety cars (Mercedes / Aston Martin — whichever is deployed that weekend)
+// and 243 is the medical car. None of them exist in the session driver list.
+const FIA_CAR_INFO = {
+    241: { code: 'SC', name: 'Safety Car', hex: 'ff8a00' },
+    242: { code: 'SC', name: 'Safety Car', hex: 'ff8a00' },
+    243: { code: 'MC', name: 'Medical Car', hex: 'ffc14d' }
+};
+
+function getFiaCarInfo(driverNumber) {
+    return FIA_CAR_INFO[Number(driverNumber)] || null;
+}
+
 // Only absolute http(s) URLs may reach href/src attributes; anything else
 // (javascript:, data:, malformed upstream values) renders empty
 function safeUrl(value) {
