@@ -131,43 +131,119 @@
 
                 <!-- Weather Stats Card -->
                 <section class="weather-widget glass" id="weatherWidget" aria-label="Weather widget">
-                    <h3>WEATHER CONDITIONS</h3>
-                    <div class="weather-grid">
-                        <div class="weather-item">
-                            <span class="material-icons-round weather-icon">thermostat</span>
-                            <div>
-                                <span class="weather-label">Air Temp</span>
-                                <span class="weather-val" id="weatherAirTemp">-- &deg;C</span>
-                            </div>
+                    <div class="weather-widget-header">
+                        <div>
+                            <span class="weather-kicker">Trackside feed</span>
+                            <h3>Weather conditions</h3>
+                            <p>Latest readings and the recent session window.</p>
                         </div>
-                        <div class="weather-item">
-                            <span class="material-icons-round weather-icon">wb_sunny</span>
-                            <div>
-                                <span class="weather-label">Track Temp</span>
-                                <span class="weather-val" id="weatherTrackTemp">-- &deg;C</span>
-                            </div>
-                        </div>
-                        <div class="weather-item">
-                            <span class="material-icons-round weather-icon">water_drop</span>
-                            <div>
-                                <span class="weather-label">Humidity</span>
-                                <span class="weather-val" id="weatherHumidity">-- %</span>
-                            </div>
-                        </div>
-                        <div class="weather-item">
-                            <span class="material-icons-round weather-icon">air</span>
-                            <div>
-                                <span class="weather-label">Wind Speed</span>
-                                <span class="weather-val" id="weatherWind">-- m/s</span>
-                            </div>
+                        <div class="weather-header-status">
+                            <span class="weather-condition-badge" id="weatherConditionBadge">
+                                <i aria-hidden="true"></i>
+                                <span id="weatherConditionText">Waiting for data</span>
+                            </span>
+                            <small id="weatherSampleMeta">No weather samples</small>
                         </div>
                     </div>
+
+                    <div class="weather-trends" id="weatherTrendChart" aria-label="Recent weather trends">
+                        <article class="weather-trend-card weather-thermal-card">
+                            <div class="weather-panel-heading">
+                                <div>
+                                    <span class="weather-panel-kicker">Thermal window</span>
+                                    <h4>Air vs track</h4>
+                                </div>
+                                <span class="weather-delta-chip" id="weatherTemperatureDelta">-- track delta</span>
+                            </div>
+                            <div class="weather-temperature-readings">
+                                <div class="air">
+                                    <span><i aria-hidden="true"></i>Air temperature</span>
+                                    <strong id="weatherAirTemp">-- &deg;C</strong>
+                                </div>
+                                <div class="track">
+                                    <span><i aria-hidden="true"></i>Track temperature</span>
+                                    <strong id="weatherTrackTemp">-- &deg;C</strong>
+                                </div>
+                            </div>
+                            <svg class="weather-thermal-chart" viewBox="0 0 360 86" role="img" aria-label="Air and track temperature recent trends">
+                                <g class="weather-chart-grid" aria-hidden="true">
+                                    <line x1="0" y1="22" x2="360" y2="22"></line>
+                                    <line x1="0" y1="43" x2="360" y2="43"></line>
+                                    <line x1="0" y1="64" x2="360" y2="64"></line>
+                                </g>
+                                <polyline id="weatherAirTrendLine" class="weather-thermal-line air" points=""></polyline>
+                                <polyline id="weatherTrackTrendLine" class="weather-thermal-line track" points=""></polyline>
+                            </svg>
+                            <div class="weather-panel-footer">
+                                <span id="weatherThermalRange">No recent thermal data</span>
+                                <span>Recent readings</span>
+                            </div>
+                        </article>
+
+                        <article class="weather-trend-card weather-atmosphere-card">
+                            <div class="weather-panel-heading compact">
+                                <div>
+                                    <span class="weather-panel-kicker">Atmosphere</span>
+                                    <h4>Humidity</h4>
+                                </div>
+                                <span class="material-icons-round weather-panel-icon" aria-hidden="true">water_drop</span>
+                            </div>
+                            <div class="weather-humidity-layout">
+                                <div class="weather-humidity-gauge" id="weatherHumidityGauge" aria-hidden="true">
+                                    <span class="weather-humidity-symbol">RH</span>
+                                </div>
+                                <div>
+                                    <strong class="weather-primary-value" id="weatherHumidity">-- %</strong>
+                                    <span class="weather-value-label">Relative humidity</span>
+                                </div>
+                            </div>
+                            <div class="weather-secondary-reading">
+                                <span>Pressure</span>
+                                <strong id="weatherPressure">-- hPa</strong>
+                            </div>
+                        </article>
+
+                        <article class="weather-trend-card weather-wind-card">
+                            <div class="weather-panel-heading compact">
+                                <div>
+                                    <span class="weather-panel-kicker">Wind</span>
+                                    <h4>Track breeze</h4>
+                                </div>
+                                <span class="weather-wind-compass" aria-hidden="true">
+                                    <span class="material-icons-round" id="weatherWindCompass">navigation</span>
+                                </span>
+                            </div>
+                            <strong class="weather-primary-value" id="weatherWind">-- m/s</strong>
+                            <span class="weather-wind-direction" id="weatherWindDirection">Direction unavailable</span>
+                            <svg class="weather-wind-chart" viewBox="0 0 180 48" role="img" aria-label="Wind speed recent trend">
+                                <polyline id="weatherWindTrendLine" points=""></polyline>
+                            </svg>
+                            <div class="weather-panel-footer">
+                                <span id="weatherWindRange">No wind data</span>
+                                <span>Recent</span>
+                            </div>
+                        </article>
+
+                        <article class="weather-trend-card weather-track-state-card" id="weatherTrackStateCard">
+                            <div class="weather-panel-heading compact">
+                                <div>
+                                    <span class="weather-panel-kicker">Track state</span>
+                                    <h4 id="weatherTrackStateTitle">Awaiting data</h4>
+                                </div>
+                                <span class="material-icons-round weather-panel-icon" id="weatherTrackStateIcon" aria-hidden="true">route</span>
+                            </div>
+                            <p id="weatherRainSummary">No recent rainfall readings.</p>
+                            <div class="weather-rain-markers" id="weatherRainMarkers" aria-label="Recent rainfall samples"></div>
+                            <div class="weather-track-state-legend">
+                                <span><i></i>Dry</span>
+                                <span><i class="wet"></i>Wet</span>
+                            </div>
+                        </article>
+                    </div>
+
                     <div class="weather-alert" id="weatherRainfall" style="display: none;">
                         <span class="material-icons-round">grain</span>
-                        <span>Rainfall detected during session!</span>
-                    </div>
-                    <div class="weather-trends" id="weatherTrendChart" aria-label="Recent weather trends">
-                        <!-- Recent weather sparkline cards generated dynamically -->
+                        <span>Rain was detected in this session window. Track conditions may be mixed.</span>
                     </div>
                 </section>
 

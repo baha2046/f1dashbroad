@@ -51,20 +51,32 @@ class WeatherTrendWidgetTests(unittest.TestCase):
     def test_weather_widget_has_trend_container(self):
         self.assertIn('id="weatherTrendChart"', self.index_html)
         self.assertIn('aria-label="Recent weather trends"', self.index_html)
+        for element_id in (
+            "weatherAirTrendLine",
+            "weatherTrackTrendLine",
+            "weatherHumidityGauge",
+            "weatherWindCompass",
+            "weatherRainMarkers",
+        ):
+            self.assertIn(f'id="{element_id}"', self.index_html)
 
     def test_dom_map_wires_weather_trend_nodes(self):
         self.assertIn("weatherTrendChart: document.getElementById('weatherTrendChart')", self.dashboard_js)
+        self.assertIn("weatherAirTrendLine: document.getElementById('weatherAirTrendLine')", self.dashboard_js)
+        self.assertIn("weatherRainMarkers: document.getElementById('weatherRainMarkers')", self.dashboard_js)
 
     def test_styles_include_responsive_sparkline_treatment(self):
         for css_class in (
             ".weather-trends",
             ".weather-trend-card",
-            ".weather-sparkline",
+            ".weather-thermal-chart",
+            ".weather-humidity-gauge",
+            ".weather-wind-compass",
             ".weather-rain-markers",
         ):
             self.assertIn(css_class, self.styles_css)
 
-        self.assertIn("@media (max-width: 600px)", self.styles_css)
+        self.assertIn("@container weather-widget (max-width: 560px)", self.styles_css)
 
     def test_weather_trend_series_uses_recent_chronological_samples(self):
         helpers = "\n".join(
@@ -125,8 +137,11 @@ class WeatherTrendWidgetTests(unittest.TestCase):
                     "air": 25.5,
                     "track": 38.2,
                     "humidity": None,
+                    "pressure": None,
                     "wind": 4.5,
+                    "windDirection": None,
                     "rain": 1,
+                    "date": "2026-07-04T14:02:00+00:00",
                 },
                 "sampleCount": 2,
                 "rainDetected": True,
@@ -141,20 +156,33 @@ class WeatherTrendWidgetTests(unittest.TestCase):
                 "formatWeatherValue",
                 "buildWeatherTrendSeries",
                 "buildWeatherSparklinePoints",
-                "renderWeatherTrendCard",
+                "formatWeatherTrendRange",
+                "weatherWindDirectionLabel",
+                "formatWeatherSampleTime",
+                "updateWeatherPolyline",
                 "renderWeatherTrendChart",
                 "renderWeather",
             )
         )
         samples = [
-            {"date": "2026-07-04T14:00:00+00:00", "air_temperature": 20, "track_temperature": 30, "humidity": 50, "wind_speed": 2, "rainfall": 0},
-            {"date": "2026-07-04T14:01:00+00:00", "air_temperature": 30, "track_temperature": 40, "humidity": 70, "wind_speed": 4, "rainfall": 1},
+            {"date": "2026-07-04T14:00:00+00:00", "air_temperature": 20, "track_temperature": 30, "humidity": 50, "pressure": 1012.4, "wind_speed": 2, "wind_direction": 90, "rainfall": 0},
+            {"date": "2026-07-04T14:01:00+00:00", "air_temperature": 30, "track_temperature": 40, "humidity": 70, "pressure": 1012.8, "wind_speed": 4, "wind_direction": 120, "rainfall": 1},
         ]
         script = textwrap.dedent(
             f"""
             {helpers}
 
-            const makeNode = () => ({{ textContent: "", innerHTML: "", style: {{ display: "" }} }});
+            const makeNode = () => ({{
+                textContent: "",
+                innerHTML: "",
+                className: "",
+                style: {{
+                    display: "",
+                    transform: "",
+                    setProperty(name, value) {{ this[name] = value; }}
+                }},
+                setAttribute(name, value) {{ this[name] = value; }}
+            }});
             const DOM = {{
                 weatherAirTemp: makeNode(),
                 weatherTrackTemp: makeNode(),
@@ -162,6 +190,24 @@ class WeatherTrendWidgetTests(unittest.TestCase):
                 weatherWind: makeNode(),
                 weatherRainfall: makeNode(),
                 weatherTrendChart: makeNode(),
+                weatherConditionBadge: makeNode(),
+                weatherConditionText: makeNode(),
+                weatherSampleMeta: makeNode(),
+                weatherTemperatureDelta: makeNode(),
+                weatherAirTrendLine: makeNode(),
+                weatherTrackTrendLine: makeNode(),
+                weatherThermalRange: makeNode(),
+                weatherHumidityGauge: makeNode(),
+                weatherPressure: makeNode(),
+                weatherWindCompass: makeNode(),
+                weatherWindDirection: makeNode(),
+                weatherWindTrendLine: makeNode(),
+                weatherWindRange: makeNode(),
+                weatherTrackStateCard: makeNode(),
+                weatherTrackStateTitle: makeNode(),
+                weatherTrackStateIcon: makeNode(),
+                weatherRainSummary: makeNode(),
+                weatherRainMarkers: makeNode(),
             }};
             const state = {{ weather: {json.dumps(samples)} }};
 
@@ -171,9 +217,14 @@ class WeatherTrendWidgetTests(unittest.TestCase):
                 track: DOM.weatherTrackTemp.textContent,
                 humidity: DOM.weatherHumidity.textContent,
                 wind: DOM.weatherWind.textContent,
+                pressure: DOM.weatherPressure.textContent,
                 rainDisplay: DOM.weatherRainfall.style.display,
-                chartHasSvg: DOM.weatherTrendChart.innerHTML.includes("<svg"),
-                chartHasRainMarkers: DOM.weatherTrendChart.innerHTML.includes("weather-rain-markers")
+                airPoints: DOM.weatherAirTrendLine.points,
+                windDirection: DOM.weatherWindDirection.textContent,
+                condition: DOM.weatherConditionText.textContent,
+                trackState: DOM.weatherTrackStateTitle.textContent,
+                temperatureDelta: DOM.weatherTemperatureDelta.textContent,
+                chartHasRainMarkers: DOM.weatherRainMarkers.innerHTML.includes('class="wet"')
             }}));
             """
         )
@@ -185,8 +236,13 @@ class WeatherTrendWidgetTests(unittest.TestCase):
                 "track": "40.0 °C",
                 "humidity": "70 %",
                 "wind": "4.0 m/s",
+                "pressure": "1012.8 hPa",
                 "rainDisplay": "flex",
-                "chartHasSvg": True,
+                "airPoints": "0.0,83.0 360.0,43.0",
+                "windDirection": "ESE · 120°",
+                "condition": "Wet track",
+                "trackState": "Wet surface",
+                "temperatureDelta": "+10.0 °C track delta",
                 "chartHasRainMarkers": True,
             },
         )

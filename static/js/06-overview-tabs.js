@@ -70,25 +70,29 @@ function buildWeatherTrendSeries(samples, limit = 24) {
             air: isFiniteWeatherValue(latestSample.air_temperature) ? Number(latestSample.air_temperature) : null,
             track: isFiniteWeatherValue(latestSample.track_temperature) ? Number(latestSample.track_temperature) : null,
             humidity: isFiniteWeatherValue(latestSample.humidity) ? Number(latestSample.humidity) : null,
+            pressure: isFiniteWeatherValue(latestSample.pressure) ? Number(latestSample.pressure) : null,
             wind: isFiniteWeatherValue(latestSample.wind_speed) ? Number(latestSample.wind_speed) : null,
+            windDirection: isFiniteWeatherValue(latestSample.wind_direction) ? Number(latestSample.wind_direction) : null,
             rain: Number(latestSample.rainfall) === 1 ? 1 : 0,
+            date: latestSample.date || null,
         },
         sampleCount: recent.length,
         rainDetected: rainValues.some(value => value === 1),
     };
 }
 
-function buildWeatherSparklinePoints(values, width = 132, height = 38) {
+function buildWeatherSparklinePoints(values, width = 132, height = 38, minOverride = null, maxOverride = null) {
     const finiteValues = (values || []).filter(isFiniteWeatherValue).map(Number);
     if (finiteValues.length === 0) return '';
+    const min = isFiniteWeatherValue(minOverride) ? Number(minOverride) : Math.min(...finiteValues);
+    const max = isFiniteWeatherValue(maxOverride) ? Number(maxOverride) : Math.max(...finiteValues);
+    const range = max - min;
     if (finiteValues.length === 1) {
-        const y = height / 2;
+        const normalized = range === 0 ? 0.5 : (finiteValues[0] - min) / range;
+        const y = height - (normalized * (height - 6)) - 3;
         return `0,${y.toFixed(1)} ${width},${y.toFixed(1)}`;
     }
 
-    const min = Math.min(...finiteValues);
-    const max = Math.max(...finiteValues);
-    const range = max - min;
     const step = width / (finiteValues.length - 1);
 
     return finiteValues.map((value, index) => {
@@ -99,57 +103,116 @@ function buildWeatherSparklinePoints(values, width = 132, height = 38) {
     }).join(' ');
 }
 
-function renderWeatherTrendCard(series, latestLabel) {
-    const points = buildWeatherSparklinePoints(series.values);
-    const min = series.values.length ? Math.min(...series.values) : null;
-    const max = series.values.length ? Math.max(...series.values) : null;
-    const rangeLabel = isFiniteWeatherValue(min) && isFiniteWeatherValue(max)
-        ? `${Number(min).toFixed(series.unit === 'm/s' ? 1 : 0)}-${Number(max).toFixed(series.unit === 'm/s' ? 1 : 0)}${series.unit}`
-        : 'No data';
+function formatWeatherTrendRange(values, unit, decimals = 1) {
+    const finiteValues = (values || []).filter(isFiniteWeatherValue).map(Number);
+    if (finiteValues.length === 0) return 'No data';
+    const min = Math.min(...finiteValues).toFixed(decimals);
+    const max = Math.max(...finiteValues).toFixed(decimals);
+    return `${min}–${max} ${unit}`;
+}
 
-    if (series.className === 'rain') {
-        const markers = series.values.map(value => (
-            `<span class="${value === 1 ? 'wet' : ''}" aria-hidden="true"></span>`
-        )).join('');
-        return `
-            <div class="weather-trend-card weather-trend-rain">
-                <div class="weather-trend-head">
-                    <span>${series.label}</span>
-                    <strong>${latestLabel}</strong>
-                </div>
-                <div class="weather-rain-markers">${markers}</div>
-                <small>${series.values.some(value => value === 1) ? 'Rain in recent samples' : 'Dry recent samples'}</small>
-            </div>
-        `;
-    }
+function weatherWindDirectionLabel(value) {
+    if (!isFiniteWeatherValue(value)) return 'Direction unavailable';
+    const normalized = ((Number(value) % 360) + 360) % 360;
+    const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const direction = directions[Math.round(normalized / 22.5) % directions.length];
+    return `${direction} · ${Math.round(normalized)}°`;
+}
 
-    return `
-        <div class="weather-trend-card">
-            <div class="weather-trend-head">
-                <span>${series.label}</span>
-                <strong>${latestLabel}</strong>
-            </div>
-            <svg class="weather-sparkline weather-sparkline-${series.className}" viewBox="0 0 132 38" role="img" aria-label="${series.label} recent trend">
-                <polyline points="${points}" fill="none" vector-effect="non-scaling-stroke"></polyline>
-            </svg>
-            <small>${rangeLabel}</small>
-        </div>
-    `;
+function formatWeatherSampleTime(value) {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return null;
+    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+function updateWeatherPolyline(node, points) {
+    if (node) node.setAttribute('points', points || '');
 }
 
 function renderWeatherTrendChart(trends) {
     if (!DOM.weatherTrendChart) return;
     if (!trends || trends.sampleCount === 0) {
-        DOM.weatherTrendChart.innerHTML = '<div class="weather-trend-empty">No recent weather samples.</div>';
+        updateWeatherPolyline(DOM.weatherAirTrendLine, '');
+        updateWeatherPolyline(DOM.weatherTrackTrendLine, '');
+        updateWeatherPolyline(DOM.weatherWindTrendLine, '');
+        if (DOM.weatherConditionBadge) DOM.weatherConditionBadge.className = 'weather-condition-badge unavailable';
+        if (DOM.weatherConditionText) DOM.weatherConditionText.textContent = 'Waiting for data';
+        if (DOM.weatherSampleMeta) DOM.weatherSampleMeta.textContent = 'No weather samples';
+        if (DOM.weatherTemperatureDelta) DOM.weatherTemperatureDelta.textContent = '-- track delta';
+        if (DOM.weatherThermalRange) DOM.weatherThermalRange.textContent = 'No recent thermal data';
+        if (DOM.weatherHumidityGauge) DOM.weatherHumidityGauge.style.setProperty('--weather-humidity-angle', '0deg');
+        if (DOM.weatherPressure) DOM.weatherPressure.textContent = '-- hPa';
+        if (DOM.weatherWindCompass) DOM.weatherWindCompass.style.transform = 'rotate(0deg)';
+        if (DOM.weatherWindDirection) DOM.weatherWindDirection.textContent = 'Direction unavailable';
+        if (DOM.weatherWindRange) DOM.weatherWindRange.textContent = 'No wind data';
+        if (DOM.weatherTrackStateCard) DOM.weatherTrackStateCard.className = 'weather-trend-card weather-track-state-card unavailable';
+        if (DOM.weatherTrackStateTitle) DOM.weatherTrackStateTitle.textContent = 'Awaiting data';
+        if (DOM.weatherTrackStateIcon) DOM.weatherTrackStateIcon.textContent = 'route';
+        if (DOM.weatherRainSummary) DOM.weatherRainSummary.textContent = 'No recent rainfall readings.';
+        if (DOM.weatherRainMarkers) DOM.weatherRainMarkers.innerHTML = '';
         return;
     }
 
-    DOM.weatherTrendChart.innerHTML = [
-        renderWeatherTrendCard(trends.air, formatWeatherValue(trends.latest.air, '°C', 1)),
-        renderWeatherTrendCard(trends.track, formatWeatherValue(trends.latest.track, '°C', 1)),
-        renderWeatherTrendCard(trends.wind, formatWeatherValue(trends.latest.wind, 'm/s', 1)),
-        renderWeatherTrendCard(trends.rain, trends.latest.rain === 1 ? 'Wet' : 'Dry'),
-    ].join('');
+    const thermalValues = [...trends.air.values, ...trends.track.values].filter(isFiniteWeatherValue).map(Number);
+    const thermalMin = thermalValues.length ? Math.min(...thermalValues) : null;
+    const thermalMax = thermalValues.length ? Math.max(...thermalValues) : null;
+    updateWeatherPolyline(
+        DOM.weatherAirTrendLine,
+        buildWeatherSparklinePoints(trends.air.values, 360, 86, thermalMin, thermalMax)
+    );
+    updateWeatherPolyline(
+        DOM.weatherTrackTrendLine,
+        buildWeatherSparklinePoints(trends.track.values, 360, 86, thermalMin, thermalMax)
+    );
+    updateWeatherPolyline(DOM.weatherWindTrendLine, buildWeatherSparklinePoints(trends.wind.values, 180, 48));
+
+    const currentWet = trends.latest.rain === 1;
+    const trackDelta = isFiniteWeatherValue(trends.latest.track) && isFiniteWeatherValue(trends.latest.air)
+        ? Number(trends.latest.track) - Number(trends.latest.air)
+        : null;
+    const humidity = isFiniteWeatherValue(trends.latest.humidity)
+        ? Math.max(0, Math.min(100, Number(trends.latest.humidity)))
+        : 0;
+    const windDirection = isFiniteWeatherValue(trends.latest.windDirection)
+        ? ((Number(trends.latest.windDirection) % 360) + 360) % 360
+        : 0;
+    const sampleTime = formatWeatherSampleTime(trends.latest.date);
+
+    if (DOM.weatherConditionBadge) DOM.weatherConditionBadge.className = `weather-condition-badge ${currentWet ? 'wet' : 'dry'}`;
+    if (DOM.weatherConditionText) DOM.weatherConditionText.textContent = currentWet ? 'Wet track' : 'Dry track';
+    if (DOM.weatherSampleMeta) {
+        DOM.weatherSampleMeta.textContent = `${trends.sampleCount}-sample window${sampleTime ? ` · Updated ${sampleTime}` : ''}`;
+    }
+    if (DOM.weatherTemperatureDelta) {
+        DOM.weatherTemperatureDelta.textContent = isFiniteWeatherValue(trackDelta)
+            ? `${trackDelta >= 0 ? '+' : ''}${trackDelta.toFixed(1)} °C track delta`
+            : '-- track delta';
+    }
+    if (DOM.weatherThermalRange) {
+        DOM.weatherThermalRange.textContent = `Air ${formatWeatherTrendRange(trends.air.values, '°C')} · Track ${formatWeatherTrendRange(trends.track.values, '°C')}`;
+    }
+    if (DOM.weatherHumidityGauge) DOM.weatherHumidityGauge.style.setProperty('--weather-humidity-angle', `${humidity * 3.6}deg`);
+    if (DOM.weatherPressure) DOM.weatherPressure.textContent = formatWeatherValue(trends.latest.pressure, 'hPa', 1);
+    if (DOM.weatherWindCompass) DOM.weatherWindCompass.style.transform = `rotate(${windDirection}deg)`;
+    if (DOM.weatherWindDirection) DOM.weatherWindDirection.textContent = weatherWindDirectionLabel(trends.latest.windDirection);
+    if (DOM.weatherWindRange) DOM.weatherWindRange.textContent = formatWeatherTrendRange(trends.wind.values, 'm/s');
+    if (DOM.weatherRainMarkers) {
+        DOM.weatherRainMarkers.innerHTML = trends.rain.values.map(value => (
+            `<span class="${value === 1 ? 'wet' : ''}" aria-hidden="true"></span>`
+        )).join('');
+    }
+
+    const trackState = currentWet ? 'wet' : (trends.rainDetected ? 'mixed' : 'dry');
+    if (DOM.weatherTrackStateCard) DOM.weatherTrackStateCard.className = `weather-trend-card weather-track-state-card ${trackState}`;
+    if (DOM.weatherTrackStateTitle) {
+        DOM.weatherTrackStateTitle.textContent = currentWet ? 'Wet surface' : (trends.rainDetected ? 'Drying track' : 'Dry surface');
+    }
+    if (DOM.weatherTrackStateIcon) DOM.weatherTrackStateIcon.textContent = currentWet ? 'water_drop' : (trends.rainDetected ? 'grain' : 'route');
+    if (DOM.weatherRainSummary) {
+        DOM.weatherRainSummary.textContent = currentWet
+            ? 'Rainfall is present in the latest trackside sample.'
+            : (trends.rainDetected ? 'Dry now, with rain recorded in this recent window.' : 'No rainfall detected in the recent session window.');
+    }
 }
 
 // Render Weather Widget
