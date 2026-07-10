@@ -1453,10 +1453,18 @@ function refreshReplayCircuitStates() {
 function renderReplayFrame(t) {
     state.replay.t = t;
     const windowSeconds = getReplayWindowSeconds();
+    const absoluteMs = getReplayAbsoluteMs(t);
+    const positionIndex = state.replay.positionIndex || buildDriverDateIndex(state.position);
+    state.replay.positionIndex = positionIndex;
 
-    Object.values(state.replay.carNodes).forEach(node => {
+    Object.entries(state.replay.carNodes).forEach(([driverNumber, node]) => {
         const pos = interpolateReplaySample(node.samples, t);
-        if (!pos) {
+        const driverStatus = getReplayDriverStatusAtMs(
+            driverNumber,
+            absoluteMs,
+            positionIndex.get(Number(driverNumber))
+        );
+        if (!pos || !driverStatus.markerVisible) {
             node.group.style.display = 'none';
             return;
         }

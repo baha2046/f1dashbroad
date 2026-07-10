@@ -608,6 +608,7 @@ class ReplayRaceContextTests(unittest.TestCase):
     def test_replay_retired_status_waits_until_driver_has_no_future_positions(self):
         helpers = "\n\n".join([
             self._extract_function("buildDriverDateIndex"),
+            self._extract_function("getReplayDriverResult"),
             self._extract_function("isReplayDriverRetiredAtMs"),
         ])
         positions = [
@@ -634,6 +635,115 @@ class ReplayRaceContextTests(unittest.TestCase):
             console.log(JSON.stringify(checks));
         """)
         self.assertEqual(self._run_node(script), [False, True, False, False])
+
+    def test_replay_driver_status_controls_dns_and_time_aware_out(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildDriverDateIndex"),
+            self._extract_function("getReplayDriverResult"),
+            self._extract_function("isReplayDriverDidNotStart"),
+            self._extract_function("isReplayDriverRetiredAtMs"),
+            self._extract_function("getReplayDriverStatusAtMs"),
+        ])
+        positions = [
+            {"driver_number": 18, "position": 17, "date": "2026-07-05T10:00:00Z"},
+            {"driver_number": 18, "position": 18, "date": "2026-07-05T10:00:20Z"},
+        ]
+        script = textwrap.dedent(f"""
+            const state = {{
+                results: [
+                    {{ driver_number: 81, dns: true, status: "Did not start" }},
+                    {{ driver_number: 18, dnf: true, status: "Retired" }},
+                    {{ driver_number: 44, dnf: false, dns: false, status: "Finished" }}
+                ]
+            }};
+            {helpers}
+
+            const positionIndex = buildDriverDateIndex({json.dumps(positions)});
+            const checks = [
+                getReplayDriverStatusAtMs(81, Date.parse("2026-07-05T10:00:10Z"), []),
+                getReplayDriverStatusAtMs(18, Date.parse("2026-07-05T10:00:10Z"), positionIndex.get(18)),
+                getReplayDriverStatusAtMs(18, Date.parse("2026-07-05T10:00:30Z"), positionIndex.get(18)),
+                getReplayDriverStatusAtMs(44, Date.parse("2026-07-05T10:00:30Z"), [])
+            ];
+            console.log(JSON.stringify(checks));
+        """)
+        self.assertEqual(self._run_node(script), [
+            {"didNotStart": True, "retired": False, "markerVisible": False, "label": "DNS"},
+            {"didNotStart": False, "retired": False, "markerVisible": True, "label": ""},
+            {"didNotStart": False, "retired": True, "markerVisible": False, "label": "OUT"},
+            {"didNotStart": False, "retired": False, "markerVisible": True, "label": ""},
+        ])
+
+    def test_replay_frame_hides_dns_and_out_driver_markers(self):
+        helpers = "\n\n".join([
+            self._extract_function("buildDriverDateIndex"),
+            self._extract_function("getReplayDriverResult"),
+            self._extract_function("isReplayDriverDidNotStart"),
+            self._extract_function("isReplayDriverRetiredAtMs"),
+            self._extract_function("getReplayDriverStatusAtMs"),
+            self._extract_function("renderReplayFrame"),
+        ])
+        positions = [
+            {"driver_number": 18, "position": 17, "date": "2026-07-05T10:00:00Z"},
+            {"driver_number": 18, "position": 18, "date": "2026-07-05T10:00:20Z"},
+        ]
+        script = textwrap.dedent(f"""
+            const baseMs = Date.parse("2026-07-05T10:00:00Z");
+            const makeGroup = () => ({{
+                style: {{ display: "none" }},
+                setAttribute(name, value) {{ this[name] = value; }}
+            }});
+            const state = {{
+                results: [
+                    {{ driver_number: 81, dns: true, status: "Did not start" }},
+                    {{ driver_number: 18, dnf: true, status: "Retired" }},
+                    {{ driver_number: 44, dnf: false, dns: false, status: "Finished" }}
+                ],
+                position: {json.dumps(positions)},
+                replay: {{
+                    t: 0,
+                    data: {{ window_seconds: 40 }},
+                    positionIndex: null,
+                    carNodes: {{
+                        81: {{ group: makeGroup(), samples: [[0, 100, 200]] }},
+                        18: {{ group: makeGroup(), samples: [[0, 100, 200]] }},
+                        44: {{ group: makeGroup(), samples: [[0, 100, 200]] }}
+                    }}
+                }}
+            }};
+            const DOM = {{ replayScrubber: null, replayTimeLabel: null }};
+            function getReplayWindowSeconds() {{ return 40; }}
+            function getReplayAbsoluteMs(t) {{ return baseMs + t * 1000; }}
+            function interpolateReplaySample() {{ return [100, 200]; }}
+            function updateReplayTimelinePlayhead() {{}}
+            function updateReplayCircuitState() {{}}
+            function updateReplayRaceContext() {{}}
+            function updateReplayTelemetryStrip() {{}}
+            function updateReplayTeamRadioTicker() {{}}
+            {helpers}
+
+            renderReplayFrame(10);
+            const early = Object.fromEntries(Object.entries(state.replay.carNodes)
+                .map(([driverNumber, node]) => [driverNumber, node.group.style.display]));
+            renderReplayFrame(30);
+            const late = Object.fromEntries(Object.entries(state.replay.carNodes)
+                .map(([driverNumber, node]) => [driverNumber, node.group.style.display]));
+            console.log(JSON.stringify([early, late]));
+        """)
+        self.assertEqual(self._run_node(script), [
+            {"18": "", "44": "", "81": "none"},
+            {"18": "none", "44": "", "81": "none"},
+        ])
+
+    def test_running_order_uses_dns_and_out_status_labels(self):
+        body = self._extract_function("updateReplayRaceContext")
+        for snippet in (
+            "const driverStatus = getReplayDriverStatusAtMs(",
+            "driverStatus.didNotStart",
+            "driverStatus.retired",
+            "driverStatus.label",
+        ):
+            self.assertIn(snippet, body)
 
     def test_replay_race_order_seeds_sparse_position_stream(self):
         helpers = "\n\n".join([

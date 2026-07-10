@@ -595,9 +595,21 @@ function replayGapValueAtMs(records, ms, maxAgeMs = null) {
     return null;
 }
 
+function getReplayDriverResult(driverNumber) {
+    return (Array.isArray(state.results) ? state.results : [])
+        .find(item => Number(item && item.driver_number) === Number(driverNumber)) || null;
+}
+
+function isReplayDriverDidNotStart(driverNumber) {
+    const result = getReplayDriverResult(driverNumber);
+    if (!result) return false;
+
+    const status = String(result.status || '').trim().toUpperCase();
+    return result.dns === true || status === 'DNS' || status === 'DID NOT START';
+}
+
 function isReplayDriverRetiredAtMs(driverNumber, ms, positionRecords) {
-    const result = (Array.isArray(state.results) ? state.results : [])
-        .find(item => Number(item && item.driver_number) === Number(driverNumber));
+    const result = getReplayDriverResult(driverNumber);
     if (!result) return false;
 
     const status = String(result.status || '').trim().toUpperCase();
@@ -611,6 +623,17 @@ function isReplayDriverRetiredAtMs(driverNumber, ms, positionRecords) {
         return !positionRecords.some(record => Number(record && record.dateMs) > ms);
     }
     return true;
+}
+
+function getReplayDriverStatusAtMs(driverNumber, ms, positionRecords) {
+    const didNotStart = isReplayDriverDidNotStart(driverNumber);
+    const retired = !didNotStart && isReplayDriverRetiredAtMs(driverNumber, ms, positionRecords);
+    return {
+        didNotStart,
+        retired,
+        markerVisible: !didNotStart && !retired,
+        label: didNotStart ? 'DNS' : (retired ? 'OUT' : '')
+    };
 }
 
 function formatReplayGap(value, isLeader) {
@@ -799,13 +822,14 @@ function updateReplayRaceContext(force = false) {
         const stint = lapRecord ? stintForDriverLap(stintIndex, raceRow.driverNumber, lapRecord.lapNumber) : null;
         const tyre = formatReplayTyreCompound(stint && stint.compound);
         const inPit = isDriverInPitAtMs(pitWindows, raceRow.driverNumber, absoluteMs);
-        const retired = isReplayDriverRetiredAtMs(raceRow.driverNumber, absoluteMs, positionRecords);
+        const driverStatus = getReplayDriverStatusAtMs(raceRow.driverNumber, absoluteMs, positionRecords);
+        const inactive = driverStatus.didNotStart || driverStatus.retired;
         const isLeader = index === 0;
         const teamHex = getDriverTeamHex(driver);
 
         row.row.hidden = false;
         row.row.style.order = String(index);
-        row.row.classList.toggle('out', retired && !inPit);
+        row.row.classList.toggle('out', driverStatus.didNotStart || (driverStatus.retired && !inPit));
         row.row.classList.toggle('in-pit', inPit);
         row.color.style.background = `#${teamHex}`;
         row.pos.textContent = String(raceRow.position);
@@ -813,9 +837,13 @@ function updateReplayRaceContext(force = false) {
         row.tyre.textContent = tyre ? tyre.label : '';
         row.tyre.title = tyre ? tyre.title : '';
         row.tyre.className = tyre ? `replay-tower-tyre ${tyre.className}` : 'replay-tower-tyre';
-        row.status.textContent = inPit ? 'PIT' : (retired ? 'OUT' : '');
-        row.status.className = inPit ? 'replay-tower-status replay-tower-pit' : 'replay-tower-status';
-        row.gap.textContent = retired
+        row.status.textContent = driverStatus.didNotStart
+            ? driverStatus.label
+            : (inPit ? 'PIT' : driverStatus.label);
+        row.status.className = inPit && !driverStatus.didNotStart
+            ? 'replay-tower-status replay-tower-pit'
+            : 'replay-tower-status';
+        row.gap.textContent = inactive
             ? '\u2014'
             : formatReplayGap(gapValue, isLeader);
     });
