@@ -167,7 +167,10 @@ class LapsTabEnhancementsStaticWiringTests(unittest.TestCase):
         compare = self._extract_function("renderTelemetryComparison")
         self.assertIn("getTelemetryDomain(maxX)", compare)
         self.assertIn("attachTelemetryZoom", compare)
-        self.assertIn("buildTelemetryDeltaChart(DOM.telemetryDeltaChart, 150, maxX, deltaSamples, fmtXLabel, domain)", compare)
+        self.assertIn(
+            "DOM.telemetryDeltaChart, 150, maxX, deltaSamples, fmtXLabel, domain, sectors",
+            compare,
+        )
 
     def test_build_telemetry_chart_clips_series_to_plot_area(self):
         body = self._extract_function("buildTelemetryChart")

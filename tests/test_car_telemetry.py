@@ -14,7 +14,14 @@ PROJECT_TEMP_DIR = Path(__file__).resolve().parents[1] / "tests" / ".tmp"
 LAP_FIXTURES = [
     # Out lap: no lap_duration -> window must fall back to the next lap's start
     {"lap_number": 4, "date_start": "2026-05-24T13:01:30+00:00", "lap_duration": None},
-    {"lap_number": 5, "date_start": "2026-05-24T13:03:00+00:00", "lap_duration": 90.0},
+    {
+        "lap_number": 5,
+        "date_start": "2026-05-24T13:03:00+00:00",
+        "lap_duration": 90.0,
+        "duration_sector_1": 29.5,
+        "duration_sector_2": 31.0,
+        "duration_sector_3": 29.5,
+    },
     # No date_start -> no usable telemetry window
     {"lap_number": 6, "date_start": None, "lap_duration": 88.0},
     # Last lap without duration and no successor -> no usable window
@@ -99,6 +106,9 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["driver_number"], 1)
         self.assertEqual(data["lap_number"], 5)
         self.assertEqual(data["lap_duration"], 90.0)
+        self.assertEqual(data["duration_sector_1"], 29.5)
+        self.assertEqual(data["duration_sector_2"], 31.0)
+        self.assertEqual(data["duration_sector_3"], 29.5)
         self.assertFalse(data["downsampled"])
         self.assertEqual(data["sample_count"], 2)
         first, second = data["telemetry"]
@@ -160,7 +170,7 @@ class CarTelemetryEndpointTests(unittest.IsolatedAsyncioTestCase):
         fetch_mock = AsyncMock(return_value=[car_sample("2026-05-24T13:03:10+00:00")])
         first = await self.request(fetch_mock)
         self.assertEqual(first.status_code, 200)
-        cache_file = self.cache_dir / "car_telemetry_v2_4242_1_5.json"
+        cache_file = self.cache_dir / "car_telemetry_v3_4242_1_5.json"
         self.assertTrue(cache_file.exists())
 
         second = await self.request(fetch_mock)
@@ -201,6 +211,9 @@ class CarTelemetryStaticWiringTests(unittest.TestCase):
             ".telemetry-throttle-line",
             ".telemetry-brake-line",
             ".telemetry-drs-shading",
+            ".telemetry-sector-region",
+            ".telemetry-sector-boundary",
+            ".telemetry-sector-label",
             ".telemetry-crosshair",
         ):
             self.assertIn(css_class, self.styles_css)

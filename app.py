@@ -1357,8 +1357,9 @@ async def build_car_telemetry_payload(session_key, driver_number, lap_number, ye
     error_response is a ready-to-return Flask response (a 404 tuple or a
     stale-cache body) so callers can propagate it verbatim.
     """
-    # v2: windows derive from the laps payload, rebuilt when laps moved to v2
-    cache_name = f"car_telemetry_v2_{session_key}_{driver_number}_{lap_number}.json"
+    # v3: include the selected lap's sector durations so telemetry charts can
+    # place the official sector boundaries on both time and distance axes.
+    cache_name = f"car_telemetry_v3_{session_key}_{driver_number}_{lap_number}.json"
     cache_path = os.path.join(CACHE_DIR, cache_name)
     session = await asyncio.to_thread(get_session_info, session_key, year)
     ttl = None if is_historical(session) else 300
@@ -1427,6 +1428,9 @@ async def build_car_telemetry_payload(session_key, driver_number, lap_number, ye
             "lap_number": lap_number,
             "lap_date_start": lap.get("date_start"),
             "lap_duration": parse_float(lap.get("lap_duration")),
+            "duration_sector_1": parse_float(lap.get("duration_sector_1")),
+            "duration_sector_2": parse_float(lap.get("duration_sector_2")),
+            "duration_sector_3": parse_float(lap.get("duration_sector_3")),
             "sample_count": len(telemetry),
             "downsampled": downsampled,
             "telemetry": telemetry,

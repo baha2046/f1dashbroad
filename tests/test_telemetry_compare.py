@@ -12,12 +12,22 @@ PROJECT_TEMP_DIR = Path(__file__).resolve().parents[1] / "tests" / ".tmp"
 
 # Driver 1 runs lap 5 over 90s; driver 44 runs lap 5 over 88s. Both have a
 # usable telemetry window derived from date_start + lap_duration.
-MAIN_LAP_FIXTURES = [
-    {"lap_number": 5, "date_start": "2026-05-24T13:03:00+00:00", "lap_duration": 90.0},
-]
-REF_LAP_FIXTURES = [
-    {"lap_number": 5, "date_start": "2026-05-24T13:03:00+00:00", "lap_duration": 88.0},
-]
+MAIN_LAP_FIXTURES = [{
+    "lap_number": 5,
+    "date_start": "2026-05-24T13:03:00+00:00",
+    "lap_duration": 90.0,
+    "duration_sector_1": 29.5,
+    "duration_sector_2": 31.0,
+    "duration_sector_3": 29.5,
+}]
+REF_LAP_FIXTURES = [{
+    "lap_number": 5,
+    "date_start": "2026-05-24T13:03:00+00:00",
+    "lap_duration": 88.0,
+    "duration_sector_1": 29.0,
+    "duration_sector_2": 30.0,
+    "duration_sector_3": 29.0,
+}]
 
 
 def car_sample(date, speed=280, throttle=100, brake=0, gear=8, drs=12, driver_number=1):
@@ -164,6 +174,8 @@ class TelemetryCompareEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(data["main"]["driver_number"], 1)
         self.assertEqual(data["ref"]["driver_number"], 44)
+        self.assertEqual(data["main"]["duration_sector_1"], 29.5)
+        self.assertEqual(data["ref"]["duration_sector_3"], 29.0)
 
         main_tel = data["main"]["telemetry"]
         self.assertGreaterEqual(len(main_tel), 2)
@@ -228,6 +240,8 @@ class TelemetryCompareStaticWiringTests(unittest.TestCase):
         self.assertIn("function loadTelemetryComparison", self.dashboard_js)
         self.assertIn("function renderTelemetryComparison", self.dashboard_js)
         self.assertIn("/api/telemetry_compare", self.dashboard_js)
+        self.assertIn("function buildTelemetrySectorRanges", self.dashboard_js)
+        self.assertIn("function renderTelemetrySectorRegions", self.dashboard_js)
 
     def test_styles_contain_compare_classes(self):
         self.assertIn(".telemetry-ref-speed-line", self.styles_css)

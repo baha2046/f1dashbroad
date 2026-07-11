@@ -5999,6 +5999,31 @@ body {
     pointer-events: none;
 }
 
+.telemetry-sector-region {
+    fill: rgba(255, 255, 255, 0.018);
+    pointer-events: none;
+}
+
+.telemetry-sector-2 {
+    fill: rgba(77, 195, 255, 0.035);
+}
+
+.telemetry-sector-boundary {
+    pointer-events: none;
+    stroke: rgba(255, 255, 255, 0.28);
+    stroke-dasharray: 5 4;
+    stroke-width: 1;
+}
+
+.telemetry-sector-label {
+    fill: rgba(255, 255, 255, 0.48);
+    font-family: var(--font-sans);
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.7px;
+    pointer-events: none;
+}
+
 .telemetry-drs-text {
     fill: rgba(77, 195, 255, 0.8);
     font-family: var(--font-sans);
