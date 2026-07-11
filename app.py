@@ -696,6 +696,50 @@ def find_jolpica_race_by_date(races, target_date):
             return race
     return None
 
+JOLPICA_SCHEDULE_SESSION_KEYS = (
+    ("FirstPractice", "Practice 1"),
+    ("SecondPractice", "Practice 2"),
+    ("ThirdPractice", "Practice 3"),
+    ("SprintQualifying", "Sprint Qualifying"),
+    ("Sprint", "Sprint"),
+    ("Qualifying", "Qualifying"),
+)
+
+def normalize_jolpica_schedule(races):
+    schedule = []
+    for race in races if isinstance(races, list) else []:
+        if not isinstance(race, dict):
+            continue
+        circuit = race.get("Circuit") or {}
+        location = circuit.get("Location") or {}
+        sessions = []
+        for key, name in JOLPICA_SCHEDULE_SESSION_KEYS:
+            entry = race.get(key)
+            if isinstance(entry, dict) and entry.get("date"):
+                sessions.append({
+                    "name": name,
+                    "date": entry.get("date"),
+                    "time": entry.get("time"),
+                })
+        if race.get("date"):
+            sessions.append({
+                "name": "Race",
+                "date": race.get("date"),
+                "time": race.get("time"),
+            })
+        sessions.sort(key=lambda s: (s.get("date") or "", s.get("time") or ""))
+        schedule.append({
+            "round": parse_int_param(race.get("round")),
+            "race_name": race.get("raceName"),
+            "circuit_name": circuit.get("circuitName"),
+            "locality": location.get("locality"),
+            "country": location.get("country"),
+            "date": race.get("date"),
+            "time": race.get("time"),
+            "sessions": sessions,
+        })
+    return schedule
+
 @app.errorhandler(UpstreamAPIError)
 async def handle_upstream_api_error(error):
     return jsonify({
@@ -825,6 +869,21 @@ async def api_sessions():
 
     data = await get_cached_livetiming(cache_name, fetch_sessions, year=year)
     return jsonify(data)
+
+@app.route("/api/schedule")
+async def api_schedule():
+    """Full season calendar from Jolpica — includes race weekends that have
+    not happened yet, which the livetiming archive can't provide."""
+    year = parse_int_param(request.args.get("year", str(current_season_year())))
+    if year is None:
+        return invalid_param_response("year")
+
+    races_data = await get_cached_jolpica_api(
+        f"https://api.jolpi.ca/ergast/f1/{year}/races/?format=json",
+        f"jolpica_races_{year}.json",
+        year=year,
+    )
+    return jsonify(normalize_jolpica_schedule(extract_jolpica_races(races_data)))
 
 @app.route("/api/drivers")
 async def api_drivers():

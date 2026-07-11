@@ -104,6 +104,29 @@ function findInitialFocusSession(sessions, now = new Date()) {
     return findLatestRaceEvent(selectableSessions, nowDate);
 }
 
+// Helper: Season-calendar races the livetiming archive doesn't cover yet.
+// Livetiming only lists sessions that already ran, so anything on the Jolpica
+// calendar whose weekend dates never appear there is an upcoming weekend.
+function computeUpcomingRaces(schedule, sessions, now = new Date()) {
+    const seenDates = new Set();
+    (Array.isArray(sessions) ? sessions : []).forEach(session => {
+        const day = String(session.date_start || '').slice(0, 10);
+        if (day) seenDates.add(day);
+    });
+
+    const nowTime = now instanceof Date ? now.getTime() : new Date(now).getTime();
+
+    return (Array.isArray(schedule) ? schedule : []).filter(race => {
+        const dates = [race.date, ...(race.sessions || []).map(s => s.date)].filter(Boolean);
+        if (dates.length === 0) return false;
+        if (dates.some(day => seenDates.has(day))) return false;
+        // A finished weekend missing upstream is a data gap, not an upcoming race
+        const lastDay = dates.slice().sort()[dates.length - 1];
+        const weekendEnd = new Date(`${lastDay}T23:59:59Z`).getTime();
+        return Number.isFinite(weekendEnd) && weekendEnd >= nowTime;
+    });
+}
+
 // Monotonic token so a slow year's response can't overwrite a newer one
 let sessionsListSequence = 0;
 
@@ -120,16 +143,30 @@ async function loadSessions(year, autoFocus = false) {
             <p>Loading sessions...</p>
         </div>
     `;
-    
+
     hideDashboard();
 
     try {
-        const response = await customFetch(`/api/sessions?year=${year}`);
+        // The schedule is a progressive enhancement; its failure must not
+        // block the sessions list
+        const [response, scheduleResponse] = await Promise.all([
+            customFetch(`/api/sessions?year=${year}`),
+            customFetch(`/api/schedule?year=${year}`).catch(() => null)
+        ]);
         if (!response.ok) throw new Error('Failed to fetch sessions');
 
         const sessions = await response.json();
+        let schedule = [];
+        if (scheduleResponse && scheduleResponse.ok) {
+            try {
+                schedule = await scheduleResponse.json();
+            } catch (e) {
+                console.error('Schedule parse failed:', e);
+            }
+        }
         if (isStale()) return;
         state.sessions = sessions;
+        state.upcomingRaces = computeUpcomingRaces(schedule, sessions);
         
         // Sort sessions by date (newest first, or oldest first)
         // Usually, order chronologically looks cleaner for F1 calendars
@@ -187,6 +224,15 @@ function filterAndRenderSessions() {
 
         return matchesSearch && matchesType;
     });
+
+    // Upcoming weekends have no per-session data yet, so only the text search
+    // applies to them
+    state.filteredUpcoming = (state.upcomingRaces || []).filter(race => (
+        (race.race_name || '').toLowerCase().includes(searchQuery) ||
+        (race.circuit_name || '').toLowerCase().includes(searchQuery) ||
+        (race.locality || '').toLowerCase().includes(searchQuery) ||
+        (race.country || '').toLowerCase().includes(searchQuery)
+    ));
 
     // If currently selected session is filtered out, clear selection and hide dashboard
     if (state.selectedSession && !state.filteredSessions.some(s => s.session_key === state.selectedSession.session_key)) {
@@ -284,9 +330,128 @@ function getMeetingStatus(sessions) {
     return { text: 'Past', className: 'status-past' };
 }
 
+// Helper: "Fri 21:30" style local-time label for an upcoming schedule entry
+function formatScheduleSessionTime(entry) {
+    if (!entry || !entry.date) return 'TBC';
+    if (!entry.time) {
+        const day = new Date(`${entry.date}T00:00:00Z`);
+        return isNaN(day.getTime()) ? 'TBC' : day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+    const dateTime = new Date(`${entry.date}T${entry.time}`);
+    if (isNaN(dateTime.getTime())) return 'TBC';
+    return dateTime.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// Helper: Date-range label for an upcoming race weekend
+function formatScheduleDateRange(race) {
+    const days = [race.date, ...(race.sessions || []).map(s => s.date)]
+        .filter(Boolean)
+        .sort();
+    if (days.length === 0) return '';
+    const first = new Date(`${days[0]}T00:00:00Z`);
+    const last = new Date(`${days[days.length - 1]}T00:00:00Z`);
+    if (isNaN(first.getTime())) return '';
+    const opts = { timeZone: 'UTC' };
+    const fMonth = first.toLocaleDateString(undefined, { ...opts, month: 'short' });
+    const fDay = first.toLocaleDateString(undefined, { ...opts, day: 'numeric' });
+    if (isNaN(last.getTime()) || days[0] === days[days.length - 1]) {
+        return `${fMonth} ${fDay}`;
+    }
+    const lMonth = last.toLocaleDateString(undefined, { ...opts, month: 'short' });
+    const lDay = last.toLocaleDateString(undefined, { ...opts, day: 'numeric' });
+    return fMonth === lMonth ? `${fMonth} ${fDay} - ${lDay}` : `${fMonth} ${fDay} - ${lMonth} ${lDay}`;
+}
+
+// Helper: Countdown label to the race start of an upcoming weekend
+function formatRaceCountdown(race, now = new Date()) {
+    if (!race || !race.date) return '';
+    const start = new Date(`${race.date}T${race.time || '00:00:00Z'}`).getTime();
+    const nowTime = now instanceof Date ? now.getTime() : new Date(now).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(nowTime)) return '';
+    const diff = start - nowTime;
+    if (diff <= 0) return 'This weekend';
+    const days = Math.floor(diff / 86400000);
+    if (days === 0) {
+        const hours = Math.max(1, Math.floor(diff / 3600000));
+        return `In ${hours}h`;
+    }
+    if (days === 1) return 'Tomorrow';
+    return `In ${days} days`;
+}
+
+// Helper: pill colour class for an upcoming schedule entry
+function getScheduleSessionPillClass(name) {
+    const label = String(name || '');
+    if (label.includes('Quali')) return 'badge-quali';
+    if (label.includes('Race') || label.includes('Sprint')) return 'badge-race';
+    return 'badge-practice';
+}
+
+// Render upcoming race weekends (Jolpica calendar) below the session cards
+function renderUpcomingSchedule(container) {
+    const races = state.filteredUpcoming || [];
+    if (races.length === 0) return;
+
+    const divider = document.createElement('div');
+    divider.className = 'list-section-divider';
+    divider.innerHTML = `
+        <span class="material-icons-round divider-icon" aria-hidden="true">event</span>
+        <span class="divider-label">Upcoming Schedule</span>
+        <span class="divider-count">${races.length}</span>
+    `;
+    container.appendChild(divider);
+
+    races.forEach((race, index) => {
+        const card = document.createElement('div');
+        card.className = 'session-card upcoming-card';
+
+        const flagEmoji = getCountryFlagByName(race.country);
+        const placeName = [race.locality, race.country].filter(Boolean).join(', ');
+        const countdown = formatRaceCountdown(race);
+        const isNext = index === 0;
+        const badgeClass = isNext ? 'status-next' : 'status-upcoming';
+        const badgeText = isNext && countdown ? `Next · ${countdown}` : 'Upcoming';
+        const roundChip = Number.isFinite(Number(race.round)) && race.round !== null
+            ? `<span class="round-chip">R${escapeHtml(race.round)}</span>` : '';
+
+        let scheduleHtml = '';
+        (race.sessions || []).forEach(entry => {
+            const shortName = getSessionShortName(entry.name);
+            scheduleHtml += `
+                <div class="upcoming-session-row" title="${escapeHtml(entry.name)}">
+                    <span class="session-pill ${getScheduleSessionPillClass(entry.name)}" data-tooltip="${escapeHtml(entry.name)}">${escapeHtml(shortName)}</span>
+                    <span class="upcoming-session-time">${escapeHtml(formatScheduleSessionTime(entry))}</span>
+                </div>
+            `;
+        });
+
+        card.innerHTML = `
+            <div class="session-flag-tile" aria-hidden="true">
+                <span class="loc-flag">${flagEmoji}</span>
+            </div>
+            <div class="session-card-main">
+                <div class="card-top">
+                    <span class="status-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+                    <span class="session-date">${escapeHtml(formatScheduleDateRange(race))}</span>
+                </div>
+                <div class="session-gp">${escapeHtml(race.race_name || race.circuit_name || 'TBC')}${roundChip}</div>
+                <div class="session-loc">
+                    <span class="material-icons-round loc-pin" aria-hidden="true">place</span>
+                    <span>${escapeHtml(placeName)}</span>
+                </div>
+                <div class="upcoming-schedule-grid">
+                    ${scheduleHtml}
+                </div>
+            </div>
+        `;
+
+        container.appendChild(card);
+    });
+}
+
 // Render F1 sessions list (grouped by meeting_key)
 function renderSessionsList() {
-    if (state.filteredSessions.length === 0) {
+    if (state.filteredSessions.length === 0 && (state.filteredUpcoming || []).length === 0) {
         DOM.sessionsList.innerHTML = `
             <div class="loading-state">
                 <p>No sessions found matching criteria.</p>
@@ -416,4 +581,6 @@ function renderSessionsList() {
             }, 50);
         }
     });
+
+    renderUpcomingSchedule(DOM.sessionsList);
 }

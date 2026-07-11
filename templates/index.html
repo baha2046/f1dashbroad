@@ -55,15 +55,20 @@
         <aside class="sidebar" aria-label="Session sidebar">
             <div class="sidebar-header">
                 <div class="logo">
-                    <span class="material-icons-round logo-icon">speed</span>
-                    <h1>F1 DASHBOARD</h1>
+                    <div class="logo-badge" aria-hidden="true">
+                        <span class="material-icons-round logo-icon">speed</span>
+                    </div>
+                    <div class="logo-text">
+                        <h1>F1 DASHBOARD</h1>
+                        <span class="logo-sub">Timing · Telemetry · Replay</span>
+                    </div>
                 </div>
             </div>
-            
+
             <div class="sidebar-controls">
                 <!-- Year Selector -->
                 <div class="control-group">
-                    <span class="control-label">Select Year</span>
+                    <span class="control-label">Season</span>
                     <div class="year-selector" id="yearSelector">
                         <button class="year-btn active" data-year="2026">2026</button>
                         <button class="year-btn" data-year="2025">2025</button>
@@ -90,16 +95,6 @@
                     </div>
                 </div>
 
-                <!-- Include Cancelled Toggle -->
-                <div class="control-group">
-                    <div class="toggle-group">
-                        <label class="switch-label" for="showCancelled">Include Cancelled</label>
-                        <label class="switch">
-                            <input type="checkbox" id="showCancelled" aria-label="Include Cancelled Sessions">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                </div>
             </div>
 
             <!-- Sessions List -->

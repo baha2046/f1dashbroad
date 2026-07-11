@@ -3,6 +3,8 @@ const state = {
     selectedYear: '2026',
     sessions: [],
     filteredSessions: [],
+    upcomingRaces: [],      // Jolpica schedule entries not covered by livetiming
+    filteredUpcoming: [],
     selectedSession: null,
     drivers: [],
     constructorRoster: null,
@@ -111,6 +113,22 @@ const COUNTRY_FLAGS = {
     'JPN': '🇯🇵', 'MEX': '🇲🇽', 'MON': '🇲🇨', 'NED': '🇳🇱', 'QAT': '🇶🇦', 'SAU': '🇸🇦',
     'SGP': '🇸🇬', 'USA': '🇺🇸', 'UAE': '🇦🇪', 'MCO': '🇲🇨', 'SMR': '🇸🇲'
 };
+
+// The Jolpica schedule labels countries by name, not IOC code
+const COUNTRY_NAME_FLAGS = {
+    'australia': '🇦🇺', 'austria': '🇦🇹', 'azerbaijan': '🇦🇿', 'bahrain': '🇧🇭',
+    'belgium': '🇧🇪', 'brazil': '🇧🇷', 'canada': '🇨🇦', 'china': '🇨🇳',
+    'france': '🇫🇷', 'germany': '🇩🇪', 'hungary': '🇭🇺', 'italy': '🇮🇹',
+    'japan': '🇯🇵', 'mexico': '🇲🇽', 'monaco': '🇲🇨', 'netherlands': '🇳🇱',
+    'portugal': '🇵🇹', 'qatar': '🇶🇦', 'saudi arabia': '🇸🇦', 'singapore': '🇸🇬',
+    'spain': '🇪🇸', 'uae': '🇦🇪', 'united arab emirates': '🇦🇪',
+    'uk': '🇬🇧', 'united kingdom': '🇬🇧', 'great britain': '🇬🇧',
+    'usa': '🇺🇸', 'united states': '🇺🇸', 'us': '🇺🇸'
+};
+
+function getCountryFlagByName(countryName) {
+    return COUNTRY_NAME_FLAGS[String(countryName || '').trim().toLowerCase()] || '🏁';
+}
 
 // Fallback matching for team colors if not provided by API
 const TEAM_COLORS = {

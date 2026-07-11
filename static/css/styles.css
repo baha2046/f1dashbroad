@@ -84,7 +84,9 @@ body {
     width: var(--sidebar-width);
     height: 100%;
     border-right: 1px solid var(--border-color);
-    background: rgba(10, 10, 15, 0.8);
+    background:
+        radial-gradient(140% 60px at 0% 0%, rgba(255, 24, 1, 0.08), transparent 70%),
+        linear-gradient(180deg, rgba(14, 12, 17, 0.92), rgba(10, 10, 15, 0.85));
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
@@ -92,7 +94,7 @@ body {
 }
 
 .sidebar-header {
-    padding: 24px;
+    padding: 20px 24px;
     border-bottom: 1px solid var(--border-color);
 }
 
@@ -102,17 +104,47 @@ body {
     gap: 12px;
 }
 
+.logo-badge {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    background: linear-gradient(145deg, #ff3c30, #c01000);
+    border: 1px solid rgba(255, 90, 70, 0.5);
+    box-shadow:
+        0 6px 16px rgba(255, 24, 1, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
 .logo-icon {
-    font-size: 32px;
-    color: var(--accent-red);
-    text-shadow: 0 0 10px var(--accent-red-glow);
+    font-size: 24px;
+    color: #fff;
+}
+
+.logo-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
 }
 
 .logo h1 {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 900;
     letter-spacing: 2px;
     color: var(--text-primary);
+    line-height: 1;
+}
+
+.logo-sub {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
 }
 
 /* Controls */
@@ -234,8 +266,10 @@ body {
 }
 
 .filter-pill.active {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 24, 1, 0.14);
+    border-color: rgba(255, 24, 1, 0.35);
+    color: #ff8a80;
+    font-weight: 600;
 }
 
 /* Toggle Switch Control */
@@ -366,6 +400,7 @@ body {
     align-items: start;
     gap: 12px;
     min-height: 126px;
+    flex-shrink: 0; /* flex children of the overflowing list must not squash */
     background:
         linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
         rgba(255, 255, 255, 0.02);
@@ -607,6 +642,127 @@ body {
     color: var(--text-muted);
     border: 1px solid rgba(255, 255, 255, 0.05);
     text-decoration: line-through;
+}
+
+.status-next {
+    background: linear-gradient(135deg, rgba(255, 24, 1, 0.22), rgba(255, 24, 1, 0.1));
+    color: #ff6a5c;
+    border: 1px solid rgba(255, 24, 1, 0.4);
+    box-shadow: 0 0 10px rgba(255, 24, 1, 0.18);
+}
+
+/* Section divider between past sessions and upcoming schedule */
+.list-section-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding: 4px 2px;
+    color: var(--text-muted);
+}
+
+.list-section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border-color), transparent);
+}
+
+.list-section-divider .divider-icon {
+    font-size: 15px;
+    color: #4dc3ff;
+}
+
+.list-section-divider .divider-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.list-section-divider .divider-count {
+    font-size: 10px;
+    font-weight: 800;
+    min-width: 18px;
+    text-align: center;
+    padding: 1px 6px;
+    border-radius: 9px;
+    background: rgba(0, 161, 232, 0.12);
+    border: 1px solid rgba(0, 161, 232, 0.25);
+    color: #4dc3ff;
+}
+
+/* Upcoming Race Weekend Cards (Jolpica calendar, no session data yet) */
+.upcoming-card {
+    cursor: default;
+    min-height: auto;
+    background:
+        linear-gradient(135deg, rgba(0, 161, 232, 0.06), rgba(255, 255, 255, 0.015)),
+        rgba(255, 255, 255, 0.015);
+    border-color: rgba(0, 161, 232, 0.16);
+}
+
+.upcoming-card:hover {
+    transform: none;
+    background:
+        linear-gradient(135deg, rgba(0, 161, 232, 0.1), rgba(255, 255, 255, 0.025)),
+        rgba(255, 255, 255, 0.02);
+    border-color: rgba(0, 161, 232, 0.3);
+}
+
+.upcoming-card::before {
+    background: rgba(0, 161, 232, 0.45);
+}
+
+.upcoming-card .session-flag-tile {
+    background: rgba(0, 161, 232, 0.08);
+    border-color: rgba(0, 161, 232, 0.18);
+}
+
+.round-chip {
+    display: inline-block;
+    margin-left: 8px;
+    vertical-align: 1px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
+}
+
+.upcoming-schedule-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 10px;
+    margin-top: 10px;
+}
+
+.upcoming-session-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+}
+
+.upcoming-session-row .session-pill {
+    cursor: default;
+    flex-shrink: 0;
+}
+
+.upcoming-session-time {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
 }
 
 @keyframes statusPulse {
