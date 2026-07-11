@@ -8224,3 +8224,1523 @@ body {
     color: var(--accent-red);
     font-weight: 700;
 }
+
+/* ===== Laps & Stints race-engineering workspace ===== */
+#laps-view {
+    container-name: laps-workspace;
+    container-type: inline-size;
+}
+
+.laps-workspace {
+    --laps-red: oklch(0.64 0.25 29);
+    --laps-cyan: oklch(0.77 0.13 220);
+    --laps-green: oklch(0.78 0.18 151);
+    --laps-purple: oklch(0.72 0.2 310);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.laps-hero {
+    background:
+        radial-gradient(circle at 12% 18%, oklch(0.65 0.24 29 / 0.18), transparent 34%),
+        radial-gradient(circle at 83% 34%, oklch(0.73 0.14 220 / 0.13), transparent 30%),
+        linear-gradient(145deg, oklch(0.165 0.023 278 / 0.98), oklch(0.088 0.014 280 / 0.99));
+    border: 1px solid oklch(1 0 0 / 0.1);
+    border-radius: 24px;
+    box-shadow: 0 24px 58px oklch(0.025 0.01 280 / 0.44);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 330px;
+    min-height: 226px;
+    overflow: hidden;
+    padding: 30px 34px;
+    position: relative;
+}
+
+.laps-hero::before {
+    background-image:
+        linear-gradient(45deg, oklch(1 0 0 / 0.025) 25%, transparent 25%, transparent 75%, oklch(1 0 0 / 0.025) 75%),
+        linear-gradient(45deg, oklch(1 0 0 / 0.025) 25%, transparent 25%, transparent 75%, oklch(1 0 0 / 0.025) 75%);
+    background-position: 0 0, 10px 10px;
+    background-size: 20px 20px;
+    content: '';
+    inset: 0;
+    mask-image: linear-gradient(90deg, transparent 30%, black 100%);
+    opacity: 0.78;
+    pointer-events: none;
+    position: absolute;
+}
+
+.laps-hero::after {
+    background: linear-gradient(90deg, var(--laps-red), oklch(0.78 0.2 42), transparent);
+    border-radius: 4px;
+    bottom: 0;
+    content: '';
+    height: 3px;
+    left: 34px;
+    position: absolute;
+    width: 190px;
+}
+
+.laps-hero-copy {
+    align-self: center;
+    max-width: 720px;
+    position: relative;
+    z-index: 2;
+}
+
+.laps-eyebrow,
+.laps-section-kicker,
+.driver-profile-kicker {
+    align-items: center;
+    color: oklch(0.7 0.03 278);
+    display: inline-flex;
+    font-size: 9px;
+    font-weight: 850;
+    gap: 7px;
+    letter-spacing: 1.45px;
+    text-transform: uppercase;
+}
+
+.laps-eyebrow .material-icons-round {
+    color: oklch(0.71 0.22 29);
+    font-size: 17px;
+}
+
+.laps-hero h2 {
+    color: var(--text-primary);
+    font-size: clamp(30px, 3.4vw, 44px);
+    font-weight: 860;
+    letter-spacing: -1.55px;
+    line-height: 1.02;
+    margin: 11px 0 10px;
+}
+
+.laps-hero-copy > p {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0;
+    max-width: 650px;
+}
+
+.laps-session-context {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.laps-session-context > span {
+    align-items: center;
+    background: oklch(1 0 0 / 0.05);
+    border: 1px solid oklch(1 0 0 / 0.085);
+    border-radius: 999px;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 9px;
+    font-weight: 760;
+    gap: 6px;
+    letter-spacing: 0.45px;
+    min-height: 28px;
+    padding: 5px 10px;
+    text-transform: uppercase;
+}
+
+.laps-session-context > span:first-child {
+    background: oklch(0.65 0.23 29 / 0.1);
+    border-color: oklch(0.68 0.22 29 / 0.24);
+    color: oklch(0.89 0.04 29);
+}
+
+.laps-session-context .material-icons-round {
+    color: var(--laps-red);
+    font-size: 14px;
+}
+
+.laps-session-context i,
+.telemetry-live-badge i,
+.driver-profile-kicker > span {
+    background: var(--laps-green);
+    border-radius: 50%;
+    box-shadow: 0 0 9px oklch(0.78 0.18 151 / 0.5);
+    display: inline-block;
+    height: 6px;
+    width: 6px;
+}
+
+.laps-hero-visual {
+    align-self: center;
+    height: 190px;
+    justify-self: end;
+    position: relative;
+    width: 290px;
+    z-index: 1;
+}
+
+.laps-hero-orbit {
+    border: 1px solid oklch(1 0 0 / 0.095);
+    border-radius: 50%;
+    left: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%) rotate(-12deg);
+}
+
+.laps-hero-orbit::before,
+.laps-hero-orbit::after {
+    background: var(--laps-red);
+    border: 3px solid oklch(0.12 0.018 280);
+    border-radius: 50%;
+    box-shadow: 0 0 14px oklch(0.65 0.24 29 / 0.48);
+    content: '';
+    height: 9px;
+    position: absolute;
+    width: 9px;
+}
+
+.laps-hero-orbit::before {
+    right: 16%;
+    top: 4%;
+}
+
+.laps-hero-orbit::after {
+    bottom: 13%;
+    left: 2%;
+}
+
+.laps-hero-orbit-outer {
+    border-left-color: oklch(0.74 0.14 220 / 0.48);
+    border-right-color: oklch(0.66 0.24 29 / 0.48);
+    height: 174px;
+    width: 250px;
+}
+
+.laps-hero-orbit-inner {
+    border-bottom-color: oklch(0.74 0.14 220 / 0.38);
+    height: 120px;
+    width: 174px;
+}
+
+.laps-hero-orbit-inner::before,
+.laps-hero-orbit-inner::after {
+    background: var(--laps-cyan);
+    box-shadow: 0 0 14px oklch(0.74 0.14 220 / 0.45);
+}
+
+.laps-hero-gauge {
+    align-items: center;
+    background: linear-gradient(145deg, oklch(0.2 0.026 278 / 0.96), oklch(0.105 0.015 280 / 0.96));
+    border: 1px solid oklch(1 0 0 / 0.1);
+    border-radius: 50%;
+    box-shadow: 0 18px 32px oklch(0.025 0.01 280 / 0.48), inset 0 0 22px oklch(0.72 0.13 220 / 0.05);
+    display: flex;
+    flex-direction: column;
+    height: 92px;
+    justify-content: center;
+    left: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 92px;
+}
+
+.laps-hero-gauge .material-icons-round {
+    color: var(--laps-cyan);
+    font-size: 23px;
+}
+
+.laps-hero-gauge strong {
+    color: var(--text-primary);
+    font-size: 10px;
+    letter-spacing: 1px;
+    margin-top: 3px;
+}
+
+.laps-hero-gauge small {
+    color: var(--text-muted);
+    font-size: 7px;
+    letter-spacing: 1.4px;
+}
+
+.laps-hero-sector {
+    background: oklch(0.12 0.016 280 / 0.9);
+    border: 1px solid oklch(1 0 0 / 0.1);
+    border-radius: 7px;
+    color: var(--text-secondary);
+    font-size: 8px;
+    font-weight: 900;
+    padding: 4px 6px;
+    position: absolute;
+}
+
+.laps-hero-sector.sector-one { left: 4px; top: 54px; }
+.laps-hero-sector.sector-two { right: 14px; top: 30px; }
+.laps-hero-sector.sector-three { bottom: 28px; right: 28px; }
+
+#laps-view .laps-layout {
+    align-items: stretch;
+    display: grid;
+    gap: 18px;
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 0;
+}
+
+#laps-view .laps-sidebar.laps-driver-bar {
+    align-items: center;
+    background:
+        linear-gradient(110deg, oklch(0.16 0.019 280 / 0.96), oklch(0.095 0.014 280 / 0.98));
+    border: 1px solid oklch(1 0 0 / 0.085);
+    border-radius: 18px;
+    bottom: auto;
+    box-shadow: 0 14px 34px oklch(0.025 0.01 280 / 0.32);
+    display: grid;
+    gap: 18px;
+    grid-template-columns: 180px minmax(0, 1fr);
+    left: auto;
+    max-height: none;
+    overflow: visible;
+    padding: 15px 16px;
+    position: relative;
+    right: auto;
+    z-index: 1;
+}
+
+.laps-driver-bar-heading {
+    border-right: 1px solid oklch(1 0 0 / 0.075);
+    min-width: 0;
+    padding: 1px 16px 1px 2px;
+}
+
+.laps-driver-bar-heading h3 {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.15px;
+    margin: 4px 0 2px;
+}
+
+.laps-driver-bar-heading p {
+    color: var(--text-muted);
+    font-size: 9px;
+    line-height: 1.35;
+    margin: 0;
+}
+
+#laps-view .driver-pills {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 3px 2px 6px;
+    scroll-padding-inline: 2px;
+    scroll-snap-type: x proximity;
+    scrollbar-color: oklch(1 0 0 / 0.14) transparent;
+    scrollbar-width: thin;
+}
+
+#laps-view .driver-pills::-webkit-scrollbar {
+    height: 4px;
+}
+
+#laps-view .driver-pills::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 0.14);
+    border-radius: 999px;
+}
+
+#laps-view .driver-pill {
+    align-items: center;
+    background:
+        linear-gradient(145deg, oklch(1 0 0 / 0.05), oklch(1 0 0 / 0.018));
+    border: 1px solid oklch(1 0 0 / 0.075);
+    border-radius: 12px;
+    color: var(--text-secondary);
+    display: grid;
+    flex: 0 0 154px;
+    gap: 9px;
+    grid-template-columns: 5px minmax(0, 1fr) auto;
+    min-height: 58px;
+    min-width: 154px;
+    overflow: hidden;
+    padding: 9px 10px 9px 8px;
+    position: relative;
+    scroll-snap-align: start;
+    text-align: left;
+    transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+#laps-view .driver-pill > .pill-team-dot {
+    align-self: stretch;
+    background: var(--team-color);
+    border-radius: 999px;
+    box-shadow: 0 0 10px var(--team-color-glow);
+    height: auto;
+    width: 4px;
+}
+
+.driver-pill-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#laps-view .driver-pill-code {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 850;
+    letter-spacing: 0.65px;
+}
+
+.driver-pill-copy small {
+    color: var(--text-muted);
+    font-size: 7px;
+    font-weight: 650;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#laps-view .driver-pill-meta {
+    align-items: flex-end;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+#laps-view .driver-pill-meta small {
+    color: var(--text-muted);
+    font-size: 6px;
+    letter-spacing: 0.7px;
+}
+
+#laps-view .driver-pill-meta span {
+    color: color-mix(in oklch, var(--team-color) 68%, white);
+    font-size: 13px;
+    font-style: italic;
+    font-weight: 900;
+}
+
+#laps-view .driver-pill:hover {
+    background: color-mix(in oklch, var(--team-color) 8%, oklch(1 0 0 / 0.05));
+    border-color: color-mix(in oklch, var(--team-color) 32%, oklch(1 0 0 / 0.12));
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+#laps-view .driver-pill.active {
+    background:
+        radial-gradient(circle at 100% 0%, var(--team-color-glow), transparent 54%),
+        color-mix(in oklch, var(--team-color) 10%, oklch(0.15 0.019 280));
+    border-color: color-mix(in oklch, var(--team-color) 48%, oklch(1 0 0 / 0.14));
+    box-shadow: inset 0 -3px 0 var(--team-color), 0 8px 20px var(--team-color-glow);
+    color: var(--text-primary);
+}
+
+#laps-view .driver-pill:focus-visible,
+#laps-view .lap-analyze-btn:focus-visible,
+#laps-view .stint-segment:focus-visible,
+#laps-view select:focus-visible,
+#laps-view input:focus-visible + .slider,
+#laps-view #statsDriverWiki:focus-visible {
+    outline: 2px solid var(--laps-cyan);
+    outline-offset: 2px;
+}
+
+#laps-view .laps-content {
+    background: transparent;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 370px;
+    min-width: 0;
+    padding: 0;
+}
+
+#laps-view .laps-content > .loading-state {
+    background: oklch(0.115 0.016 280 / 0.82);
+    border: 1px solid oklch(1 0 0 / 0.085);
+    border-radius: 20px;
+    min-height: 300px;
+}
+
+#laps-view .laps-empty {
+    background:
+        linear-gradient(oklch(1 0 0 / 0.022) 1px, transparent 1px),
+        linear-gradient(90deg, oklch(1 0 0 / 0.022) 1px, transparent 1px),
+        radial-gradient(circle at 50% 40%, oklch(0.23 0.035 275 / 0.48), oklch(0.095 0.014 280 / 0.96) 72%);
+    background-size: 28px 28px, 28px 28px, auto;
+    border: 1px dashed oklch(1 0 0 / 0.12);
+    border-radius: 20px;
+    gap: 8px;
+    min-height: 340px;
+    padding: 36px;
+}
+
+.laps-empty-icon {
+    align-items: center;
+    background: oklch(0.66 0.23 29 / 0.11);
+    border: 1px solid oklch(0.69 0.22 29 / 0.25);
+    border-radius: 50%;
+    box-shadow: 0 0 0 9px oklch(0.66 0.23 29 / 0.035);
+    display: flex;
+    height: 58px;
+    justify-content: center;
+    margin-bottom: 10px;
+    width: 58px;
+}
+
+#laps-view .laps-empty .laps-empty-icon .material-icons-round {
+    color: oklch(0.72 0.21 29);
+    font-size: 27px;
+    opacity: 1;
+}
+
+#laps-view .laps-empty h3 {
+    color: var(--text-primary);
+    font-size: 20px;
+    font-weight: 810;
+    letter-spacing: -0.35px;
+    margin: 2px 0 0;
+}
+
+#laps-view .laps-empty > p {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.55;
+    margin: 0;
+    max-width: 510px;
+}
+
+.laps-empty-capabilities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    justify-content: center;
+    margin-top: 14px;
+}
+
+.laps-empty-capabilities > span {
+    align-items: center;
+    background: oklch(1 0 0 / 0.04);
+    border: 1px solid oklch(1 0 0 / 0.075);
+    border-radius: 999px;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 8px;
+    font-weight: 760;
+    gap: 5px;
+    letter-spacing: 0.4px;
+    padding: 6px 9px;
+    text-transform: uppercase;
+}
+
+#laps-view .laps-empty-capabilities .material-icons-round {
+    color: var(--laps-cyan);
+    font-size: 13px;
+    opacity: 0.8;
+}
+
+#laps-view .laps-data {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.laps-driver-overview {
+    background:
+        radial-gradient(circle at 0% 30%, var(--team-color-glow, oklch(0.65 0.2 29 / 0.14)), transparent 30%),
+        linear-gradient(150deg, oklch(0.16 0.02 280 / 0.97), oklch(0.09 0.014 280 / 0.98));
+    border: 1px solid oklch(1 0 0 / 0.09);
+    border-radius: 20px;
+    box-shadow: 0 17px 42px oklch(0.025 0.01 280 / 0.34);
+    display: grid;
+    gap: 15px;
+    grid-template-columns: minmax(330px, 0.76fr) minmax(0, 2fr);
+    overflow: hidden;
+    padding: 16px;
+    position: relative;
+}
+
+.laps-driver-overview::before {
+    background: var(--team-color, var(--laps-red));
+    border-radius: 0 0 4px 0;
+    content: '';
+    height: 4px;
+    left: 0;
+    position: absolute;
+    top: 0;
+    width: 106px;
+}
+
+#laps-view .driver-profile-header {
+    align-items: center;
+    background: oklch(1 0 0 / 0.035);
+    border: 1px solid oklch(1 0 0 / 0.07);
+    border-radius: 15px;
+    display: grid;
+    gap: 13px;
+    grid-template-columns: 84px 4px minmax(0, 1fr) auto;
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    padding: 12px 13px 0 10px;
+    position: relative;
+}
+
+#laps-view .driver-profile-avatar-container {
+    align-self: end;
+    background: linear-gradient(180deg, oklch(1 0 0 / 0.07), transparent);
+    border: 0;
+    border-radius: 13px 13px 0 0;
+    box-shadow: none;
+    height: 100px;
+    overflow: hidden;
+    width: 84px;
+}
+
+#laps-view .driver-profile-avatar-container:hover {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+#laps-view .driver-profile-avatar {
+    align-self: end;
+    filter: drop-shadow(0 10px 12px oklch(0.025 0.01 280 / 0.45));
+    height: 100%;
+    object-fit: contain;
+    object-position: bottom center;
+    transform: scale(1.06);
+    width: 100%;
+}
+
+#laps-view .driver-color-bar {
+    background: var(--team-color);
+    border-radius: 999px;
+    box-shadow: 0 0 11px var(--team-color-glow);
+    height: 48px;
+    width: 4px;
+}
+
+#laps-view .driver-profile-text {
+    min-width: 0;
+    padding: 12px 0;
+}
+
+.driver-profile-kicker {
+    color: color-mix(in oklch, var(--team-color) 62%, white);
+    font-size: 7px;
+    letter-spacing: 1.1px;
+}
+
+.driver-profile-kicker > span {
+    background: var(--team-color);
+    box-shadow: 0 0 8px var(--team-color-glow);
+    height: 5px;
+    width: 5px;
+}
+
+#laps-view .driver-profile-text h4 {
+    color: var(--text-primary);
+    font-size: clamp(18px, 1.8vw, 24px);
+    font-weight: 840;
+    letter-spacing: -0.55px;
+    line-height: 1.05;
+    margin: 5px 0 7px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#laps-view .driver-profile-meta {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+#laps-view .driver-profile-meta p {
+    color: var(--text-muted);
+    font-size: 8px;
+    font-weight: 750;
+    letter-spacing: 0.6px;
+    margin: 0;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.driver-profile-flag,
+.driver-profile-age,
+#laps-view #statsDriverWiki {
+    align-items: center;
+    background: oklch(1 0 0 / 0.055);
+    border: 1px solid oklch(1 0 0 / 0.075);
+    border-radius: 7px;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 10px;
+    justify-content: center;
+    min-height: 23px;
+    min-width: 25px;
+    padding: 3px 6px;
+    text-decoration: none;
+}
+
+#laps-view #statsDriverWiki {
+    transition: background 180ms ease, color 180ms ease;
+}
+
+#laps-view #statsDriverWiki:hover {
+    background: oklch(1 0 0 / 0.1);
+    color: var(--text-primary);
+}
+
+#laps-view #statsDriverWiki .material-icons-round {
+    font-size: 13px;
+}
+
+.driver-profile-number-wrap {
+    align-items: flex-end;
+    display: flex;
+    flex-direction: column;
+    padding: 10px 0;
+}
+
+.driver-profile-number-wrap small {
+    color: var(--text-muted);
+    font-size: 6px;
+    font-weight: 850;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+#laps-view .driver-profile-number {
+    color: var(--team-color);
+    font-size: 32px;
+    font-style: italic;
+    font-weight: 920;
+    line-height: 1;
+    margin: 2px 0 0;
+    opacity: 1;
+    text-shadow: 0 0 18px var(--team-color-glow);
+}
+
+#laps-view .stats-grid {
+    display: grid;
+    gap: 9px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin: 0;
+    min-width: 0;
+}
+
+#laps-view .stat-card {
+    align-items: flex-start;
+    background: linear-gradient(150deg, oklch(1 0 0 / 0.055), oklch(1 0 0 / 0.018));
+    border: 1px solid oklch(1 0 0 / 0.072);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: row;
+    gap: 9px;
+    justify-content: flex-start;
+    min-width: 0;
+    padding: 13px 11px;
+    position: relative;
+}
+
+#laps-view .stat-card::after {
+    background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.03));
+    border-radius: inherit;
+    content: '';
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+}
+
+#laps-view .stat-icon {
+    align-items: center;
+    background: oklch(1 0 0 / 0.055);
+    border-radius: 9px;
+    color: var(--text-muted);
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 16px;
+    height: 31px;
+    justify-content: center;
+    width: 31px;
+}
+
+#laps-view .stat-card-fastest .stat-icon {
+    background: oklch(0.72 0.2 310 / 0.12);
+    color: var(--laps-purple);
+}
+
+#laps-view .stat-card-theoretical .stat-icon {
+    background: oklch(0.77 0.13 220 / 0.1);
+    color: var(--laps-cyan);
+}
+
+#laps-view .stat-card-average .stat-icon {
+    background: oklch(0.78 0.18 151 / 0.1);
+    color: var(--laps-green);
+}
+
+#laps-view .stat-card-total .stat-icon {
+    background: oklch(0.71 0.21 29 / 0.1);
+    color: oklch(0.72 0.21 29);
+}
+
+.stat-card-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#laps-view .stat-label {
+    color: var(--text-muted);
+    font-size: 7px;
+    font-weight: 820;
+    letter-spacing: 0.75px;
+    margin: 0 0 5px;
+    text-transform: uppercase;
+}
+
+#laps-view .stat-value {
+    color: var(--text-primary);
+    font-size: clamp(15px, 1.35vw, 20px);
+    font-variant-numeric: tabular-nums;
+    font-weight: 850;
+    letter-spacing: -0.35px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.stat-card-copy small {
+    color: var(--text-muted);
+    font-size: 7px;
+    line-height: 1.3;
+    margin-top: 6px;
+}
+
+.laps-panel {
+    background:
+        linear-gradient(155deg, oklch(0.145 0.018 280 / 0.96), oklch(0.088 0.013 280 / 0.98));
+    border: 1px solid oklch(1 0 0 / 0.085);
+    border-radius: 20px;
+    box-shadow: 0 16px 38px oklch(0.025 0.01 280 / 0.31);
+    min-width: 0;
+    overflow: hidden;
+    padding: 19px;
+}
+
+#laps-view .stints-section,
+#laps-view .chart-section {
+    margin: 0;
+}
+
+.laps-panel-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+    margin-bottom: 15px;
+}
+
+.laps-panel-header > div:first-child {
+    min-width: 0;
+}
+
+.laps-panel-header h3 {
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 810;
+    letter-spacing: -0.2px;
+    margin: 4px 0 3px;
+}
+
+.laps-panel-header p {
+    color: var(--text-muted);
+    font-size: 9px;
+    line-height: 1.45;
+    margin: 0;
+}
+
+.laps-panel-summary,
+.telemetry-live-badge {
+    align-items: center;
+    background: oklch(1 0 0 / 0.045);
+    border: 1px solid oklch(1 0 0 / 0.075);
+    border-radius: 999px;
+    color: var(--text-muted);
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 8px;
+    font-weight: 750;
+    gap: 6px;
+    letter-spacing: 0.45px;
+    min-height: 27px;
+    padding: 5px 9px;
+    text-transform: uppercase;
+}
+
+.stints-stage {
+    background:
+        linear-gradient(oklch(1 0 0 / 0.018) 1px, transparent 1px),
+        oklch(0.085 0.012 280 / 0.72);
+    background-size: 100% 20px, auto;
+    border: 1px solid oklch(1 0 0 / 0.065);
+    border-radius: 14px;
+    padding: 13px 15px 12px;
+}
+
+.stints-axis {
+    color: var(--text-muted);
+    display: flex;
+    font-size: 7px;
+    font-weight: 750;
+    justify-content: space-between;
+    letter-spacing: 0.65px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+#laps-view .stints-timeline {
+    background: oklch(1 0 0 / 0.035);
+    border: 1px solid oklch(1 0 0 / 0.09);
+    border-radius: 11px;
+    display: flex;
+    height: 62px;
+    overflow: visible;
+}
+
+#laps-view .stint-segment {
+    align-items: center;
+    container-name: stint-segment;
+    container-type: inline-size;
+    cursor: help;
+    display: flex;
+    flex-direction: row;
+    font-size: 12px;
+    gap: 6px;
+    height: 100%;
+    justify-content: center;
+    min-width: 0;
+    position: relative;
+    transition: filter 180ms ease, transform 180ms ease;
+}
+
+#laps-view .stint-segment:hover,
+#laps-view .stint-segment:focus-visible {
+    filter: brightness(1.08) saturate(1.03);
+    transform: translateY(-2px);
+    z-index: 3;
+}
+
+.stint-segment-code {
+    align-items: center;
+    background: oklch(0.1 0.01 280 / 0.17);
+    border-radius: 50%;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 950;
+    height: 27px;
+    justify-content: center;
+    width: 27px;
+}
+
+.stint-segment-range {
+    font-size: 8px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 850;
+    opacity: 0.78;
+}
+
+#laps-view .stint-tooltip {
+    background: oklch(0.085 0.014 280 / 0.98);
+    border: 1px solid oklch(1 0 0 / 0.14);
+    border-radius: 9px;
+    bottom: 72px;
+    box-shadow: 0 12px 30px oklch(0.02 0.01 280 / 0.58);
+    color: var(--text-primary);
+    font-size: 9px;
+    line-height: 1.5;
+    padding: 8px 10px;
+}
+
+#laps-view .stint-segment:hover .stint-tooltip,
+#laps-view .stint-segment:focus .stint-tooltip {
+    display: block;
+}
+
+.stints-legend {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 8px;
+    font-weight: 720;
+    gap: 11px;
+    margin-top: 10px;
+    min-height: 12px;
+    text-transform: uppercase;
+}
+
+.stints-legend > span {
+    align-items: center;
+    display: inline-flex;
+    gap: 5px;
+}
+
+.stint-legend-dot {
+    border: 1px solid oklch(1 0 0 / 0.15);
+    border-radius: 50%;
+    display: inline-block;
+    height: 8px;
+    width: 8px;
+}
+
+.stints-empty {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    font-size: 10px;
+    gap: 8px;
+    height: 100%;
+    justify-content: center;
+    width: 100%;
+}
+
+.stints-empty .material-icons-round {
+    font-size: 17px;
+}
+
+.laps-primary-grid {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: minmax(0, 1.18fr) minmax(510px, 0.92fr);
+}
+
+#laps-view .pace-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+#laps-view .chart-header {
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+#laps-view .chart-toggle-wrapper {
+    background: oklch(1 0 0 / 0.045);
+    border: 1px solid oklch(1 0 0 / 0.075);
+    border-radius: 999px;
+    flex: 0 0 auto;
+    gap: 7px;
+    min-height: 31px;
+    padding: 5px 7px 5px 10px;
+}
+
+#laps-view .switch-label {
+    color: var(--text-muted);
+    font-size: 8px;
+    letter-spacing: 0.35px;
+}
+
+.pace-legend {
+    align-items: center;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 8px;
+    gap: 12px;
+    margin: 0 0 10px;
+}
+
+.pace-legend > span {
+    align-items: center;
+    display: inline-flex;
+    gap: 5px;
+}
+
+.pace-dot {
+    background: var(--text-muted);
+    border-radius: 50%;
+    display: inline-block;
+    height: 7px;
+    width: 7px;
+}
+
+.pace-dot-best { background: var(--laps-green); box-shadow: 0 0 6px oklch(0.78 0.18 151 / 0.35); }
+.pace-dot-pit { background: oklch(0.69 0.23 29); }
+
+#laps-view .chart-container-wrapper {
+    background:
+        linear-gradient(oklch(1 0 0 / 0.021) 1px, transparent 1px),
+        linear-gradient(90deg, oklch(1 0 0 / 0.021) 1px, transparent 1px),
+        oklch(0.083 0.012 280 / 0.82);
+    background-size: 30px 30px, 30px 30px, auto;
+    border: 1px solid oklch(1 0 0 / 0.072);
+    border-radius: 14px;
+    padding: 14px;
+}
+
+#laps-view #lapsChartContainer {
+    height: 352px;
+}
+
+#laps-view .laps-list-section {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 14px;
+}
+
+#laps-view .laps-table-wrapper {
+    background: oklch(0.082 0.012 280 / 0.72);
+    border: 1px solid oklch(1 0 0 / 0.07);
+    border-radius: 13px;
+    flex: 1;
+    max-height: 431px;
+    overflow: auto;
+    scrollbar-color: oklch(1 0 0 / 0.14) transparent;
+    scrollbar-width: thin;
+}
+
+#laps-view .laps-table {
+    font-size: 11px;
+    min-width: 570px;
+}
+
+#laps-view .laps-table th,
+#laps-view .laps-table td {
+    border-bottom-color: oklch(1 0 0 / 0.055);
+    padding: 9px 10px;
+}
+
+#laps-view .laps-table th {
+    background: oklch(0.13 0.016 280 / 0.96);
+    color: var(--text-muted);
+    font-size: 7px;
+    font-weight: 840;
+    letter-spacing: 0.68px;
+    text-transform: uppercase;
+}
+
+#laps-view .laps-table tbody tr {
+    color: var(--text-secondary);
+    transition: background 150ms ease, box-shadow 150ms ease;
+}
+
+#laps-view .laps-table tbody tr:hover {
+    background: oklch(1 0 0 / 0.038);
+}
+
+#laps-view .laps-table tbody tr.lap-row-selected {
+    background: color-mix(in oklch, var(--team-color) 8%, oklch(1 0 0 / 0.025));
+    box-shadow: inset 3px 0 0 var(--team-color);
+}
+
+.lap-analyze-btn {
+    align-items: center;
+    background: oklch(1 0 0 / 0.045);
+    border: 1px solid oklch(1 0 0 / 0.075);
+    border-radius: 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: inline-flex;
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 850;
+    gap: 5px;
+    min-height: 27px;
+    min-width: 48px;
+    padding: 4px 6px 4px 8px;
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.lap-analyze-btn .material-icons-round {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.lap-analyze-btn:hover,
+.lap-analyze-btn[aria-pressed="true"] {
+    background: color-mix(in oklch, var(--team-color) 12%, oklch(1 0 0 / 0.05));
+    border-color: color-mix(in oklch, var(--team-color) 38%, oklch(1 0 0 / 0.1));
+}
+
+.lap-analyze-btn:hover .material-icons-round,
+.lap-analyze-btn[aria-pressed="true"] .material-icons-round {
+    color: var(--team-color);
+}
+
+#laps-view .pit-lap-cell {
+    min-width: 65px;
+}
+
+#laps-view .pit-lap-badge {
+    border-radius: 5px;
+    font-size: 7px;
+    min-height: 19px;
+    padding: 3px 5px;
+}
+
+#laps-view .telemetry-section {
+    scroll-margin-top: 18px;
+}
+
+.telemetry-panel-heading {
+    border-bottom: 1px solid oklch(1 0 0 / 0.065);
+    padding-bottom: 15px;
+}
+
+.telemetry-live-badge {
+    background: oklch(0.78 0.18 151 / 0.07);
+    border-color: oklch(0.78 0.18 151 / 0.19);
+    color: oklch(0.82 0.08 151);
+}
+
+.telemetry-control-deck {
+    align-items: end;
+    background: oklch(0.085 0.012 280 / 0.72);
+    border: 1px solid oklch(1 0 0 / 0.07);
+    border-radius: 14px;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(180px, 1fr) auto minmax(190px, 1fr) minmax(180px, 1fr);
+    margin-bottom: 13px;
+    padding: 12px;
+}
+
+#laps-view .telemetry-lap-select-wrapper {
+    align-items: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+#laps-view .telemetry-lap-select-wrapper > span {
+    color: var(--text-muted);
+    font-size: 7px;
+    font-weight: 840;
+    letter-spacing: 0.78px;
+    text-transform: uppercase;
+}
+
+#laps-view .telemetry-lap-select-wrapper select {
+    background-color: oklch(0.15 0.018 280);
+    border: 1px solid oklch(1 0 0 / 0.1);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 10px;
+    max-width: none;
+    min-height: 39px;
+    padding: 7px 28px 7px 10px;
+    width: 100%;
+}
+
+.telemetry-versus-mark {
+    align-items: center;
+    background: oklch(0.65 0.23 29 / 0.12);
+    border: 1px solid oklch(0.68 0.22 29 / 0.24);
+    border-radius: 50%;
+    color: oklch(0.82 0.09 29);
+    display: inline-flex;
+    font-size: 7px;
+    font-weight: 900;
+    height: 28px;
+    justify-content: center;
+    margin-bottom: 5px;
+    width: 28px;
+}
+
+#laps-view .telemetry-stats {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-bottom: 13px;
+}
+
+#laps-view .telemetry-stat-chip {
+    background: linear-gradient(145deg, oklch(1 0 0 / 0.05), oklch(1 0 0 / 0.02));
+    border-color: oklch(1 0 0 / 0.075);
+    border-radius: 12px;
+    min-width: 0;
+    padding: 10px 12px;
+}
+
+#laps-view .telemetry-stat-chip .stat-chip-label {
+    font-size: 7px;
+}
+
+#laps-view .telemetry-stat-chip .stat-chip-value {
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+}
+
+#laps-view .telemetry-chart-wrapper {
+    margin-bottom: 10px;
+    padding: 13px 15px 11px;
+}
+
+.telemetry-chart-heading {
+    align-items: baseline;
+    display: flex;
+    gap: 8px;
+    margin-bottom: 7px;
+}
+
+.telemetry-chart-heading span,
+#laps-view .telemetry-delta-heading {
+    color: var(--text-secondary);
+    font-size: 8px;
+    font-weight: 850;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+}
+
+.telemetry-chart-heading small {
+    color: var(--text-muted);
+    font-size: 8px;
+}
+
+#laps-view #telemetrySpeedChart {
+    height: 270px;
+}
+
+#laps-view #telemetryInputsChart {
+    height: 180px;
+}
+
+#laps-view .telemetry-legend {
+    border-top: 1px solid oklch(1 0 0 / 0.055);
+    font-size: 8px;
+    margin-top: 6px;
+    padding-top: 8px;
+}
+
+@container stint-segment (max-width: 68px) {
+    .stint-segment-range {
+        display: none;
+    }
+}
+
+@container laps-workspace (max-width: 1240px) {
+    .laps-driver-overview {
+        grid-template-columns: minmax(290px, 0.85fr) minmax(0, 1.6fr);
+    }
+
+    #laps-view .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .laps-primary-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    #laps-view .laps-table-wrapper {
+        max-height: 390px;
+    }
+}
+
+@container laps-workspace (max-width: 900px) {
+    .laps-hero {
+        grid-template-columns: minmax(0, 1fr) 250px;
+        padding: 26px;
+    }
+
+    .laps-hero-visual {
+        transform: scale(0.84);
+        transform-origin: center right;
+    }
+
+    #laps-view .laps-sidebar.laps-driver-bar {
+        align-items: stretch;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .laps-driver-bar-heading {
+        align-items: end;
+        border-bottom: 1px solid oklch(1 0 0 / 0.075);
+        border-right: 0;
+        display: flex;
+        gap: 10px;
+        padding: 0 2px 10px;
+    }
+
+    .laps-driver-bar-heading h3 {
+        margin: 0;
+    }
+
+    .laps-driver-bar-heading p {
+        margin-left: auto;
+    }
+
+    .laps-driver-overview {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    #laps-view .stats-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .telemetry-control-deck {
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    }
+
+    #laps-view #telemetryCompareLapWrapper {
+        grid-column: 3;
+    }
+}
+
+@container laps-workspace (max-width: 690px) {
+    .laps-hero {
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 0;
+    }
+
+    .laps-hero-visual {
+        display: none;
+    }
+
+    #laps-view .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .laps-panel-header,
+    #laps-view .chart-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .laps-panel-summary,
+    .telemetry-live-badge {
+        align-self: flex-start;
+    }
+
+    .telemetry-control-deck {
+        align-items: stretch;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .telemetry-versus-mark {
+        margin: 0;
+    }
+
+    #laps-view #telemetryCompareLapWrapper {
+        grid-column: auto;
+    }
+
+    #laps-view .telemetry-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@container laps-workspace (max-width: 480px) {
+    .laps-hero,
+    .laps-panel {
+        border-radius: 17px;
+        padding: 17px;
+    }
+
+    .laps-hero h2 {
+        font-size: 29px;
+    }
+
+    .laps-session-context {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .laps-session-context > span {
+        align-self: flex-start;
+    }
+
+    .laps-driver-bar-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .laps-driver-bar-heading p {
+        margin-left: 0;
+    }
+
+    #laps-view .driver-pill {
+        flex-basis: 142px;
+        min-width: 142px;
+    }
+
+    #laps-view .driver-profile-header {
+        gap: 9px;
+        grid-template-columns: 68px 3px minmax(0, 1fr) auto;
+    }
+
+    #laps-view .driver-profile-avatar-container {
+        height: 88px;
+        width: 68px;
+    }
+
+    #laps-view .driver-profile-text h4 {
+        font-size: 17px;
+    }
+
+    #laps-view .driver-profile-meta p {
+        max-width: 105px;
+    }
+
+    #laps-view .driver-profile-number {
+        font-size: 26px;
+    }
+
+    #laps-view .stats-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    #laps-view .stat-card {
+        align-items: center;
+    }
+
+    #laps-view .stints-timeline {
+        height: 54px;
+    }
+
+    .stints-axis {
+        display: none;
+    }
+
+    #laps-view #lapsChartContainer {
+        height: 290px;
+    }
+
+    #laps-view .chart-container-wrapper {
+        padding: 9px;
+    }
+
+    #laps-view .telemetry-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .telemetry-chart-heading {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #laps-view .driver-pill,
+    #laps-view .stint-segment,
+    #laps-view .laps-table tbody tr,
+    #laps-view .lap-analyze-btn {
+        scroll-behavior: auto;
+        transition: none;
+    }
+}

@@ -297,6 +297,7 @@ function renderDriversGrid() {
 // Render driver pills in Laps side panel
 function renderLapsDriverSidebar() {
     DOM.lapsDriverList.innerHTML = '';
+    if (typeof updateLapsSessionContext === 'function') updateLapsSessionContext();
     
     // Sort drivers by driver number or team name
     const sortedDrivers = [...state.drivers].sort((a, b) => (a.team_name || '').localeCompare(b.team_name || ''));
@@ -307,14 +308,21 @@ function renderLapsDriverSidebar() {
         
         const pill = document.createElement('button');
         pill.className = 'driver-pill';
+        pill.type = 'button';
         pill.id = `pill-driver-${d.driver_number}`;
+        pill.setAttribute('aria-label', `Analyze ${d.first_name || ''} ${d.last_name || d.name_acronym || d.driver_number}, car ${d.driver_number}`.trim());
+        pill.setAttribute('aria-pressed', 'false');
         pill.style.setProperty('--team-color', `#${teamHex}`);
         pill.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.25)`);
         
         pill.innerHTML = `
-            <span class="driver-pill-code">${escapeHtml(d.name_acronym || d.last_name || d.driver_number)}</span>
+            <span class="pill-team-dot" aria-hidden="true"></span>
+            <span class="driver-pill-copy">
+                <span class="driver-pill-code">${escapeHtml(d.name_acronym || d.last_name || d.driver_number)}</span>
+                <small>${escapeHtml(d.team_name || 'Independent')}</small>
+            </span>
             <span class="driver-pill-meta">
-                <span class="pill-team-dot"></span>
+                <small>CAR</small>
                 <span>${escapeHtml(String(d.driver_number))}</span>
             </span>
         `;

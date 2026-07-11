@@ -1,7 +1,20 @@
 // Select driver and fetch laps & stint details to render analytics
-// Select driver and fetch laps & stint details to render analytics
 let lapsChartRenderFrame = null;
 let lapsChartResizeObserver = null;
+
+function updateLapsSessionContext(driver = null) {
+    const session = state.selectedSession || {};
+    if (DOM.lapsSessionName) {
+        const sessionParts = [session.circuit_short_name || session.location, session.session_name || session.session_type]
+            .filter(Boolean);
+        DOM.lapsSessionName.textContent = sessionParts.length ? sessionParts.join(' · ') : 'Selected session';
+    }
+    if (DOM.lapsSessionStatus) {
+        DOM.lapsSessionStatus.textContent = driver
+            ? `#${driver.driver_number} ${driver.name_acronym || driver.last_name || 'driver'} channel selected`
+            : 'Telemetry workspace ready';
+    }
+}
 
 function getChartContainerWidth(container) {
     if (!container) return 0;
@@ -58,13 +71,20 @@ async function selectDriverForStats(driverNumber) {
     state.selectedDriverStats = driverNumber;
     
     // Highlight pill
-    document.querySelectorAll('.driver-pill').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.driver-pill').forEach(p => {
+        p.classList.remove('active');
+        p.setAttribute('aria-pressed', 'false');
+    });
     const activePill = document.getElementById(`pill-driver-${driverNumber}`);
-    if (activePill) activePill.classList.add('active');
+    if (activePill) {
+        activePill.classList.add('active');
+        activePill.setAttribute('aria-pressed', 'true');
+    }
 
     // Get Driver details
     const d = state.drivers.find(drv => drv.driver_number === driverNumber);
     if (!d) return;
+    updateLapsSessionContext(d);
 
     // Show loading sub-state
     DOM.lapsEmpty.style.display = 'none';
@@ -135,9 +155,12 @@ async function selectDriverForStats(driverNumber) {
         // Load driver avatar image
         const headshot = d.headshot_url || "";//'https://media.formula1.com/d_driver_fallback_image.png';
         DOM.statsDriverHeadshot.src = safeUrl(headshot.replace('.transform/1col/image.png', ''));
+        DOM.statsDriverHeadshot.alt = `${d.first_name || ''} ${d.last_name || d.name_acronym || 'Driver'} headshot`.trim();
         DOM.statsDriverHeadshot.style.setProperty('--team-color', `#${teamHex}`);
         const rgb = getRGBColor(teamHex);
         DOM.statsDriverHeadshot.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.2)`);
+        DOM.lapsData.style.setProperty('--team-color', `#${teamHex}`);
+        DOM.lapsData.style.setProperty('--team-color-glow', `rgba(${rgb}, 0.22)`);
 
         // Compute lap statistics
         let fastestDuration = Infinity;
@@ -145,11 +168,13 @@ async function selectDriverForStats(driverNumber) {
         let bestS1 = Infinity;
         let bestS2 = Infinity;
         let bestS3 = Infinity;
+        let fastestLapNumber = null;
         let runningLaps = [];
         
         laps.forEach(lap => {
             if (lap.lap_duration && lap.lap_duration < fastestDuration) {
                 fastestDuration = lap.lap_duration;
+                fastestLapNumber = lap.lap_number;
             }
             if (lap.lap_duration) {
                 totalLaps++;
@@ -162,32 +187,51 @@ async function selectDriverForStats(driverNumber) {
 
         // 1. Fastest Lap
         DOM.statsFastestLap.textContent = fastestDuration !== Infinity ? formatLapTime(fastestDuration) : '--';
+        if (DOM.statsFastestMeta) {
+            DOM.statsFastestMeta.textContent = fastestLapNumber !== null ? `Set on lap ${fastestLapNumber}` : 'No timed benchmark';
+        }
         
         // 2. Theoretical Best Lap
+        let theoreticalBest = null;
         if (bestS1 !== Infinity && bestS2 !== Infinity && bestS3 !== Infinity) {
-            const theoBest = bestS1 + bestS2 + bestS3;
-            DOM.statsTheoBestLap.textContent = formatLapTime(theoBest);
+            theoreticalBest = bestS1 + bestS2 + bestS3;
+            DOM.statsTheoBestLap.textContent = formatLapTime(theoreticalBest);
             DOM.statsTheoBestLap.title = `S1: ${bestS1.toFixed(3)}s | S2: ${bestS2.toFixed(3)}s | S3: ${bestS3.toFixed(3)}s`;
+            if (DOM.statsTheoBestMeta) {
+                const potential = fastestDuration !== Infinity ? Math.max(0, fastestDuration - theoreticalBest) : null;
+                DOM.statsTheoBestMeta.textContent = potential !== null
+                    ? `${potential.toFixed(3)}s potential gain`
+                    : 'Best sector combination';
+            }
         } else {
             DOM.statsTheoBestLap.textContent = '--';
             DOM.statsTheoBestLap.title = '';
+            if (DOM.statsTheoBestMeta) DOM.statsTheoBestMeta.textContent = 'Sector data incomplete';
         }
 
         // 3. Average Lap Pace (exclude outliers above 115% of fastest lap)
+        let representativeLapCount = 0;
         if (fastestDuration !== Infinity && runningLaps.length > 0) {
             const paceThreshold = fastestDuration * 1.15;
             const representativeLaps = runningLaps.filter(dur => dur <= paceThreshold);
+            representativeLapCount = representativeLaps.length;
             const sum = representativeLaps.reduce((acc, v) => acc + v, 0);
             const avgVal = sum / (representativeLaps.length || 1);
             DOM.statsAvgLap.textContent = formatLapTime(avgVal);
             DOM.statsAvgLap.title = `Averaged ${representativeLaps.length} of ${runningLaps.length} laps (filtered out pit stops / yellow flags)`;
+            if (DOM.statsAvgMeta) DOM.statsAvgMeta.textContent = `${representativeLapCount} clean laps sampled`;
         } else {
             DOM.statsAvgLap.textContent = '--';
             DOM.statsAvgLap.title = '';
+            if (DOM.statsAvgMeta) DOM.statsAvgMeta.textContent = 'No representative sample';
         }
 
         // 4. Total Laps
         DOM.statsTotalLaps.textContent = totalLaps;
+        if (DOM.statsTotalMeta) {
+            const stintCount = state.stints.filter(stint => Number(stint.driver_number) === Number(driverNumber)).length;
+            DOM.statsTotalMeta.textContent = `${stintCount} ${stintCount === 1 ? 'run' : 'runs'} recorded`;
+        }
 
         // Render Laps Table with Sector Personal Best highlights
         let lapsTableHTML = '';
@@ -207,7 +251,12 @@ async function selectDriverForStats(driverNumber) {
 
                 lapsTableHTML += `
                     <tr id="lap-row-${escapeHtml(lap.lap_number)}" class="${rowClasses}">
-                        <td>${escapeHtml(lap.lap_number)}</td>
+                        <td>
+                            <button type="button" class="lap-analyze-btn" data-lap-number="${escapeHtml(lap.lap_number)}" aria-label="Analyze lap ${escapeHtml(lap.lap_number)} telemetry" aria-pressed="false">
+                                <span>${escapeHtml(lap.lap_number)}</span>
+                                <span class="material-icons-round" aria-hidden="true">monitoring</span>
+                            </button>
+                        </td>
                         <td class="pit-lap-cell">${renderPitLapBadges(pitAnnotation)}</td>
                         <td class="${isBestS1 ? 'personal-best-sector' : ''}">
                             ${lap.duration_sector_1 ? lap.duration_sector_1.toFixed(3) + 's' : '--'}
@@ -227,12 +276,15 @@ async function selectDriverForStats(driverNumber) {
             });
         }
         DOM.lapsTableBody.innerHTML = lapsTableHTML;
+        if (DOM.lapsTableCount) {
+            DOM.lapsTableCount.textContent = `${totalLaps} ${totalLaps === 1 ? 'timed lap' : 'timed laps'}`;
+        }
 
         // Render Stints Timeline
         renderStintsTimeline(driverNumber);
 
         // Display dashboard
-        DOM.lapsData.style.display = 'block';
+        DOM.lapsData.style.display = 'flex';
 
         // Render Lap Timing Chart after the panel is visible and measurable.
         scheduleLapChartRender(laps);
@@ -248,10 +300,12 @@ async function selectDriverForStats(driverNumber) {
 
 // Render Stints Timeline with Gap/Garage intervals
 function renderStintsTimeline(driverNumber) {
-    const driverStints = state.stints.filter(s => s.driver_number === driverNumber);
+    const driverStints = state.stints.filter(s => Number(s.driver_number) === Number(driverNumber));
     
     if (driverStints.length === 0) {
-        DOM.stintsTimeline.innerHTML = '<div style="display:flex;align-items:center;padding:0 16px;color:var(--text-muted);font-size:13px;width:100%;height:100%;">No stint data recorded.</div>';
+        DOM.stintsTimeline.innerHTML = '<div class="stints-empty"><span class="material-icons-round" aria-hidden="true">tire_repair</span><span>No stint data recorded for this driver.</span></div>';
+        if (DOM.stintsSummary) DOM.stintsSummary.textContent = 'No tyre runs available';
+        if (DOM.stintsLegend) DOM.stintsLegend.innerHTML = '';
         return;
     }
 
@@ -271,6 +325,18 @@ function renderStintsTimeline(driverNumber) {
     }
 
     if (maxLap === 0) maxLap = 1;
+
+    const uniqueCompounds = [...new Set(driverStints.map(stint => (
+        String(stint.compound || 'UNKNOWN').toUpperCase().replace(/[^A-Z]/g, '') || 'UNKNOWN'
+    )))];
+    if (DOM.stintsSummary) {
+        DOM.stintsSummary.textContent = `${driverStints.length} ${driverStints.length === 1 ? 'run' : 'runs'} · ${uniqueCompounds.length} ${uniqueCompounds.length === 1 ? 'compound' : 'compounds'} · ${maxLap} laps mapped`;
+    }
+    if (DOM.stintsLegend) {
+        DOM.stintsLegend.innerHTML = uniqueCompounds.map(compound => `
+            <span><i class="stint-legend-dot stint-compound-${escapeHtml(compound)}" aria-hidden="true"></i>${escapeHtml(compound.charAt(0) + compound.slice(1).toLowerCase())}</span>
+        `).join('');
+    }
 
     DOM.stintsTimeline.innerHTML = '';
     
@@ -316,23 +382,29 @@ function renderStintsTimeline(driverNumber) {
         const widthPct = (stintLaps / maxLap) * 100;
         
         const div = document.createElement('div');
-        const compound = (segment.compound || 'UNKNOWN').toUpperCase();
+        const compound = String(segment.compound || 'UNKNOWN').toUpperCase().replace(/[^A-Z]/g, '') || 'UNKNOWN';
         div.className = `stint-segment stint-compound-${compound}`;
         div.style.width = `${widthPct}%`;
+        div.tabIndex = 0;
+        div.setAttribute('role', 'img');
         
         if (segment.type === 'gap') {
+            div.setAttribute('aria-label', `Garage or inactive, laps ${segment.lap_start} to ${segment.lap_end}, ${stintLaps} laps`);
             div.innerHTML = `
-                <span>G</span>
-                <div class="stint-tooltip">
+                <span class="stint-segment-code">G</span>
+                <span class="stint-segment-range">${escapeHtml(segment.lap_start)}–${escapeHtml(segment.lap_end)}</span>
+                <div class="stint-tooltip" aria-hidden="true">
                     <strong>In Garage / Inactive</strong><br>
                     Laps: ${escapeHtml(segment.lap_start)} - ${escapeHtml(segment.lap_end)} (${stintLaps} laps)
                 </div>
             `;
         } else {
             const initial = segment.compound ? segment.compound.charAt(0) : '?';
+            div.setAttribute('aria-label', `Stint ${segment.stint_number}, ${segment.compound || 'unknown'} compound, laps ${segment.lap_start} to ${segment.lap_end}, starting tyre age ${segment.tyre_age_at_start || 0} laps`);
             div.innerHTML = `
-                <span>${escapeHtml(initial)}</span>
-                <div class="stint-tooltip">
+                <span class="stint-segment-code">${escapeHtml(initial)}</span>
+                <span class="stint-segment-range">${escapeHtml(segment.lap_start)}–${escapeHtml(segment.lap_end)}</span>
+                <div class="stint-tooltip" aria-hidden="true">
                     <strong>Stint ${escapeHtml(segment.stint_number)}: ${escapeHtml(segment.compound || 'Unknown')}</strong><br>
                     Laps: ${escapeHtml(segment.lap_start)} - ${escapeHtml(segment.lap_end)} (${stintLaps} laps)<br>
                     Starting Age: ${escapeHtml(segment.tyre_age_at_start || 0)} laps
@@ -342,6 +414,33 @@ function renderStintsTimeline(driverNumber) {
         
         DOM.stintsTimeline.appendChild(div);
     });
+}
+
+function updateActiveLapTableSelection(lapNumber) {
+    const selectedLap = String(lapNumber);
+    if (!DOM.lapsTableBody) return;
+    DOM.lapsTableBody.querySelectorAll('.lap-analyze-btn').forEach(button => {
+        const isSelected = button.dataset.lapNumber === selectedLap;
+        button.setAttribute('aria-pressed', String(isSelected));
+        const row = button.closest('tr');
+        if (row) row.classList.toggle('lap-row-selected', isSelected);
+    });
+}
+
+function selectLapForTelemetry(lapNumber, shouldScroll = true) {
+    if (!DOM.telemetryLapSelect) return;
+    const selectedLap = String(lapNumber);
+    const hasLap = Array.from(DOM.telemetryLapSelect.options).some(option => option.value === selectedLap);
+    if (!hasLap) return;
+
+    DOM.telemetryLapSelect.value = selectedLap;
+    updateActiveLapTableSelection(selectedLap);
+    DOM.telemetryLapSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+    if (shouldScroll && DOM.telemetrySection) {
+        const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        DOM.telemetrySection.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    }
 }
 
 // Parse Safety Car (SC) and Virtual Safety Car (VSC) periods from race control messages
@@ -842,6 +941,7 @@ function setupTelemetrySection(laps) {
 
     DOM.telemetryLapSelect.innerHTML = buildTelemetryLapOptionsHtml(laps, null);
     setupTelemetryCompareControls();
+    updateActiveLapTableSelection(DOM.telemetryLapSelect.value);
 
     renderTelemetryMessage('Telemetry loads when the Laps tab is open.');
     maybeAutoLoadTelemetry();

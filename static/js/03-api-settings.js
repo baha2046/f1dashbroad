@@ -198,7 +198,19 @@ function setupEventListeners() {
     // Telemetry Lap Selector (re-fetches the comparison when one is active)
     if (DOM.telemetryLapSelect) {
         DOM.telemetryLapSelect.addEventListener('change', () => {
+            if (typeof updateActiveLapTableSelection === 'function') {
+                updateActiveLapTableSelection(DOM.telemetryLapSelect.value);
+            }
             maybeAutoLoadTelemetry();
+        });
+    }
+
+    // A lap number in the timing log opens that lap directly in the telemetry lab.
+    if (DOM.lapsTableBody) {
+        DOM.lapsTableBody.addEventListener('click', (event) => {
+            const button = event.target.closest('.lap-analyze-btn');
+            if (!button || !DOM.lapsTableBody.contains(button)) return;
+            selectLapForTelemetry(button.dataset.lapNumber);
         });
     }
 

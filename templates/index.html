@@ -362,127 +362,223 @@
 
                 <!-- Laps View -->
                 <section class="tab-view" id="laps-view" aria-label="Laps and stints data">
-                    <div class="laps-layout">
-                        <!-- Driver Selector for stats -->
-                        <nav class="laps-sidebar laps-driver-bar" aria-label="Select driver for stats">
-                            <h4>Select Driver</h4>
-                            <div class="driver-pills" id="lapsDriverList">
-                                <!-- Loaded dynamically -->
+                    <div class="laps-workspace">
+                        <header class="laps-hero">
+                            <div class="laps-hero-copy">
+                                <span class="laps-eyebrow"><span class="material-icons-round" aria-hidden="true">speed</span>Race engineering</span>
+                                <h2>Laps &amp; stint analysis</h2>
+                                <p>Read the session like an engineer: compare representative pace, decode tyre runs, and open any lap for a full telemetry trace.</p>
+                                <div class="laps-session-context" aria-label="Selected session context">
+                                    <span><span class="material-icons-round" aria-hidden="true">flag</span><strong id="lapsSessionName">Selected session</strong></span>
+                                    <span><i aria-hidden="true"></i><span id="lapsSessionStatus">Telemetry workspace ready</span></span>
+                                </div>
                             </div>
-                        </nav>
-                        <!-- Driver stats display -->
-                        <div class="laps-content glass" id="lapsContent">
+                            <div class="laps-hero-visual" aria-hidden="true">
+                                <div class="laps-hero-orbit laps-hero-orbit-outer"></div>
+                                <div class="laps-hero-orbit laps-hero-orbit-inner"></div>
+                                <div class="laps-hero-gauge">
+                                    <span class="material-icons-round">query_stats</span>
+                                    <strong>PACE</strong>
+                                    <small>TRACE</small>
+                                </div>
+                                <span class="laps-hero-sector sector-one">S1</span>
+                                <span class="laps-hero-sector sector-two">S2</span>
+                                <span class="laps-hero-sector sector-three">S3</span>
+                            </div>
+                        </header>
+
+                        <div class="laps-layout">
+                            <!-- Driver Selector for stats -->
+                            <nav class="laps-sidebar laps-driver-bar" aria-label="Select driver for stats">
+                                <div class="laps-driver-bar-heading">
+                                    <span class="laps-section-kicker">Driver channel</span>
+                                    <h3>Select a driver</h3>
+                                    <p>Choose a timing feed to inspect.</p>
+                                </div>
+                                <div class="driver-pills" id="lapsDriverList">
+                                    <!-- Loaded dynamically -->
+                                </div>
+                            </nav>
+                            <!-- Driver stats display -->
+                            <div class="laps-content" id="lapsContent">
                             <div class="laps-empty" id="lapsEmpty">
-                                <span class="material-icons-round">query_stats</span>
-                                <h5>No Driver Selected</h5>
-                                <p>Select a driver from the bottom bar to view their stint history and lap analysis for this session.</p>
+                                <div class="laps-empty-icon"><span class="material-icons-round" aria-hidden="true">sports_motorsports</span></div>
+                                <span class="laps-section-kicker">Awaiting driver channel</span>
+                                <h3>Open a race-engineering view</h3>
+                                <p>Select a driver above to reveal their pace profile, tyre strategy, lap log, and car telemetry.</p>
+                                <div class="laps-empty-capabilities" aria-hidden="true">
+                                    <span><span class="material-icons-round">show_chart</span>Pace trace</span>
+                                    <span><span class="material-icons-round">tire_repair</span>Stint plan</span>
+                                    <span><span class="material-icons-round">monitor_heart</span>Driver inputs</span>
+                                </div>
                             </div>
                             <div class="laps-data" id="lapsData" style="display: none;">
-                                <div class="driver-profile-header">
-                                    <div class="driver-profile-avatar-container">
-                                        <img id="statsDriverHeadshot" src="https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/" class="driver-profile-avatar" alt="Driver Headshot">
-                                    </div>
-                                    <div class="driver-color-bar" id="statsColorBar"></div>
-                                    <div class="driver-profile-text">
-                                        <h4 id="statsDriverName">Lewis Hamilton</h4>
-                                        <div class="driver-profile-meta" style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                                            <p id="statsDriverTeam" style="margin: 0;">Ferrari</p>
-                                            <span id="statsDriverFlag" style="font-size: 16px;"></span>
-                                            <span id="statsDriverAge" style="font-size: 12px; background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 4px; color: var(--text-secondary);"></span>
-                                            <a id="statsDriverWiki" href="#" target="_blank" style="display: inline-flex; align-items: center; color: var(--text-muted); text-decoration: none;" title="Open Wikipedia Profile"><span class="material-icons-round" style="font-size: 14px;">open_in_new</span></a>
+                                <section class="laps-driver-overview" aria-labelledby="statsDriverName">
+                                    <div class="driver-profile-header">
+                                        <div class="driver-profile-avatar-container">
+                                            <img id="statsDriverHeadshot" src="https://media.formula1.com/d_driver_fallback_image.png/content/dam/fom-website/drivers/L/" class="driver-profile-avatar" alt="Driver Headshot">
+                                        </div>
+                                        <div class="driver-color-bar" id="statsColorBar"></div>
+                                        <div class="driver-profile-text">
+                                            <span class="driver-profile-kicker"><span aria-hidden="true"></span>Analysis channel</span>
+                                            <h4 id="statsDriverName">Lewis Hamilton</h4>
+                                            <div class="driver-profile-meta">
+                                                <p id="statsDriverTeam">Ferrari</p>
+                                                <span id="statsDriverFlag" class="driver-profile-flag"></span>
+                                                <span id="statsDriverAge" class="driver-profile-age"></span>
+                                                <a id="statsDriverWiki" href="#" target="_blank" rel="noopener noreferrer" title="Open Wikipedia profile" aria-label="Open driver profile"><span class="material-icons-round">open_in_new</span></a>
+                                            </div>
+                                        </div>
+                                        <div class="driver-profile-number-wrap" aria-label="Driver number">
+                                            <small>Car</small>
+                                            <div class="driver-profile-number" id="statsDriverNumber">44</div>
                                         </div>
                                     </div>
-                                    <div class="driver-profile-number" id="statsDriverNumber">44</div>
-                                </div>
-                                
-                                <div class="stats-grid">
-                                    <div class="stat-card">
-                                        <span class="stat-label">Fastest Lap</span>
-                                        <span class="stat-value" id="statsFastestLap">--</span>
-                                    </div>
-                                    <div class="stat-card">
-                                        <span class="stat-label">Theoretical Best</span>
-                                        <span class="stat-value" id="statsTheoBestLap">--</span>
-                                    </div>
-                                    <div class="stat-card">
-                                        <span class="stat-label">Average Pace</span>
-                                        <span class="stat-value" id="statsAvgLap">--</span>
-                                    </div>
-                                    <div class="stat-card">
-                                        <span class="stat-label">Total Laps</span>
-                                        <span class="stat-value" id="statsTotalLaps">--</span>
-                                    </div>
-                                </div>
 
-                                <div class="stints-section">
-                                    <h5>Tire Stints</h5>
-                                    <div class="stints-timeline" id="stintsTimeline">
-                                        <!-- Loaded dynamically -->
+                                    <div class="stats-grid">
+                                        <article class="stat-card stat-card-fastest">
+                                            <span class="stat-icon material-icons-round" aria-hidden="true">bolt</span>
+                                            <div class="stat-card-copy">
+                                                <span class="stat-label">Fastest lap</span>
+                                                <span class="stat-value" id="statsFastestLap">--</span>
+                                                <small id="statsFastestMeta">Session benchmark</small>
+                                            </div>
+                                        </article>
+                                        <article class="stat-card stat-card-theoretical">
+                                            <span class="stat-icon material-icons-round" aria-hidden="true">auto_graph</span>
+                                            <div class="stat-card-copy">
+                                                <span class="stat-label">Theoretical best</span>
+                                                <span class="stat-value" id="statsTheoBestLap">--</span>
+                                                <small id="statsTheoBestMeta">Best sector combination</small>
+                                            </div>
+                                        </article>
+                                        <article class="stat-card stat-card-average">
+                                            <span class="stat-icon material-icons-round" aria-hidden="true">timeline</span>
+                                            <div class="stat-card-copy">
+                                                <span class="stat-label">Representative pace</span>
+                                                <span class="stat-value" id="statsAvgLap">--</span>
+                                                <small id="statsAvgMeta">Filtered race rhythm</small>
+                                            </div>
+                                        </article>
+                                        <article class="stat-card stat-card-total">
+                                            <span class="stat-icon material-icons-round" aria-hidden="true">data_usage</span>
+                                            <div class="stat-card-copy">
+                                                <span class="stat-label">Timed laps</span>
+                                                <span class="stat-value" id="statsTotalLaps">--</span>
+                                                <small id="statsTotalMeta">Across recorded runs</small>
+                                            </div>
+                                        </article>
                                     </div>
-                                </div>
+                                </section>
 
-                                <div class="chart-section">
-                                    <div class="chart-header">
-                                        <h5>Lap Time Progression</h5>
-                                        <div class="chart-toggle-wrapper">
-                                            <label class="switch-label" for="chartHideOutliers">Filter Pit/Slow Laps</label>
-                                            <label class="switch">
-                                                <input type="checkbox" id="chartHideOutliers" checked aria-label="Filter Pit/Slow Laps">
-                                                <span class="slider"></span>
-                                            </label>
+                                <section class="stints-section laps-panel" aria-labelledby="stintsPanelTitle">
+                                    <div class="laps-panel-header">
+                                        <div>
+                                            <span class="laps-section-kicker">Tyre strategy</span>
+                                            <h3 id="stintsPanelTitle">Stint plan</h3>
+                                            <p>Run length and compound choice across the complete session.</p>
                                         </div>
+                                        <span class="laps-panel-summary" id="stintsSummary">Waiting for stint data</span>
                                     </div>
-                                    <div class="chart-container-wrapper glass">
-                                        <div id="lapsChartContainer">
-                                            <!-- SVG Chart generated dynamically -->
+                                    <div class="stints-stage">
+                                        <div class="stints-axis" aria-hidden="true"><span>Session start</span><span>Final recorded lap</span></div>
+                                        <div class="stints-timeline" id="stintsTimeline">
+                                            <!-- Loaded dynamically -->
                                         </div>
+                                        <div class="stints-legend" id="stintsLegend" aria-label="Tyre compound legend"></div>
                                     </div>
+                                </section>
+
+                                <div class="laps-primary-grid">
+                                    <section class="chart-section laps-panel pace-panel" aria-labelledby="pacePanelTitle">
+                                        <div class="laps-panel-header chart-header">
+                                            <div>
+                                                <span class="laps-section-kicker">Pace evolution</span>
+                                                <h3 id="pacePanelTitle">Lap-time trace</h3>
+                                                <p>Hover the plot to synchronize a lap with the timing log.</p>
+                                            </div>
+                                            <div class="chart-toggle-wrapper">
+                                                <label class="switch-label" for="chartHideOutliers">Clean laps only</label>
+                                                <label class="switch">
+                                                    <input type="checkbox" id="chartHideOutliers" checked aria-label="Filter pit and slow laps">
+                                                    <span class="slider"></span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="pace-legend" aria-label="Pace chart legend">
+                                            <span><i class="pace-dot pace-dot-lap"></i>Timed lap</span>
+                                            <span><i class="pace-dot pace-dot-best"></i>Personal best sector</span>
+                                            <span><i class="pace-dot pace-dot-pit"></i>Pit transition</span>
+                                        </div>
+                                        <div class="chart-container-wrapper">
+                                            <div id="lapsChartContainer">
+                                                <!-- SVG Chart generated dynamically -->
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <section class="laps-list-section laps-panel" aria-labelledby="lapLogTitle">
+                                        <div class="laps-panel-header">
+                                            <div>
+                                                <span class="laps-section-kicker">Timing log</span>
+                                                <h3 id="lapLogTitle">Lap breakdown</h3>
+                                                <p>Select a lap number to send it to telemetry.</p>
+                                            </div>
+                                            <span class="laps-panel-summary" id="lapsTableCount">0 laps</span>
+                                        </div>
+                                        <div class="laps-table-wrapper">
+                                            <table class="laps-table">
+                                                <thead>
+                                                <tr>
+                                                    <th>Lap</th>
+                                                    <th>Pit</th>
+                                                    <th>Sector 1</th>
+                                                    <th>Sector 2</th>
+                                                    <th>Sector 3</th>
+                                                    <th>Lap time</th>
+                                                </tr>
+                                                </thead>
+                                                <tbody id="lapsTableBody">
+                                                <!-- Dynamic laps -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
                                 </div>
 
-                                <div class="laps-list-section">
-                                    <h5>All Lap Times</h5>
-                                    <div class="laps-table-wrapper">
-                                        <table class="laps-table">
-                                            <thead>
-                                            <tr>
-                                                <th>Lap</th>
-                                                <th>Pit</th>
-                                                <th>Sector 1</th>
-                                                <th>Sector 2</th>
-                                                <th>Sector 3</th>
-                                                <th>Lap Time</th>
-                                            </tr>
-                                            </thead>
-                                            <tbody id="lapsTableBody">
-                                            <!-- Dynamic laps -->
-                                            </tbody>
-                                        </table>
+                                <section class="chart-section telemetry-section laps-panel" id="telemetrySection" aria-labelledby="telemetryPanelTitle">
+                                    <div class="laps-panel-header telemetry-panel-heading">
+                                        <div>
+                                            <span class="laps-section-kicker">Car data lab</span>
+                                            <h3 id="telemetryPanelTitle">Lap telemetry</h3>
+                                            <p>Inspect speed, throttle, brake, DRS, and time delta against another lap.</p>
+                                        </div>
+                                        <span class="telemetry-live-badge"><i aria-hidden="true"></i>Interactive trace</span>
                                     </div>
-                                </div>
-
-                                <div class="chart-section telemetry-section" id="telemetrySection">
-                                    <div class="chart-header">
-                                        <h5>Lap Telemetry</h5>
+                                    <div class="telemetry-control-deck">
                                         <label class="telemetry-lap-select-wrapper">
-                                            <span>Lap</span>
+                                            <span>Primary lap</span>
                                             <select id="telemetryLapSelect" aria-label="Select lap for telemetry"></select>
                                         </label>
+                                        <span class="telemetry-versus-mark" aria-hidden="true">VS</span>
                                         <label class="telemetry-lap-select-wrapper telemetry-compare-select-wrapper">
-                                            <span>vs</span>
+                                            <span>Compare driver</span>
                                             <select id="telemetryCompareDriverSelect" aria-label="Select comparison driver"></select>
                                         </label>
                                         <label class="telemetry-lap-select-wrapper telemetry-compare-select-wrapper" id="telemetryCompareLapWrapper" style="display: none;">
-                                            <span>Lap</span>
+                                            <span>Compare lap</span>
                                             <select id="telemetryCompareLapSelect" aria-label="Select comparison lap"></select>
                                         </label>
                                     </div>
                                     <div class="telemetry-stats" id="telemetryStats" style="display: none;"></div>
-                                    <div class="chart-container-wrapper glass telemetry-chart-wrapper">
+                                    <div class="chart-container-wrapper telemetry-chart-wrapper">
+                                        <div class="telemetry-chart-heading"><span>Speed trace</span><small>km/h over lap distance</small></div>
                                         <div id="telemetrySpeedChart">
                                             <!-- SVG speed trace generated dynamically -->
                                         </div>
                                     </div>
-                                    <div class="chart-container-wrapper glass telemetry-chart-wrapper">
+                                    <div class="chart-container-wrapper telemetry-chart-wrapper">
+                                        <div class="telemetry-chart-heading"><span>Driver inputs</span><small>Throttle and brake application</small></div>
                                         <div id="telemetryInputsChart">
                                             <!-- SVG throttle/brake chart generated dynamically -->
                                         </div>
@@ -491,15 +587,16 @@
                                             <span><span class="telemetry-legend-swatch brake"></span>Brake</span>
                                         </div>
                                     </div>
-                                    <div class="chart-container-wrapper glass telemetry-chart-wrapper" id="telemetryDeltaWrapper" style="display: none;">
+                                    <div class="chart-container-wrapper telemetry-chart-wrapper" id="telemetryDeltaWrapper" style="display: none;">
                                         <div class="telemetry-delta-heading" id="telemetryDeltaHeading">Time Delta</div>
                                         <div id="telemetryDeltaChart">
                                             <!-- SVG time-delta chart generated dynamically -->
                                         </div>
                                     </div>
-                                </div>
+                                </section>
 
                             </div>
+                        </div>
                         </div>
                     </div>
                 </section>
