@@ -226,6 +226,21 @@ function setupEventListeners() {
         });
     }
 
+    // Telemetry View Controls (drag-zoom reset + detail-mode layout)
+    if (DOM.telemetryResetZoom) {
+        DOM.telemetryResetZoom.addEventListener('click', () => {
+            resetTelemetryZoom();
+            updateTelemetryZoomControl();
+        });
+    }
+    if (DOM.telemetryDetailMode) {
+        DOM.telemetryDetailMode.addEventListener('change', () => {
+            state.telemetryView.detailMode = DOM.telemetryDetailMode.checked;
+            applyTelemetryChartLayout();
+            rerenderTelemetry();
+        });
+    }
+
     // Session Replay Controls
     if (DOM.replayDriverSelect) {
         DOM.replayDriverSelect.addEventListener('change', () => {

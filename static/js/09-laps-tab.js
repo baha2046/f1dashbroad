@@ -234,9 +234,10 @@ async function selectDriverForStats(driverNumber) {
         }
 
         // Render Laps Table with Sector Personal Best highlights
+        const tableSafetyCarPeriods = extractSafetyCarPeriods(state.raceControl);
         let lapsTableHTML = '';
         if (laps.length === 0) {
-            lapsTableHTML = '<tr><td colspan="6" style="text-align:center;">No lap data recorded for this driver.</td></tr>';
+            lapsTableHTML = '<tr><td colspan="8" style="text-align:center;">No lap data recorded for this driver.</td></tr>';
         } else {
             laps.forEach(lap => {
                 const isFastest = lap.lap_duration === fastestDuration;
@@ -244,6 +245,8 @@ async function selectDriverForStats(driverNumber) {
                 const isBestS2 = lap.duration_sector_2 === bestS2;
                 const isBestS3 = lap.duration_sector_3 === bestS3;
                 const pitAnnotation = getLapPitAnnotation(driverNumber, lap.lap_number);
+                const stintInfo = getLapStintInfo(driverNumber, lap.lap_number);
+                const trackStatus = getLapTrackStatus(lap.lap_number, tableSafetyCarPeriods);
                 const rowClasses = [
                     pitAnnotation.isPitIn ? 'lap-row-pit-in' : '',
                     pitAnnotation.isPitOut ? 'lap-row-pit-out' : ''
@@ -257,7 +260,9 @@ async function selectDriverForStats(driverNumber) {
                                 <span class="material-icons-round" aria-hidden="true">monitoring</span>
                             </button>
                         </td>
+                        <td class="lap-tyre-cell">${renderLapTyreBadge(stintInfo)}</td>
                         <td class="pit-lap-cell">${renderPitLapBadges(pitAnnotation)}</td>
+                        <td class="lap-track-cell">${renderLapTrackBadge(trackStatus)}</td>
                         <td class="${isBestS1 ? 'personal-best-sector' : ''}">
                             ${lap.duration_sector_1 ? lap.duration_sector_1.toFixed(3) + 's' : '--'}
                         </td>
@@ -443,6 +448,54 @@ function selectLapForTelemetry(lapNumber, shouldScroll = true) {
     }
 }
 
+// Tyre compound + age on a given lap, resolved from the driver's stints
+function getLapStintInfo(driverNumber, lapNumber) {
+    const lap = Number(lapNumber);
+    if (!Number.isFinite(lap) || !Array.isArray(state.stints)) return null;
+    const stint = state.stints.find(s => (
+        Number(s.driver_number) === Number(driverNumber) &&
+        Number(s.lap_start) <= lap && lap <= Number(s.lap_end)
+    ));
+    if (!stint) return null;
+    const compound = String(stint.compound || 'UNKNOWN').toUpperCase().replace(/[^A-Z]/g, '') || 'UNKNOWN';
+    const baseAge = Number(stint.tyre_age_at_start) || 0;
+    return {
+        compound,
+        label: compound.charAt(0) + compound.slice(1).toLowerCase(),
+        age: baseAge + (lap - Number(stint.lap_start)),
+        stintNumber: stint.stint_number
+    };
+}
+
+// SC/VSC cover on a given lap, from pre-extracted safety car periods
+function getLapTrackStatus(lapNumber, safetyCarPeriods) {
+    const lap = Number(lapNumber);
+    if (!Number.isFinite(lap)) return null;
+    let status = null;
+    (safetyCarPeriods || []).forEach(period => {
+        if (lap < period.start || lap > period.end) return;
+        // A full SC outranks a VSC when periods meet on a boundary lap
+        if (status !== 'SC') status = period.type;
+    });
+    return status;
+}
+
+function renderLapTyreBadge(stintInfo) {
+    if (!stintInfo) return '<span class="lap-tyre-empty">--</span>';
+    const ageText = `${stintInfo.age} ${stintInfo.age === 1 ? 'lap' : 'laps'} old`;
+    const stintText = Number.isFinite(Number(stintInfo.stintNumber)) ? ` (stint ${stintInfo.stintNumber})` : '';
+    return `<span class="lap-tyre-badge stint-compound-${escapeHtml(stintInfo.compound)}" ` +
+        `title="${escapeHtml(`${stintInfo.label} — ${ageText}${stintText}`)}">` +
+        `<i aria-hidden="true">${escapeHtml(stintInfo.compound.charAt(0))}</i>${escapeHtml(stintInfo.age)}</span>`;
+}
+
+function renderLapTrackBadge(status) {
+    if (!status) return '<span class="lap-track-clear">--</span>';
+    const isVsc = status === 'VSC';
+    const title = isVsc ? 'Virtual Safety Car on this lap' : 'Safety Car on this lap';
+    return `<span class="lap-track-badge ${isVsc ? 'track-vsc' : 'track-sc'}" title="${escapeHtml(title)}">${escapeHtml(status)}</span>`;
+}
+
 // Parse Safety Car (SC) and Virtual Safety Car (VSC) periods from race control messages
 function extractSafetyCarPeriods(records) {
     if (!records || !Array.isArray(records)) return [];
@@ -555,6 +608,8 @@ function renderLapChart(laps) {
     const maxTime = Math.max(...plotDurations);
     
     const qualifyingAxis = buildQualifyingPhaseAxis(validLaps, state.raceControl, state.selectedSession);
+    // Shared by the SC/VSC shading and the hover tooltip's track-status row
+    const safetyCarPeriods = qualifyingAxis ? [] : extractSafetyCarPeriods(state.raceControl);
     const minLap = Math.min(...validLaps.map(l => l.lap_number));
     const maxLap = Math.max(...validLaps.map(l => l.lap_number));
     const minXValue = qualifyingAxis ? qualifyingAxis.min : minLap;
@@ -660,7 +715,6 @@ function renderLapChart(laps) {
 
     if (!qualifyingAxis) {
         // Draw Safety Car & VSC Zones
-        const safetyCarPeriods = extractSafetyCarPeriods(state.raceControl);
         safetyCarPeriods.forEach(period => {
             // Clamp to chart boundaries
             const start = Math.max(period.start, minLap);
@@ -778,6 +832,8 @@ function renderLapChart(laps) {
     };
 
     const renderLapChartTooltip = (tooltip, lap, pitAnnotation, isOutlier) => {
+        const stintInfo = getLapStintInfo(state.selectedDriverStats, lap.lap_number);
+        const trackStatus = getLapTrackStatus(lap.lap_number, safetyCarPeriods);
         tooltip.innerHTML = `
             <div class="chart-tooltip-header">${escapeHtml(getQualifyingLapLabel(lap, qualifyingAxis))}</div>
             <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
@@ -796,6 +852,12 @@ function renderLapChart(laps) {
                 <span style="color:var(--text-muted)">S3:</span>
                 <span>${lap.duration_sector_3 ? lap.duration_sector_3.toFixed(3) + 's' : '--'}</span>
             </div>
+            ${stintInfo ? `
+            <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;">
+                <span style="color:var(--text-muted)">Tyre:</span>
+                <span>${escapeHtml(stintInfo.label)} · ${escapeHtml(stintInfo.age)} ${stintInfo.age === 1 ? 'lap' : 'laps'} old</span>
+            </div>` : ''}
+            ${trackStatus ? `<div class="chart-tooltip-track ${trackStatus === 'VSC' ? 'track-vsc' : 'track-sc'}">${trackStatus === 'VSC' ? 'Virtual Safety Car' : 'Safety Car'}</div>` : ''}
             ${renderPitTooltipRows(pitAnnotation)}
             ${isOutlier ? '<div style="color:#ffd60a;font-size:9px;margin-top:6px;font-weight:700;text-align:center;">OUTLIER (PIT/SLOW LAP)</div>' : ''}
         `;
@@ -1098,11 +1160,45 @@ function renderTelemetryMessage(text) {
     if (DOM.telemetryStats) {
         DOM.telemetryStats.style.display = 'none';
     }
-    [DOM.telemetrySpeedChart, DOM.telemetryInputsChart].forEach(container => {
+    // No payload on screen anymore: zoom/detail re-renders have nothing to redraw
+    state.telemetryView.lastRender = null;
+    [
+        DOM.telemetrySpeedChart,
+        DOM.telemetryInputsChart,
+        DOM.telemetryThrottleChart,
+        DOM.telemetryBrakeChart,
+        DOM.telemetryGearChart
+    ].forEach(container => {
         if (container) {
             container.innerHTML = `<div class="telemetry-chart-message">${escapeHtml(text)}</div>`;
         }
     });
+}
+
+// Show either the combined driver-inputs chart or the split detail charts
+function applyTelemetryChartLayout() {
+    const detail = !!state.telemetryView.detailMode;
+    if (DOM.telemetryInputsWrapper) {
+        DOM.telemetryInputsWrapper.style.display = detail ? 'none' : 'block';
+    }
+    [DOM.telemetryThrottleWrapper, DOM.telemetryBrakeWrapper, DOM.telemetryGearWrapper].forEach(wrapper => {
+        if (wrapper) wrapper.style.display = detail ? 'block' : 'none';
+    });
+}
+
+// Step-interpolated gear points: hold each gear until the next change
+function buildGearStepPoints(samples, xKey = 't') {
+    const points = [];
+    let prevGear = null;
+    samples.forEach(sample => {
+        const x = Number(sample[xKey]);
+        const gear = Number(sample.gear);
+        if (!Number.isFinite(x) || !Number.isFinite(gear) || gear < 0) return;
+        if (prevGear !== null && gear !== prevGear) points.push([x, prevGear]);
+        points.push([x, gear]);
+        prevGear = gear;
+    });
+    return points;
 }
 
 function renderTelemetryStats(payload) {
@@ -1148,8 +1244,128 @@ function renderTelemetryStats(payload) {
     DOM.telemetryStats.style.display = 'flex';
 }
 
+// ===== Telemetry zoom (drag an x-range on any chart, shared across all) =====
+
+function isTelemetryZoomActive() {
+    const win = state.telemetryView.window;
+    return Number.isFinite(win.min) && Number.isFinite(win.max);
+}
+
+// Effective x-domain of the telemetry charts (seconds in single mode, metres in
+// compare mode), clamped to the rendered lap's full range
+function getTelemetryDomain(maxX) {
+    if (isTelemetryZoomActive()) {
+        const win = state.telemetryView.window;
+        const min = Math.max(0, Math.min(win.min, win.max));
+        const max = Math.min(maxX, Math.max(win.min, win.max));
+        if (max > min) return { min, max };
+    }
+    return { min: 0, max: maxX };
+}
+
+function updateTelemetryZoomControl() {
+    if (!DOM.telemetryResetZoom) return;
+    DOM.telemetryResetZoom.style.display = isTelemetryZoomActive() ? 'inline-flex' : 'none';
+}
+
+function resetTelemetryZoom() {
+    state.telemetryView.window = { min: null, max: null };
+    state.telemetryView.zoomDrag = null;
+    rerenderTelemetry();
+}
+
+// Re-render the current telemetry payload (zoom / detail-mode changes) without refetching
+function rerenderTelemetry() {
+    const last = state.telemetryView.lastRender;
+    if (!last) return;
+    if (last.mode === 'compare') {
+        renderTelemetryComparison(last.payload);
+    } else {
+        renderTelemetryCharts(last.payload);
+    }
+}
+
+// The zoom window only survives re-renders of the same lap/comparison payload
+function syncTelemetryRenderState(key, mode, payload) {
+    const last = state.telemetryView.lastRender;
+    if (!last || last.key !== key) {
+        state.telemetryView.window = { min: null, max: null };
+    }
+    state.telemetryView.lastRender = { key, mode, payload };
+}
+
+// Drag-to-zoom on a telemetry chart context, mirroring the Compare tab pattern
+function attachTelemetryZoom(ctx) {
+    if (!ctx || !ctx.overlay) return;
+
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const selection = document.createElementNS(svgNamespace, "rect");
+    selection.setAttribute("y", ctx.padding.top);
+    selection.setAttribute("height", ctx.chartHeight);
+    selection.setAttribute("class", "telemetry-zoom-selection");
+    selection.style.display = "none";
+    ctx.svg.insertBefore(selection, ctx.overlay);
+
+    const domain = ctx.domain || { min: 0, max: ctx.maxT };
+    const pointerX = (event) => {
+        const svgRect = ctx.svg.getBoundingClientRect();
+        const scale = ctx.width / (svgRect.width || ctx.width || 1);
+        const x = (event.clientX - svgRect.left) * scale;
+        return Math.max(ctx.padding.left, Math.min(ctx.padding.left + ctx.chartWidth, x));
+    };
+    const valueAt = (x) => domain.min + ((x - ctx.padding.left) / (ctx.chartWidth || 1)) * (domain.max - domain.min);
+
+    const updateSelection = (startX, currentX) => {
+        const x = Math.min(startX, currentX);
+        const width = Math.abs(currentX - startX);
+        selection.setAttribute("x", x);
+        selection.setAttribute("width", width);
+        selection.style.display = width > 0 ? "block" : "none";
+    };
+
+    const finishDrag = (event) => {
+        const drag = state.telemetryView.zoomDrag;
+        if (!drag || drag.selection !== selection) return;
+
+        const currentX = pointerX(event);
+        state.telemetryView.zoomDrag = null;
+        selection.style.display = "none";
+
+        if (Math.abs(currentX - drag.startX) < 5) return;
+
+        const start = valueAt(drag.startX);
+        const end = valueAt(currentX);
+        state.telemetryView.window = { min: Math.min(start, end), max: Math.max(start, end) };
+        rerenderTelemetry();
+    };
+
+    ctx.overlay.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        const startX = pointerX(event);
+        state.telemetryView.zoomDrag = { selection, startX };
+        updateSelection(startX, startX);
+        event.preventDefault();
+
+        const handleMouseUp = (upEvent) => {
+            finishDrag(upEvent);
+            window.removeEventListener("mouseup", handleMouseUp);
+        };
+        window.addEventListener("mouseup", handleMouseUp);
+    });
+
+    ctx.overlay.addEventListener("mousemove", (event) => {
+        const drag = state.telemetryView.zoomDrag;
+        if (!drag || drag.selection !== selection) return;
+        updateSelection(drag.startX, pointerX(event));
+    });
+}
+
+// Unique clip-path ids: telemetry charts are rebuilt often and ids are document-global
+let telemetryClipIdCounter = 0;
+
 // Build one telemetry SVG chart (grid, axes, series paths) and return a context
 // used by the shared crosshair. seriesList: [{ points: [[t, value], ...], className, style }]
+// options.domain zooms the x-axis to a sub-range; series are clipped to the plot area.
 function buildTelemetryChart(container, height, maxT, yMax, seriesList, options = {}) {
     container.innerHTML = '';
 
@@ -1158,7 +1374,9 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
-    const getX = (t) => padding.left + (maxT > 0 ? (t / maxT) * chartWidth : 0);
+    const domain = options.domain || { min: 0, max: maxT };
+    const domainSpan = domain.max - domain.min;
+    const getX = (t) => padding.left + (domainSpan > 0 ? ((t - domain.min) / domainSpan) * chartWidth : 0);
     const getY = (value) => padding.top + chartHeight - (yMax > 0 ? (value / yMax) * chartHeight : 0);
 
     const svgNamespace = "http://www.w3.org/2000/svg";
@@ -1167,6 +1385,20 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
     svg.setAttribute("height", "100%");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.style.overflow = "visible";
+
+    // Zoomed-out-of-range series geometry is clipped to the plot area
+    const clipId = `telemetry-clip-${++telemetryClipIdCounter}`;
+    const defs = document.createElementNS(svgNamespace, "defs");
+    const clipPath = document.createElementNS(svgNamespace, "clipPath");
+    clipPath.setAttribute("id", clipId);
+    const clipRect = document.createElementNS(svgNamespace, "rect");
+    clipRect.setAttribute("x", padding.left);
+    clipRect.setAttribute("y", 0);
+    clipRect.setAttribute("width", chartWidth);
+    clipRect.setAttribute("height", height);
+    clipPath.appendChild(clipRect);
+    defs.appendChild(clipPath);
+    svg.appendChild(defs);
 
     // Y grid + labels
     const yGridLines = options.yGridLines || 4;
@@ -1194,7 +1426,7 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
     // X grid + labels (seconds into the lap)
     const xGridLines = 6;
     for (let i = 0; i <= xGridLines; i++) {
-        const t = (i / xGridLines) * maxT;
+        const t = domain.min + (i / xGridLines) * domainSpan;
         const x = getX(t);
 
         const line = document.createElementNS(svgNamespace, "line");
@@ -1211,14 +1443,17 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("class", "chart-axis-text");
         // Compare mode swaps the seconds axis for a distance axis via formatXLabel
-        text.textContent = options.formatXLabel ? options.formatXLabel(t) : `${t.toFixed(0)}s`;
+        text.textContent = options.formatXLabel ? options.formatXLabel(t) : `${t.toFixed(domainSpan < 20 ? 1 : 0)}s`;
         svg.appendChild(text);
     }
 
-    // DRS-active zones (speed chart only)
+    // DRS-active zones (speed chart only), clamped to the zoomed domain
     (options.drsZones || []).forEach(zone => {
-        const xStart = getX(zone.start);
-        const xEnd = getX(zone.end);
+        const zoneStart = Math.max(zone.start, domain.min);
+        const zoneEnd = Math.min(zone.end, domain.max);
+        if (zoneStart > zoneEnd) return;
+        const xStart = getX(zoneStart);
+        const xEnd = getX(zoneEnd);
         const zoneWidth = Math.max(xEnd - xStart, 2);
 
         const rect = document.createElementNS(svgNamespace, "rect");
@@ -1257,7 +1492,9 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
     yAxis.setAttribute("class", "chart-axis-line");
     svg.appendChild(yAxis);
 
-    // Series paths
+    // Series paths (drawn full-length; the clip keeps zoomed views inside the plot)
+    const seriesGroup = document.createElementNS(svgNamespace, "g");
+    seriesGroup.setAttribute("clip-path", `url(#${clipId})`);
     seriesList.forEach(series => {
         if (series.points.length < 2) return;
         const d = series.points
@@ -1269,8 +1506,9 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
         if (series.style) {
             Object.entries(series.style).forEach(([prop, value]) => path.style.setProperty(prop, value));
         }
-        svg.appendChild(path);
+        seriesGroup.appendChild(path);
     });
+    svg.appendChild(seriesGroup);
 
     // Crosshair (hidden until hover) + hover target
     const crosshair = document.createElementNS(svgNamespace, "line");
@@ -1290,7 +1528,7 @@ function buildTelemetryChart(container, height, maxT, yMax, seriesList, options 
 
     container.appendChild(svg);
 
-    return { svg, overlay, crosshair, getX, padding, chartWidth, width, maxT };
+    return { svg, overlay, crosshair, getX, padding, chartWidth, chartHeight, width, maxT, domain };
 }
 
 function findNearestTelemetrySample(samples, t) {
@@ -1326,7 +1564,8 @@ function attachTelemetryCrosshair(contexts, samples, payload) {
             const svgRect = ctx.svg.getBoundingClientRect();
             if (svgRect.width === 0) return;
             const viewX = (event.clientX - svgRect.left) * (ctx.width / svgRect.width);
-            const t = ((viewX - ctx.padding.left) / ctx.chartWidth) * ctx.maxT;
+            const domain = ctx.domain || { min: 0, max: ctx.maxT };
+            const t = domain.min + ((viewX - ctx.padding.left) / ctx.chartWidth) * (domain.max - domain.min);
             const sample = findNearestTelemetrySample(samples, t);
             if (!sample) return;
 
@@ -1388,6 +1627,13 @@ function renderTelemetryCharts(payload) {
         return;
     }
 
+    syncTelemetryRenderState(
+        `single_${payload.session_key}_${payload.driver_number}_${payload.lap_number}`,
+        'single',
+        payload
+    );
+    applyTelemetryChartLayout();
+
     const activeDriver = state.drivers.find(drv => Number(drv.driver_number) === Number(state.selectedDriverStats));
     const teamHex = getDriverTeamHex(activeDriver, 'ff1801');
     const teamRgb = getRGBColor(teamHex);
@@ -1416,6 +1662,8 @@ function renderTelemetryCharts(payload) {
     const maxSpeed = speedPoints.length ? Math.max(...speedPoints.map(p => p[1])) : 0;
     const speedYMax = Math.max(Math.ceil(maxSpeed / 50) * 50, 50);
 
+    const domain = getTelemetryDomain(maxT);
+
     const speedCtx = buildTelemetryChart(DOM.telemetrySpeedChart, 260, maxT, speedYMax, [
         {
             points: speedPoints,
@@ -1425,7 +1673,7 @@ function renderTelemetryCharts(payload) {
                 '--team-color-glow': `rgba(${teamRgb}, 0.35)`
             }
         }
-    ], { drsZones, formatYLabel: (v) => `${Math.round(v)}` });
+    ], { drsZones, formatYLabel: (v) => `${Math.round(v)}`, domain });
 
     const clampPct = (value) => Math.max(0, Math.min(100, Number(value)));
     const throttlePoints = samples
@@ -1435,12 +1683,35 @@ function renderTelemetryCharts(payload) {
         .filter(s => Number.isFinite(Number(s.brake)))
         .map(s => [Number(s.t), clampPct(s.brake)]);
 
-    const inputsCtx = buildTelemetryChart(DOM.telemetryInputsChart, 170, maxT, 100, [
-        { points: throttlePoints, className: 'telemetry-throttle-line' },
-        { points: brakePoints, className: 'telemetry-brake-line' }
-    ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%` });
+    const contexts = [speedCtx];
+    if (state.telemetryView.detailMode) {
+        contexts.push(buildTelemetryChart(DOM.telemetryThrottleChart, 150, maxT, 100, [
+            { points: throttlePoints, className: 'telemetry-throttle-line' }
+        ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, domain }));
 
-    attachTelemetryCrosshair([speedCtx, inputsCtx], samples, payload);
+        contexts.push(buildTelemetryChart(DOM.telemetryBrakeChart, 150, maxT, 100, [
+            { points: brakePoints, className: 'telemetry-brake-line' }
+        ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, domain }));
+
+        const gearPoints = buildGearStepPoints(samples, 't');
+        const gearYMax = Math.max(gearPoints.reduce((m, p) => Math.max(m, p[1]), 0), 1);
+        contexts.push(buildTelemetryChart(DOM.telemetryGearChart, 150, maxT, gearYMax, [
+            {
+                points: gearPoints,
+                className: 'telemetry-gear-line',
+                style: { '--team-color': `#${teamHex}` }
+            }
+        ], { yGridLines: gearYMax, formatYLabel: (v) => `${Math.round(v)}`, domain }));
+    } else {
+        contexts.push(buildTelemetryChart(DOM.telemetryInputsChart, 170, maxT, 100, [
+            { points: throttlePoints, className: 'telemetry-throttle-line' },
+            { points: brakePoints, className: 'telemetry-brake-line' }
+        ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, domain }));
+    }
+
+    attachTelemetryCrosshair(contexts, samples, payload);
+    contexts.forEach(attachTelemetryZoom);
+    updateTelemetryZoomControl();
 }
 
 // ===== Lap Telemetry Compare (two laps, distance-aligned) =====
@@ -1534,7 +1805,7 @@ function niceDeltaBound(maxGap) {
 }
 
 // Time-delta chart: gap (s) vs distance, y-axis symmetric around a dashed zero line
-function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatXLabel) {
+function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatXLabel, domainOverride = null) {
     container.innerHTML = '';
 
     const width = container.clientWidth || 800;
@@ -1545,7 +1816,9 @@ function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatX
     const maxGap = deltaSamples.reduce((m, pt) => Math.max(m, Math.abs(Number(pt.gap) || 0)), 0);
     const yBound = niceDeltaBound(maxGap);
 
-    const getX = (d) => padding.left + (maxX > 0 ? (d / maxX) * chartWidth : 0);
+    const domain = domainOverride || { min: 0, max: maxX };
+    const domainSpan = domain.max - domain.min;
+    const getX = (d) => padding.left + (domainSpan > 0 ? ((d - domain.min) / domainSpan) * chartWidth : 0);
     const getY = (gap) => padding.top + chartHeight / 2 - (yBound > 0 ? (gap / yBound) * (chartHeight / 2) : 0);
 
     const svgNamespace = "http://www.w3.org/2000/svg";
@@ -1554,6 +1827,20 @@ function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatX
     svg.setAttribute("height", "100%");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.style.overflow = "visible";
+
+    // Same plot-area clip as buildTelemetryChart, for zoomed-out-of-range geometry
+    const clipId = `telemetry-clip-${++telemetryClipIdCounter}`;
+    const defs = document.createElementNS(svgNamespace, "defs");
+    const clipPath = document.createElementNS(svgNamespace, "clipPath");
+    clipPath.setAttribute("id", clipId);
+    const clipRect = document.createElementNS(svgNamespace, "rect");
+    clipRect.setAttribute("x", padding.left);
+    clipRect.setAttribute("y", 0);
+    clipRect.setAttribute("width", chartWidth);
+    clipRect.setAttribute("height", height);
+    clipPath.appendChild(clipRect);
+    defs.appendChild(clipPath);
+    svg.appendChild(defs);
 
     // Y grid + labels (+bound .. 0 .. -bound)
     [yBound, yBound / 2, 0, -yBound / 2, -yBound].forEach(value => {
@@ -1578,7 +1865,7 @@ function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatX
     // X grid + labels (distance)
     const xGridLines = 6;
     for (let i = 0; i <= xGridLines; i++) {
-        const d = (i / xGridLines) * maxX;
+        const d = domain.min + (i / xGridLines) * domainSpan;
         const x = getX(d);
         const line = document.createElementNS(svgNamespace, "line");
         line.setAttribute("x1", x);
@@ -1622,7 +1909,10 @@ function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatX
         const path = document.createElementNS(svgNamespace, "path");
         path.setAttribute("d", d);
         path.setAttribute("class", "telemetry-delta-line");
-        svg.appendChild(path);
+        const deltaGroup = document.createElementNS(svgNamespace, "g");
+        deltaGroup.setAttribute("clip-path", `url(#${clipId})`);
+        deltaGroup.appendChild(path);
+        svg.appendChild(deltaGroup);
     }
 
     // Crosshair + hover target (shared with the speed/inputs charts)
@@ -1642,7 +1932,7 @@ function buildTelemetryDeltaChart(container, height, maxX, deltaSamples, formatX
     svg.appendChild(overlay);
 
     container.appendChild(svg);
-    return { svg, overlay, crosshair, getX, padding, chartWidth, width, maxT: maxX };
+    return { svg, overlay, crosshair, getX, padding, chartWidth, chartHeight, width, maxT: maxX, domain };
 }
 
 function findNearestTelemetrySampleByDistance(samples, d) {
@@ -1684,7 +1974,8 @@ function attachTelemetryCompareCrosshair(contexts, mainSamples, refSamples, delt
             const svgRect = ctx.svg.getBoundingClientRect();
             if (svgRect.width === 0) return;
             const viewX = (event.clientX - svgRect.left) * (ctx.width / svgRect.width);
-            const d = ((viewX - ctx.padding.left) / ctx.chartWidth) * ctx.maxT;
+            const domain = ctx.domain || { min: 0, max: ctx.maxT };
+            const d = domain.min + ((viewX - ctx.padding.left) / ctx.chartWidth) * (domain.max - domain.min);
             const mainSample = findNearestTelemetrySampleByDistance(mainSamples, d);
             const refSample = findNearestTelemetrySampleByDistance(refSamples, d);
             if (!mainSample) return;
@@ -1798,6 +2089,13 @@ function renderTelemetryComparison(payload) {
         return;
     }
 
+    syncTelemetryRenderState(
+        `compare_${main.session_key}_${main.driver_number}_${main.lap_number}_${ref.driver_number}_${ref.lap_number}`,
+        'compare',
+        payload
+    );
+    applyTelemetryChartLayout();
+
     const mainDriver = state.drivers.find(d => Number(d.driver_number) === Number(main.driver_number));
     const refDriver = state.drivers.find(d => Number(d.driver_number) === Number(ref.driver_number));
     const mainHex = getDriverTeamHex(mainDriver, 'ff1801');
@@ -1825,6 +2123,7 @@ function renderTelemetryComparison(payload) {
     );
     const speedYMax = Math.max(Math.ceil(maxSpeed / 50) * 50, 50);
     const mainDrsZones = buildDrsZonesByDistance(mainSamples, maxX);
+    const domain = getTelemetryDomain(maxX);
 
     const speedCtx = buildTelemetryChart(DOM.telemetrySpeedChart, 260, maxX, speedYMax, [
         { points: refSpeed, className: 'telemetry-ref-speed-line', style: { '--ref-team-color': `#${refHex}` } },
@@ -1833,7 +2132,7 @@ function renderTelemetryComparison(payload) {
             className: 'telemetry-speed-line',
             style: { '--team-color': `#${mainHex}`, '--team-color-glow': `rgba(${mainRgb}, 0.35)` }
         }
-    ], { drsZones: mainDrsZones, formatYLabel: (v) => `${Math.round(v)}`, formatXLabel: fmtXLabel });
+    ], { drsZones: mainDrsZones, formatYLabel: (v) => `${Math.round(v)}`, formatXLabel: fmtXLabel, domain });
 
     // Inputs chart — ref lines drawn underneath the main lines
     const clampPct = (value) => Math.max(0, Math.min(100, Number(value)));
@@ -1841,15 +2140,39 @@ function renderTelemetryComparison(payload) {
         .filter(s => Number.isFinite(Number(s[key])))
         .map(s => [Number(s.d), clampPct(s[key])]);
 
-    const inputsCtx = buildTelemetryChart(DOM.telemetryInputsChart, 170, maxX, 100, [
-        { points: toInputPoints(refSamples, 'throttle'), className: 'telemetry-ref-throttle-line' },
-        { points: toInputPoints(refSamples, 'brake'), className: 'telemetry-ref-brake-line' },
-        { points: toInputPoints(mainSamples, 'throttle'), className: 'telemetry-throttle-line' },
-        { points: toInputPoints(mainSamples, 'brake'), className: 'telemetry-brake-line' }
-    ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, formatXLabel: fmtXLabel });
+    const contexts = [speedCtx];
+    if (state.telemetryView.detailMode) {
+        contexts.push(buildTelemetryChart(DOM.telemetryThrottleChart, 150, maxX, 100, [
+            { points: toInputPoints(refSamples, 'throttle'), className: 'telemetry-ref-throttle-line' },
+            { points: toInputPoints(mainSamples, 'throttle'), className: 'telemetry-throttle-line' }
+        ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, formatXLabel: fmtXLabel, domain }));
+
+        contexts.push(buildTelemetryChart(DOM.telemetryBrakeChart, 150, maxX, 100, [
+            { points: toInputPoints(refSamples, 'brake'), className: 'telemetry-ref-brake-line' },
+            { points: toInputPoints(mainSamples, 'brake'), className: 'telemetry-brake-line' }
+        ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, formatXLabel: fmtXLabel, domain }));
+
+        const mainGear = buildGearStepPoints(mainSamples, 'd');
+        const refGear = buildGearStepPoints(refSamples, 'd');
+        const gearYMax = Math.max(
+            mainGear.reduce((m, p) => Math.max(m, p[1]), 0),
+            refGear.reduce((m, p) => Math.max(m, p[1]), 0),
+            1
+        );
+        contexts.push(buildTelemetryChart(DOM.telemetryGearChart, 150, maxX, gearYMax, [
+            { points: refGear, className: 'telemetry-ref-gear-line', style: { '--ref-team-color': `#${refHex}` } },
+            { points: mainGear, className: 'telemetry-gear-line', style: { '--team-color': `#${mainHex}` } }
+        ], { yGridLines: gearYMax, formatYLabel: (v) => `${Math.round(v)}`, formatXLabel: fmtXLabel, domain }));
+    } else {
+        contexts.push(buildTelemetryChart(DOM.telemetryInputsChart, 170, maxX, 100, [
+            { points: toInputPoints(refSamples, 'throttle'), className: 'telemetry-ref-throttle-line' },
+            { points: toInputPoints(refSamples, 'brake'), className: 'telemetry-ref-brake-line' },
+            { points: toInputPoints(mainSamples, 'throttle'), className: 'telemetry-throttle-line' },
+            { points: toInputPoints(mainSamples, 'brake'), className: 'telemetry-brake-line' }
+        ], { yGridLines: 2, formatYLabel: (v) => `${Math.round(v)}%`, formatXLabel: fmtXLabel, domain }));
+    }
 
     // Delta chart
-    const contexts = [speedCtx, inputsCtx];
     const deltaSamples = (payload.delta || [])
         .filter(pt => Number.isFinite(Number(pt.d)) && Number.isFinite(Number(pt.gap)));
     if (DOM.telemetryDeltaWrapper && DOM.telemetryDeltaChart && deltaSamples.length >= 2) {
@@ -1857,13 +2180,15 @@ function renderTelemetryComparison(payload) {
         if (DOM.telemetryDeltaHeading) {
             DOM.telemetryDeltaHeading.textContent = `Gap (s) — above zero = ${mainLabel} behind ${refLabel}`;
         }
-        const deltaCtx = buildTelemetryDeltaChart(DOM.telemetryDeltaChart, 150, maxX, deltaSamples, fmtXLabel);
+        const deltaCtx = buildTelemetryDeltaChart(DOM.telemetryDeltaChart, 150, maxX, deltaSamples, fmtXLabel, domain);
         contexts.push(deltaCtx);
     } else if (DOM.telemetryDeltaWrapper) {
         DOM.telemetryDeltaWrapper.style.display = 'none';
     }
 
     attachTelemetryCompareCrosshair(contexts, mainSamples, refSamples, deltaSamples, mainLabel, refLabel);
+    contexts.forEach(attachTelemetryZoom);
+    updateTelemetryZoomControl();
 }
 
 // Helper: Show full dashboard loading

@@ -531,7 +531,9 @@
                                                 <thead>
                                                 <tr>
                                                     <th>Lap</th>
+                                                    <th>Tyre</th>
                                                     <th>Pit</th>
+                                                    <th>Track</th>
                                                     <th>Sector 1</th>
                                                     <th>Sector 2</th>
                                                     <th>Sector 3</th>
@@ -551,9 +553,22 @@
                                         <div>
                                             <span class="laps-section-kicker">Car data lab</span>
                                             <h3 id="telemetryPanelTitle">Lap telemetry</h3>
-                                            <p>Inspect speed, throttle, brake, DRS, and time delta against another lap.</p>
+                                            <p>Inspect speed, throttle, brake, DRS, and time delta against another lap. Drag across a trace to zoom.</p>
                                         </div>
-                                        <span class="telemetry-live-badge"><i aria-hidden="true"></i>Interactive trace</span>
+                                        <div class="telemetry-view-controls">
+                                            <div class="chart-toggle-wrapper">
+                                                <label class="switch-label" for="telemetryDetailMode">Detail mode</label>
+                                                <label class="switch">
+                                                    <input type="checkbox" id="telemetryDetailMode" aria-label="Split throttle, brake, and gear into separate charts">
+                                                    <span class="slider"></span>
+                                                </label>
+                                            </div>
+                                            <button type="button" class="compare-reset-zoom" id="telemetryResetZoom" style="display: none;">
+                                                <span class="material-icons-round" aria-hidden="true">zoom_out_map</span>
+                                                Reset zoom
+                                            </button>
+                                            <span class="telemetry-live-badge"><i aria-hidden="true"></i>Interactive trace</span>
+                                        </div>
                                     </div>
                                     <div class="telemetry-control-deck">
                                         <label class="telemetry-lap-select-wrapper">
@@ -577,7 +592,7 @@
                                             <!-- SVG speed trace generated dynamically -->
                                         </div>
                                     </div>
-                                    <div class="chart-container-wrapper telemetry-chart-wrapper">
+                                    <div class="chart-container-wrapper telemetry-chart-wrapper" id="telemetryInputsWrapper">
                                         <div class="telemetry-chart-heading"><span>Driver inputs</span><small>Throttle and brake application</small></div>
                                         <div id="telemetryInputsChart">
                                             <!-- SVG throttle/brake chart generated dynamically -->
@@ -585,6 +600,24 @@
                                         <div class="telemetry-legend">
                                             <span><span class="telemetry-legend-swatch throttle"></span>Throttle</span>
                                             <span><span class="telemetry-legend-swatch brake"></span>Brake</span>
+                                        </div>
+                                    </div>
+                                    <div class="chart-container-wrapper telemetry-chart-wrapper" id="telemetryThrottleWrapper" style="display: none;">
+                                        <div class="telemetry-chart-heading"><span>Throttle</span><small>Application percentage</small></div>
+                                        <div id="telemetryThrottleChart">
+                                            <!-- SVG throttle chart generated dynamically (detail mode) -->
+                                        </div>
+                                    </div>
+                                    <div class="chart-container-wrapper telemetry-chart-wrapper" id="telemetryBrakeWrapper" style="display: none;">
+                                        <div class="telemetry-chart-heading"><span>Brake</span><small>Application percentage</small></div>
+                                        <div id="telemetryBrakeChart">
+                                            <!-- SVG brake chart generated dynamically (detail mode) -->
+                                        </div>
+                                    </div>
+                                    <div class="chart-container-wrapper telemetry-chart-wrapper" id="telemetryGearWrapper" style="display: none;">
+                                        <div class="telemetry-chart-heading"><span>Gear</span><small>Selected gear over the lap</small></div>
+                                        <div id="telemetryGearChart">
+                                            <!-- SVG gear step chart generated dynamically (detail mode) -->
                                         </div>
                                     </div>
                                     <div class="chart-container-wrapper telemetry-chart-wrapper" id="telemetryDeltaWrapper" style="display: none;">

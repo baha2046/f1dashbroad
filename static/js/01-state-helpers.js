@@ -25,6 +25,7 @@ const state = {
     allSessionLaps: null,
     telemetryCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/car_telemetry payload (compare responses keyed `cmp_...`)
     telemetryCompare: null, // { driverNumber, lapNumber } of the active comparison lap, or null when off
+    telemetryView: createTelemetryViewState(),
     replayCache: {}, // map of `${sessionKey}_${driverNumber}_${lapNumber}` -> /api/track_replay payload
     replay: createReplayState(),
     replayMapView: { mode: '2d', yawDeg: 0 }, // track-map projection ('2d' | '3d') + 3D rotation; survives resetReplay()
@@ -34,6 +35,16 @@ const state = {
     currentMeeting: null,
     currentTab: 'drivers-view'
 };
+
+function createTelemetryViewState() {
+    return {
+        // Zoomed x-domain: seconds into the lap (single mode) or metres (compare mode)
+        window: { min: null, max: null },
+        detailMode: false, // split the combined inputs chart into throttle / brake / gear charts
+        zoomDrag: null,
+        lastRender: null // { key, mode: 'single' | 'compare', payload } for zoom/layout re-renders
+    };
+}
 
 function createCompareViewState() {
     return {
