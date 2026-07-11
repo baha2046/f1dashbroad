@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">F1 Data Dashboard speedometer mark</title>
+  <defs>
+    <linearGradient id="bg" x1="72" y1="48" x2="440" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171b24"/>
+      <stop offset="1" stop-color="#08090d"/>
+    </linearGradient>
+    <linearGradient id="red" x1="124" y1="356" x2="398" y2="132" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff1744"/>
+      <stop offset="1" stop-color="#ff4b2b"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M103 350a176 176 0 0 1 306 0" fill="none" stroke="#343946" stroke-width="38" stroke-linecap="round"/>
+  <path d="M103 350a176 176 0 0 1 251-56" fill="none" stroke="url(#red)" stroke-width="38" stroke-linecap="round"/>
+  <path d="m258 332 104-137-71 158Z" fill="#f6f7fb"/>
+  <circle cx="256" cy="350" r="45" fill="#f6f7fb"/>
+  <circle cx="256" cy="350" r="19" fill="#e10600"/>
+  <path d="M128 401h256" stroke="#f6f7fb" stroke-width="28" stroke-linecap="round"/>
+</svg>

@@ -3,8 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>F1 Data Dashboard</title>
-    <meta name="description" content="A modern, dark-themed Formula 1 data dashboard displaying sessions, weather, telemetry, and driver data from Formula 1 Livetiming.">
+    <title>F1 Data Dashboard | Live Timing, Telemetry &amp; Race Analysis</title>
+    <meta name="description" content="Explore Formula 1 live timing, telemetry, session replays, weather, results, and race analysis in one fast, interactive dashboard.">
+    <meta name="keywords" content="Formula 1, F1 live timing, F1 telemetry, race replay, lap times, driver standings, F1 results">
+    <meta name="author" content="F1 Data Dashboard">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="theme-color" content="#e10600">
+    <meta name="color-scheme" content="dark">
+    <link rel="canonical" href="{{ public_base_url }}/">
+
+    <!-- Favicons and install metadata -->
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/static/favicon-32x32.png" sizes="32x32" type="image/png">
+    <link rel="shortcut icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" sizes="180x180">
+    <link rel="manifest" href="/static/site.webmanifest">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="F1 Data Dashboard">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="{{ public_base_url }}/">
+    <meta property="og:title" content="F1 Data Dashboard | Live Timing, Telemetry &amp; Race Analysis">
+    <meta property="og:description" content="Explore Formula 1 live timing, telemetry, session replays, weather, results, and race analysis.">
+    <meta property="og:image" content="{{ public_base_url }}/static/og-image.png">
+    <meta property="og:image:secure_url" content="{{ public_base_url }}/static/og-image.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="F1 Data Dashboard — live timing, telemetry, and race analysis">
+
+    <!-- X / Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="F1 Data Dashboard | Live Timing, Telemetry &amp; Race Analysis">
+    <meta name="twitter:description" content="Explore Formula 1 live timing, telemetry, session replays, weather, results, and race analysis.">
+    <meta name="twitter:image" content="{{ public_base_url }}/static/og-image.png">
+    <meta name="twitter:image:alt" content="F1 Data Dashboard — live timing, telemetry, and race analysis">
+
+    <script type="application/ld+json" nonce="{{ csp_nonce }}">{"@context":"https://schema.org","@type":"WebApplication","name":"F1 Data Dashboard","url":"{{ public_base_url }}/","description":"Explore Formula 1 live timing, telemetry, session replays, weather, results, and race analysis.","applicationCategory":"SportsApplication","operatingSystem":"Any","browserRequirements":"Requires a modern web browser with JavaScript enabled","isAccessibleForFree":true,"image":"{{ public_base_url }}/static/og-image.png"}</script>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

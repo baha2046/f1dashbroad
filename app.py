@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import secrets
 import gzip
 import json
 import asyncio
@@ -10,7 +11,7 @@ import httpx
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
 
-from quart import Quart, render_template, jsonify, request
+from quart import Quart, g, render_template, jsonify, request
 
 from livetiming_client import (
     fetch_livetiming_json,
@@ -45,6 +46,8 @@ logging.basicConfig(
 logger = logging.getLogger("f1_dashboard")
 
 app = Quart(__name__)
+
+PUBLIC_BASE_URL = os.environ.get("F1_PUBLIC_BASE_URL", "https://f1.nagoya-jp.me").rstrip("/")
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -160,7 +163,7 @@ async def _stop_cache_maintenance():
 # host (F1 media CDN + circuit map sources); media-src covers team radio mp3s.
 CONTENT_SECURITY_POLICY = "; ".join([
     "default-src 'self'",
-    "script-src 'self'",
+    "script-src 'self' {script_nonce}",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com",
     "img-src 'self' data: https:",
@@ -171,11 +174,19 @@ CONTENT_SECURITY_POLICY = "; ".join([
     "frame-ancestors 'self'",
 ])
 
+@app.before_request
+async def _create_content_security_nonce():
+    g.csp_nonce = secrets.token_urlsafe(16)
+
 @app.after_request
 async def _api_response_headers(response):
     if not request.path.startswith("/api/"):
         if (response.content_type or "").startswith("text/html"):
-            response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+            nonce_source = f"'nonce-{g.csp_nonce}'"
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                CONTENT_SECURITY_POLICY.format(script_nonce=nonce_source),
+            )
             response.headers.setdefault("X-Content-Type-Options", "nosniff")
         return response
 
@@ -735,7 +746,29 @@ async def api_meetings():
 
 @app.route("/")
 async def index():
-    return await render_template("index.html", version=datetime.timestamp(datetime.now()))
+    return await render_template(
+        "index.html",
+        version=datetime.timestamp(datetime.now()),
+        public_base_url=PUBLIC_BASE_URL,
+        csp_nonce=g.csp_nonce,
+    )
+
+
+@app.route("/robots.txt")
+async def robots_txt():
+    body = f"User-agent: *\nAllow: /\nSitemap: {PUBLIC_BASE_URL}/sitemap.xml\n"
+    return body, 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+@app.route("/sitemap.xml")
+async def sitemap_xml():
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"  <url><loc>{PUBLIC_BASE_URL}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>\n"
+        "</urlset>\n"
+    )
+    return body, 200, {"Content-Type": "application/xml; charset=utf-8"}
 
 
 # The Livetiming root index only lists the current season, so seasons are
