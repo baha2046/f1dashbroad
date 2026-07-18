@@ -475,5 +475,205 @@ class LiveModeStaticWiringTests(unittest.TestCase):
             self.assertIn(css_class, self.styles_css)
 
 
+def make_live_store(session_key=4242, feeds=None):
+    store = dashboard_app.LiveFeedStore(session_key)
+    store.on_frame("snapshot", {"feeds": feeds if feeds is not None else {
+        "Heartbeat": {"Utc": "2026-07-18T14:00:00Z"},
+        "TimingData": {"Lines": {"44": {"Position": "1"}}},
+        "TyreStintSeries": {"Stints": {"44": [{"Compound": "SOFT", "New": "true",
+                                               "StartLaps": 0, "TotalLaps": 4}]}},
+        "DriverList": {"44": {"RacingNumber": "44", "FullName": "Lewis HAMILTON",
+                              "Tla": "HAM", "TeamName": "Ferrari"}},
+    }})
+    return store
+
+
+class LiveStoreCacheWiringTests(unittest.IsolatedAsyncioTestCase):
+    """While a session is live, the cache layer serves the SignalR store
+    instead of the static archive (which does not exist yet)."""
+
+    def setUp(self):
+        self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir.mkdir(parents=True)
+        dashboard_app._stream_start_cache.clear()
+
+    def tearDown(self):
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+
+    def patches(self, store, fetch_mock=None):
+        if fetch_mock is None:
+            fetch_mock = AsyncMock(side_effect=AssertionError("static feed path must not be used"))
+        return (
+            patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
+            patch.object(dashboard_app, "_live_store", store),
+            patch.object(dashboard_app, "fetch_livetiming_feed", new=fetch_mock),
+        )
+
+    async def test_stream_feeds_serve_store_records_without_disk(self):
+        store = make_live_store()
+        meta = {}
+        p1, p2, p3 = self.patches(store)
+        with p1, p2, p3:
+            records = await dashboard_app.fetch_livetiming_feed_cached(
+                4242, "2026/x/y/", "TimingData", stream=True, meta=meta
+            )
+        self.assertEqual(records, store.get_records("TimingData"))
+        # Live data is never authoritative archive data …
+        self.assertTrue(meta.get("degraded"))
+        # … and never becomes a disk copy
+        self.assertEqual(list(self.cache_dir.glob("raw_*")), [])
+
+    async def test_keyframe_feeds_serve_merged_store_state(self):
+        store = make_live_store()
+        store.on_frame("updates", {"updates": [
+            ("TyreStintSeries", {"Stints": {"44": {"0": {"TotalLaps": 9}}}},
+             "2026-07-18T14:20:00Z"),
+        ]})
+        p1, p2, p3 = self.patches(store)
+        with p1, p2, p3:
+            state = await dashboard_app.fetch_livetiming_feed_cached(
+                4242, "2026/x/y/", "TyreStintSeries", stream=False
+            )
+        stint = state["Stints"]["44"][0]
+        self.assertEqual(stint["TotalLaps"], 9)
+        self.assertEqual(stint["Compound"], "SOFT")
+
+    async def test_stale_store_falls_back_to_static_path(self):
+        store = make_live_store()
+        store._last_frame_at -= dashboard_app.LIVE_STORE_MAX_FRAME_AGE_SECONDS + 5
+        fetch_mock = AsyncMock(return_value=[("00:00:01.000", {"AirTemp": "25.1"})])
+        p1, p2, p3 = self.patches(store, fetch_mock)
+        with p1, p2, p3:
+            records = await dashboard_app.fetch_livetiming_feed_cached(
+                4242, "2026/x/y/", "WeatherData", stream=True
+            )
+        self.assertEqual(fetch_mock.await_count, 1)
+        self.assertEqual(records, [("00:00:01.000", {"AirTemp": "25.1"})])
+
+    async def test_store_is_ignored_while_hub_serves_another_session(self):
+        # Around session transitions the hub may still stream the previous
+        # session; its SessionInfo Key overrules our schedule-based match
+        store = make_live_store()
+        store.on_frame("updates", {"updates": [
+            ("SessionInfo", {"Key": 4243, "Name": "Qualifying"}, "2026-07-18T14:40:00Z"),
+        ]})
+        fetch_mock = AsyncMock(return_value=[])
+        p1, p2, p3 = self.patches(store, fetch_mock)
+        with p1, p2, p3:
+            self.assertIsNone(dashboard_app.get_active_live_store(4242))
+            await dashboard_app.fetch_livetiming_feed_cached(
+                4242, "2026/x/y/", "TimingData", stream=True
+            )
+        self.assertEqual(fetch_mock.await_count, 1)
+
+    async def test_store_with_matching_hub_session_info_is_served(self):
+        store = make_live_store()
+        store.on_frame("updates", {"updates": [
+            ("SessionInfo", {"Key": 4242, "Name": "Practice 3"}, "2026-07-18T14:40:00Z"),
+        ]})
+        p1, p2, p3 = self.patches(store)
+        with p1, p2, p3:
+            records = await dashboard_app.fetch_livetiming_feed_cached(
+                4242, "2026/x/y/", "TimingData", stream=True
+            )
+        self.assertEqual(records, store.get_records("TimingData"))
+
+    async def test_other_sessions_store_is_ignored(self):
+        store = make_live_store(session_key=9999)
+        fetch_mock = AsyncMock(return_value=[])
+        p1, p2, p3 = self.patches(store, fetch_mock)
+        with p1, p2, p3:
+            await dashboard_app.fetch_livetiming_feed_cached(
+                4242, "2026/x/y/", "TimingData", stream=True
+            )
+        self.assertEqual(fetch_mock.await_count, 1)
+
+    async def test_stream_start_uses_store_anchor_without_memoizing(self):
+        store = make_live_store()
+        with patch.object(dashboard_app, "_live_store", store):
+            anchor = await dashboard_app.fetch_livetiming_stream_start(4242, "2026/x/y/")
+        self.assertEqual(anchor, "2026-07-18T14:00:00Z")
+        # Memoizing the live anchor would corrupt dates once the real
+        # archive (with its own recording start) appears after the session
+        self.assertNotIn("2026/x/y/", dashboard_app._stream_start_cache)
+
+    async def test_drivers_endpoint_serves_store_driver_list(self):
+        year = dashboard_app.current_season_year()
+        (self.cache_dir / f"sessions_{year}.json").write_text(
+            json.dumps([session_fixture()]), encoding="utf-8"
+        )
+        store = make_live_store()
+        p1, p2, p3 = self.patches(store)
+        with p1, p2, p3, patch.object(
+            dashboard_app, "get_f1api_drivers", new=AsyncMock(return_value=[])
+        ):
+            client = dashboard_app.app.test_client()
+            response = await client.get(f"/api/drivers?session_key=4242&year={year}")
+        self.assertEqual(response.status_code, 200)
+        rows = await response.get_json()
+        self.assertEqual(rows[0]["driver_number"], 44)
+        self.assertEqual(rows[0]["name_acronym"], "HAM")
+
+
+class SessionPathFallbackTests(unittest.IsolatedAsyncioTestCase):
+    """A live session's Path is published in the root SessionInfo.json long
+    before the year index lists it; resolution falls back there."""
+
+    def setUp(self):
+        self.cache_dir = PROJECT_TEMP_DIR / self._testMethodName
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir.mkdir(parents=True)
+        self.year = dashboard_app.current_season_year()
+
+    def tearDown(self):
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+
+    def seed_session(self, session):
+        (self.cache_dir / f"sessions_{self.year}.json").write_text(
+            json.dumps([session]), encoding="utf-8"
+        )
+
+    async def test_live_session_resolves_via_root_session_info(self):
+        self.seed_session(session_fixture(path=None))
+        info = {"Key": 4242, "Path": "2026/2026-07-19_Test_GP/2026-07-18_Practice_3/"}
+        with (
+            patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
+            patch.object(dashboard_app, "fetch_livetiming_current_session_info",
+                         new=AsyncMock(return_value=info)),
+            patch.object(dashboard_app, "fetch_livetiming_year_index",
+                         new=AsyncMock(side_effect=AssertionError("live path must skip the year index"))),
+        ):
+            path, year = await dashboard_app.resolve_livetiming_session_path(4242, self.year)
+        self.assertEqual(path, info["Path"])
+        self.assertEqual(year, self.year)
+
+    async def test_finished_session_missing_from_index_falls_back_to_root_info(self):
+        self.seed_session(session_fixture(start_offset_hours=-4, end_offset_hours=-3, path=None))
+        info = {"Key": 4242, "Path": "2026/2026-07-19_Test_GP/2026-07-18_Practice_3/"}
+        with (
+            patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
+            patch.object(dashboard_app, "fetch_livetiming_year_index",
+                         new=AsyncMock(return_value={"Meetings": []})),
+            patch.object(dashboard_app, "fetch_livetiming_current_session_info",
+                         new=AsyncMock(return_value=info)),
+        ):
+            path, _ = await dashboard_app.resolve_livetiming_session_path(4242, self.year)
+        self.assertEqual(path, info["Path"])
+
+    async def test_mismatched_root_info_still_raises_not_found(self):
+        self.seed_session(session_fixture(start_offset_hours=-4, end_offset_hours=-3, path=None))
+        info = {"Key": 9999, "Path": "2026/other/session/"}
+        with (
+            patch.object(dashboard_app, "CACHE_DIR", str(self.cache_dir)),
+            patch.object(dashboard_app, "fetch_livetiming_year_index",
+                         new=AsyncMock(return_value={"Meetings": []})),
+            patch.object(dashboard_app, "fetch_livetiming_current_session_info",
+                         new=AsyncMock(return_value=info)),
+        ):
+            with self.assertRaises(dashboard_app.UpstreamAPIError):
+                await dashboard_app.resolve_livetiming_session_path(4242, self.year)
+
+
 if __name__ == "__main__":
     unittest.main()

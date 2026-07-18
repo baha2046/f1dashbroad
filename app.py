@@ -6,6 +6,7 @@ import gzip
 import json
 import asyncio
 import tempfile
+import time
 import weakref
 import httpx
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,7 @@ from livetiming_client import (
     fetch_livetiming_stream,
     resolve_livetiming_session_ref,
 )
+from livetiming_signalr import LiveFeedStore, SignalRClient
 from livetiming_compat import (
     align_stints_with_lap_runs,
     derive_session_started_utc,
@@ -68,6 +70,18 @@ REPLAY_WINDOW_MAX_SECONDS = 1800
 
 LIVE_CACHE_TTL_SECONDS = 30
 LIVE_SESSION_OVERRUN_SECONDS = 1800  # sessions (especially races) overrun date_end
+
+# SignalR live mode (doc/2026-07-08-signalr-live-mode-design.md): while a
+# session is live, a hub connection feeds an in-memory LiveFeedStore that the
+# cache layer consults before the static archive — which does not exist until
+# livetiming generates it after the session. Static polling stays the
+# automatic fallback whenever the store is absent or stale.
+F1_LIVE_SIGNALR_ENABLED = os.environ.get("F1_LIVE_SIGNALR", "") == "1"
+# Optional F1 TV bearer token; without it the hub still serves the core
+# feeds anonymously but withholds CarData.z / Position.z (premium).
+F1_LIVETIMING_TOKEN = os.environ.get("F1_LIVETIMING_TOKEN") or None
+LIVE_SIGNALR_POLL_SECONDS = 60
+LIVE_STORE_MAX_FRAME_AGE_SECONDS = 60
 
 def current_season_year():
     return datetime.now(timezone.utc).year
@@ -514,6 +528,18 @@ async def fetch_livetiming_feed_cached(session_key, session_path, feed_name, str
     """Disk-backed raw feed fetch: one upstream download per session+feed
     serves every normalized endpoint, telemetry lap and replay window derived
     from it. Stored gzipped; TTL follows the session's liveness."""
+    # While the session is live, the SignalR store is the only source that
+    # exists (the static archive is generated after the session) and it is
+    # fresher than any disk copy. Store data must never become the permanent
+    # archive copy, so it is served directly and flagged degraded.
+    store = get_active_live_store(session_key)
+    if store is not None:
+        live_data = store.get_records(feed_name) if stream else store.get_state(feed_name)
+        if live_data is not None:
+            if meta is not None:
+                meta["degraded"] = True
+            return live_data
+
     variant = "stream" if stream else "keyframe"
     safe_feed = RAW_FEED_SAFE_RE.sub("_", feed_name)
     cache_path = os.path.join(CACHE_DIR, f"raw_{session_key}_{safe_feed}_{variant}.json.gz")
@@ -563,6 +589,14 @@ def find_livetiming_meeting(year_index, meeting_key):
 _stream_start_cache = {}
 
 async def fetch_livetiming_stream_start(session_key, session_path, fallback=None, year=None, meta=None):
+    # The live store's timeline is anchored at its own subscribe snapshot,
+    # not the static recording start, so its anchor must be used while it
+    # serves the feeds — and never memoized, or it would corrupt dates for
+    # the real archive once that appears after the session.
+    store = get_active_live_store(session_key)
+    if store is not None and store.anchor_utc:
+        return store.anchor_utc
+
     if session_path in _stream_start_cache:
         return _stream_start_cache[session_path]
     anchor = None
@@ -582,6 +616,30 @@ async def fetch_livetiming_stream_start(session_key, session_path, fallback=None
         meta["degraded"] = True
     return fallback
 
+# The root SessionInfo.json names the session livetiming is currently
+# serving; during a live session it carries the session Path before the year
+# index lists it (the year index only updates once the archive is generated).
+ROOT_SESSION_INFO_TTL_SECONDS = 60
+_root_session_info_cache = {"at": 0.0, "data": None}
+
+async def fetch_livetiming_current_session_info():
+    now = time.monotonic()
+    if (
+        _root_session_info_cache["data"] is not None
+        and now - _root_session_info_cache["at"] < ROOT_SESSION_INFO_TTL_SECONDS
+    ):
+        return _root_session_info_cache["data"]
+    client = get_http_client()
+    data = await fetch_livetiming_json(client, "SessionInfo.json")
+    _root_session_info_cache["at"] = now
+    _root_session_info_cache["data"] = data
+    return data
+
+def _current_session_info_path(info, session_key):
+    if isinstance(info, dict) and str(info.get("Key")) == str(session_key):
+        return info.get("Path") or None
+    return None
+
 async def resolve_livetiming_session_path(session_key, year=None):
     if year is None:
         year = await find_session_year(session_key)
@@ -589,11 +647,142 @@ async def resolve_livetiming_session_path(session_key, year=None):
     if session and session.get("path"):
         return session["path"], year
 
+    # A live session's path can only come from the root SessionInfo.json;
+    # checking it first also spares the year-index refetch every live poll.
+    if session is not None and is_session_live(session):
+        try:
+            info = await fetch_livetiming_current_session_info()
+        except Exception as e:
+            logger.warning(f"Error fetching root SessionInfo.json: {e}")
+            info = None
+        path = _current_session_info_path(info, session_key)
+        if path:
+            return path, year
+
     year_index = await fetch_livetiming_year_index(year)
     ref = resolve_livetiming_session_ref(year_index, int(year), session_key)
-    if ref is None or not ref.path:
-        raise UpstreamAPIError(f"Livetiming session {session_key} was not found", 404)
-    return ref.path, year
+    if ref is not None and ref.path:
+        return ref.path, year
+
+    try:
+        info = await fetch_livetiming_current_session_info()
+    except Exception as e:
+        logger.warning(f"Error fetching root SessionInfo.json: {e}")
+        info = None
+    path = _current_session_info_path(info, session_key)
+    if path:
+        return path, year
+    raise UpstreamAPIError(f"Livetiming session {session_key} was not found", 404)
+
+async def get_sessions_for_year(year):
+    cache_name = f"sessions_{year}.json"
+
+    async def fetch_sessions():
+        year_index = await fetch_livetiming_year_index(year)
+        return normalize_livetiming_sessions(year_index, year)
+
+    return await get_cached_livetiming(cache_name, fetch_sessions, year=year)
+
+# --- SignalR live store (behind F1_LIVE_SIGNALR=1) ---
+
+_live_store = None
+_live_client = None
+_live_client_task = None
+_live_supervisor_task = None
+
+def get_active_live_store(session_key):
+    """The live store for this session, or None when the static path must be
+    used: no store, another session's store, or a stale one (socket down)."""
+    store = _live_store
+    if store is None or str(store.session_key) != str(session_key):
+        return None
+    if not store.is_fresh(LIVE_STORE_MAX_FRAME_AGE_SECONDS):
+        return None
+    # Around session transitions the hub can still be serving the previous
+    # session; trust the hub's own SessionInfo over our schedule-based match
+    info = store.get_state("SessionInfo")
+    if isinstance(info, dict) and info.get("Key") is not None:
+        if str(info.get("Key")) != str(session_key):
+            return None
+    return store
+
+def _find_live_session(sessions):
+    for session in sessions if isinstance(sessions, list) else []:
+        if is_session_live(session):
+            return session
+    return None
+
+async def _stop_live_signalr():
+    global _live_store, _live_client, _live_client_task
+    if _live_client is not None:
+        _live_client.stop()
+    if _live_client_task is not None:
+        _live_client_task.cancel()
+        try:
+            await _live_client_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+    _live_store = None
+    _live_client = None
+    _live_client_task = None
+
+async def _live_signalr_tick():
+    global _live_store, _live_client, _live_client_task
+    try:
+        sessions = await get_sessions_for_year(current_season_year())
+    except UpstreamAPIError as e:
+        # Transient index failure: keep any running client untouched
+        logger.warning(f"SignalR supervisor could not load sessions: {e}")
+        return
+
+    live_session = _find_live_session(sessions)
+    if live_session is None:
+        if _live_client is not None:
+            logger.info("No live session; stopping SignalR live client")
+            await _stop_live_signalr()
+        return
+
+    session_key = live_session.get("session_key")
+    if (
+        _live_store is not None
+        and str(_live_store.session_key) == str(session_key)
+        and _live_client_task is not None
+        and not _live_client_task.done()
+    ):
+        return
+
+    await _stop_live_signalr()
+    logger.info(
+        f"Starting SignalR live client for session {session_key} "
+        f"({live_session.get('session_name')})"
+    )
+    _live_store = LiveFeedStore(session_key)
+    _live_client = SignalRClient(access_token=F1_LIVETIMING_TOKEN)
+    _live_client_task = asyncio.ensure_future(_live_client.run(_live_store.on_frame))
+
+async def _live_signalr_supervisor():
+    while True:
+        try:
+            await _live_signalr_tick()
+        except Exception as e:
+            logger.warning(f"SignalR supervisor tick failed: {e}")
+        await asyncio.sleep(LIVE_SIGNALR_POLL_SECONDS)
+
+@app.before_serving
+async def _startup_live_signalr():
+    global _live_supervisor_task
+    if F1_LIVE_SIGNALR_ENABLED:
+        _live_supervisor_task = asyncio.ensure_future(_live_signalr_supervisor())
+
+@app.after_serving
+async def _shutdown_live_signalr():
+    global _live_supervisor_task
+    if _live_supervisor_task is not None:
+        _live_supervisor_task.cancel()
+        _live_supervisor_task = None
+    await _stop_live_signalr()
 
 async def get_cached_circuit_info(url: str, cache_name: str):
     cache_path = os.path.join(CACHE_DIR, cache_name)
@@ -861,13 +1050,7 @@ async def api_sessions():
     year = parse_int_param(request.args.get("year", str(current_season_year())))
     if year is None:
         return invalid_param_response("year")
-    cache_name = f"sessions_{year}.json"
-
-    async def fetch_sessions():
-        year_index = await fetch_livetiming_year_index(year)
-        return normalize_livetiming_sessions(year_index, year)
-
-    data = await get_cached_livetiming(cache_name, fetch_sessions, year=year)
+    data = await get_sessions_for_year(year)
     return jsonify(data)
 
 @app.route("/api/schedule")
@@ -902,6 +1085,11 @@ async def api_drivers():
         year = await find_session_year(session_key)
 
     async def fetch_drivers():
+        store = get_active_live_store(session_key)
+        if store is not None:
+            driver_list = store.get_state("DriverList")
+            if driver_list:
+                return DegradedPayload(normalize_livetiming_drivers(driver_list))
         session_path, _year = await resolve_livetiming_session_path(session_key, year)
         driver_list = await fetch_livetiming_feed(session_path, "DriverList", stream=False)
         return normalize_livetiming_drivers(driver_list)

@@ -4,6 +4,11 @@ Design: doc/2026-07-08-signalr-live-mode-design.md. Steps use checkbox
 syntax for tracking; the remaining tasks require a live session to verify
 against, so they are scheduled for the next race weekend.
 
+> **2026-07-18 update:** the legacy 1.5 hub described here now answers 401;
+> livetiming moved to SignalR Core at /signalrcore. Task 2's validation and
+> Task 3's integration (adapted to the new protocol) are implemented — see
+> doc/2026-07-18-signalrcore-live-integration-implementation.md.
+
 ## Task 1: Protocol primitives + client (done 2026-07-08)
 
 - [x] `livetiming_signalr.py`: negotiate/connect URL builders, subscribe
@@ -17,21 +22,27 @@ against, so they are scheduled for the next race weekend.
 
 ## Task 2: Validate against a real live session (next race weekend)
 
-- [ ] Run the recorder for ~10 minutes during FP1 (any live session works).
-- [ ] Confirm negotiate/connect succeed with the current headers; adjust
-      User-Agent/cookies if the hub rejects them.
+- [ ] Run the recorder for ~10 minutes during a live session.
+- [x] Confirm negotiate/connect succeed with the current headers — they do
+      not: /signalr answers 401 since livetiming moved to SignalR Core.
+      Client migrated to /signalrcore and validated against the real hub
+      (2026-07-18, 13-feed anonymous snapshot).
 - [ ] Turn a slice of the recording into committed fixtures
-      (tests/fixtures/signalr/) and extend the classifier tests with them.
+      (tests/fixtures/signalr/) and extend the parser tests with them.
 
 ## Task 3: LiveFeedStore + cache integration (behind F1_LIVE_SIGNALR=1)
 
-- [ ] `LiveFeedStore`: per-session dict feed → list of records; snapshot
+Done 2026-07-18 — see
+doc/2026-07-18-signalrcore-live-integration-implementation.md.
+
+- [x] `LiveFeedStore`: per-session dict feed → list of records; snapshot
       replaces, updates append; bounded (drop oldest beyond N records for
-      .z feeds); anchor from the Heartbeat snapshot.
-- [ ] Background task lifecycle in app.py mirroring the eviction task:
-      start the client when `is_session_live()` flips true for the focused
-      session, stop after the overrun window.
-- [ ] `fetch_livetiming_feed_cached`: consult the store before disk/upstream
+      .z feeds); anchor from the Heartbeat snapshot. Also keeps merged
+      keyframe-shaped state for the stream=False consumers.
+- [x] Background task lifecycle in app.py mirroring the eviction task:
+      a supervisor starts the client when `is_session_live()` flips true
+      for any current-year session, stops after the overrun window.
+- [x] `fetch_livetiming_feed_cached`: consult the store before disk/upstream
       while the session is live and the store is fresh (socket connected,
       last frame < 60 s old); otherwise fall through to the existing path —
       polling remains the automatic fallback.

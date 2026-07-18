@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "f1-dashboard",
-      "runtimeExecutable": ".venv/bin/python3",
-      "runtimeArgs": ["app.py"],
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": ["F1_LIVE_SIGNALR=1", ".venv/bin/python3", "app.py"],
       "port": 5300,
       "autoPort": true
     }
