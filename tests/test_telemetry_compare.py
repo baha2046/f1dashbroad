@@ -94,6 +94,44 @@ class TelemetryCompareDeltaMathTests(unittest.TestCase):
         # Positive gap throughout: the main lap is always the slower one here
         self.assertTrue(all(pt["gap"] >= -0.05 for pt in delta))
 
+    def test_fraction_alignment_prevents_finish_overstatement(self):
+        # Main is faster (18 s) AND integrates more distance (1100 m) than the
+        # ref (200 km/h for 19 s -> ~1056 m). The old 0..min(total) range cut
+        # the main lap off at the ref's shorter distance and reported a finish
+        # gap near -1.73 s; aligning on lap fraction ends on the true -1.0 s.
+        main = constant_speed_lap(220, 18)
+        ref = constant_speed_lap(200, 19)
+        delta = dashboard_app.compute_telemetry_delta(main, ref)
+        self.assertTrue(delta)
+        self.assertAlmostEqual(delta[0]["gap"], 0.0, delta=0.05)
+        self.assertAlmostEqual(delta[-1]["gap"], -1.0, delta=0.05)
+        self.assertGreater(delta[-1]["gap"], -1.2)  # not the inflated ~-1.73
+
+    def test_finish_anchors_to_official_lap_duration(self):
+        # Telemetry spans 18 s / 20 s but the official laps run a sliver longer;
+        # with durations known the finish anchors to 18.3 - 20.6 = -2.3 s.
+        main = constant_speed_lap(200, 18)
+        ref = constant_speed_lap(200, 20)
+        delta = dashboard_app.compute_telemetry_delta(
+            main, ref, main_duration=18.3, ref_duration=20.6
+        )
+        self.assertAlmostEqual(delta[0]["gap"], 0.0, delta=0.02)
+        self.assertAlmostEqual(delta[-1]["gap"], -2.3, delta=0.02)
+        # Without durations it ends on the telemetry span difference instead.
+        span_delta = dashboard_app.compute_telemetry_delta(main, ref)
+        self.assertAlmostEqual(span_delta[-1]["gap"], -2.0, delta=0.02)
+
+    def test_sparse_telemetry_skips_duration_anchor(self):
+        # Only 2 s of samples for a ~90 s lap: coverage is far below the gate,
+        # so the huge (duration - span) sliver must NOT be spread into the gap.
+        main = constant_speed_lap(200, 2)
+        ref = constant_speed_lap(200, 2)
+        delta = dashboard_app.compute_telemetry_delta(
+            main, ref, main_duration=90.0, ref_duration=88.0
+        )
+        self.assertTrue(delta)
+        self.assertTrue(all(abs(pt["gap"]) < 0.05 for pt in delta))
+
     def test_equal_laps_have_zero_gap(self):
         lap = constant_speed_lap(200, 18)
         delta = dashboard_app.compute_telemetry_delta(lap, list(lap))

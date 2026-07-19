@@ -1261,13 +1261,37 @@ function getTelemetrySectorLabelAt(value, sectors) {
     return match ? match.label : '--';
 }
 
+// Time-weighted average speed (km/h) = distance / time, via trapezoidal
+// integration of the speed trace over each sample's `t`. A plain mean of the
+// speed samples is sample-weighted, so an unevenly-sampled slower lap can read
+// a higher "average" than a faster one; distance/time cannot.
+function telemetryAverageSpeed(samples) {
+    let weighted = 0;   // km/h * s
+    let time = 0;       // s
+    let prevT = null;
+    let prevV = null;
+    for (const s of samples) {
+        const t = Number(s.t);
+        const v = Number(s.speed);
+        if (!Number.isFinite(t) || !Number.isFinite(v)) continue;
+        if (prevT !== null && t > prevT) {
+            const dt = t - prevT;
+            weighted += ((prevV + v) / 2) * dt;
+            time += dt;
+        }
+        prevT = t;
+        prevV = v;
+    }
+    return time > 0 ? weighted / time : null;
+}
+
 function renderTelemetryStats(payload) {
     if (!DOM.telemetryStats) return;
     const samples = payload.telemetry;
 
     const speeds = samples.map(s => Number(s.speed)).filter(Number.isFinite);
     const topSpeed = speeds.length ? Math.max(...speeds) : null;
-    const avgSpeed = speeds.length ? speeds.reduce((acc, v) => acc + v, 0) / speeds.length : null;
+    const avgSpeed = telemetryAverageSpeed(samples);
 
     const throttleValues = samples.map(s => Number(s.throttle)).filter(Number.isFinite);
     const fullThrottlePct = throttleValues.length
@@ -2136,7 +2160,7 @@ function renderTelemetryCompareStats(mainSamples, refSamples) {
     const statOf = (samples) => {
         const speeds = samples.map(s => Number(s.speed)).filter(Number.isFinite);
         const topSpeed = speeds.length ? Math.max(...speeds) : null;
-        const avgSpeed = speeds.length ? speeds.reduce((acc, v) => acc + v, 0) / speeds.length : null;
+        const avgSpeed = telemetryAverageSpeed(samples);
         const throttleValues = samples.map(s => Number(s.throttle)).filter(Number.isFinite);
         const fullThrottle = throttleValues.length
             ? (throttleValues.filter(v => v >= 98).length / throttleValues.length) * 100 : null;

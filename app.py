@@ -1590,31 +1590,65 @@ def _interpolate_t_at_distance(distances, telemetry, d):
         return t0
     return t0 + (t1 - t0) * ((d - d0) / (d1 - d0))
 
-def compute_telemetry_delta(main_telemetry, ref_telemetry, points=200):
-    """Time gap (main - ref) sampled over the distance both laps share.
+def compute_telemetry_delta(main_telemetry, ref_telemetry, points=200,
+                            main_duration=None, ref_duration=None):
+    """Cumulative time gap (main - ref) sampled around one shared lap.
 
-    Distances are integrated for each lap; the common range is
-    0..min(main_total, ref_total). For `points` evenly spaced distances across
-    that range (both endpoints included) the lap times are linearly
-    interpolated and the gap emitted as {"d", "gap"}. Positive gap => the main
-    lap is slower (behind) at that distance. Returns [] when either lap has
-    fewer than 2 samples or the common range is <= 0.
+    Both laps are one flying lap of the same circuit, so they are aligned on a
+    normalised distance axis (fraction of each lap's own integrated length)
+    rather than on raw metres. Raw-metre alignment diverges at the far end
+    because the two integrated totals never match exactly; the old
+    0..min(total) range truncated the faster lap early and inflated the finish
+    gap. Each lap's elapsed time is referenced to its first sample so the gap
+    starts at 0, and when the official lap_duration is known (and the telemetry
+    covers the lap) the finish is anchored to it so the gap ends on the real
+    lap-time difference instead of the slightly-short telemetry span.
+
+    Emits {"d", "gap"} with d in metres on the main lap's distance axis so the
+    delta chart lines up with the primary lap's traces. Positive gap => the
+    main lap is behind. Returns [] when either lap has fewer than 2 samples.
     """
     if len(main_telemetry) < 2 or len(ref_telemetry) < 2:
         return []
     main_dist = compute_telemetry_distance(main_telemetry)
     ref_dist = compute_telemetry_distance(ref_telemetry)
-    common = min(main_dist[-1], ref_dist[-1])
-    if common <= 0:
+    main_total = main_dist[-1]
+    ref_total = ref_dist[-1]
+    if main_total <= 0 or ref_total <= 0:
         return []
+    main_first = _telemetry_sample_t(main_telemetry[0])
+    ref_first = _telemetry_sample_t(ref_telemetry[0])
+    main_last = _telemetry_sample_t(main_telemetry[-1])
+    ref_last = _telemetry_sample_t(ref_telemetry[-1])
+    if None in (main_first, ref_first, main_last, ref_last):
+        return []
+    main_span = main_last - main_first
+    ref_span = ref_last - ref_first
+    # Telemetry starts just after the line and ends just before it, so the
+    # covered span is a touch shorter than the official lap. When the samples
+    # cover essentially the whole lap, spread that missing sliver linearly by
+    # lap fraction so the endpoints anchor exactly to the official lap time;
+    # skip it for sparse/partial telemetry where the gap would be meaningless.
+    min_coverage = 0.9
+
+    def _pad(duration, span):
+        if duration and span > 0 and duration > span and span >= min_coverage * duration:
+            return duration - span
+        return 0.0
+
+    main_pad = _pad(main_duration, main_span)
+    ref_pad = _pad(ref_duration, ref_span)
+
     delta = []
     for i in range(points):
-        d = common * i / (points - 1) if points > 1 else common
-        t_main = _interpolate_t_at_distance(main_dist, main_telemetry, d)
-        t_ref = _interpolate_t_at_distance(ref_dist, ref_telemetry, d)
+        f = i / (points - 1) if points > 1 else 1.0
+        t_main = _interpolate_t_at_distance(main_dist, main_telemetry, f * main_total)
+        t_ref = _interpolate_t_at_distance(ref_dist, ref_telemetry, f * ref_total)
         if t_main is None or t_ref is None:
             continue
-        delta.append({"d": round(d, 1), "gap": round(t_main - t_ref, 3)})
+        elapsed_main = (t_main - main_first) + f * main_pad
+        elapsed_ref = (t_ref - ref_first) + f * ref_pad
+        delta.append({"d": round(f * main_total, 1), "gap": round(elapsed_main - elapsed_ref, 3)})
     return delta
 
 def telemetry_payload_with_distance(payload):
@@ -1775,7 +1809,9 @@ async def api_telemetry_compare():
     # Enrich copies with distance so the cached, d-free single-lap payloads stay
     # byte-identical to what /api/car_telemetry serves.
     delta = compute_telemetry_delta(
-        main_payload.get("telemetry") or [], ref_payload.get("telemetry") or []
+        main_payload.get("telemetry") or [], ref_payload.get("telemetry") or [],
+        main_duration=main_payload.get("lap_duration"),
+        ref_duration=ref_payload.get("lap_duration"),
     )
     return await session_response(
         {
